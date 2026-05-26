@@ -21,7 +21,7 @@ interface PostDetailsScreenProps {
 type Section = 'variants' | 'editor' | 'banner' | 'buttons'
 
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
-  const { state, selectVariant, publishPost, schedulePost, showToast } = useApp()
+  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts } = useApp()
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
 
@@ -177,7 +177,17 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
               <Button variant="primary" size="lg" onClick={handlePublish} fullWidth>
                 <Send size={16} /> Publish now
               </Button>
-              <Button variant="secondary" size="lg" onClick={() => setScheduleOpen(true)}>
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => {
+                  if (!canSchedulePosts) {
+                    showToast('Отложенные посты доступны на тарифе Автор.', 'info')
+                    return
+                  }
+                  setScheduleOpen(true)
+                }}
+              >
                 <Calendar size={16} />
               </Button>
             </div>
@@ -192,7 +202,18 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
             <Button variant="primary" size="lg" onClick={handlePublish} fullWidth>
               <Send size={16} /> Publish now
             </Button>
-            <Button variant="secondary" size="md" onClick={() => setScheduleOpen(true)} fullWidth>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => {
+                if (!canSchedulePosts) {
+                  showToast('Отложенные посты доступны на тарифе Автор.', 'info')
+                  return
+                }
+                setScheduleOpen(true)
+              }}
+              fullWidth
+            >
               <Calendar size={14} /> Change schedule
             </Button>
           </div>

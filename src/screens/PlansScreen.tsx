@@ -17,44 +17,41 @@ interface PlanDef {
   features: string[]
 }
 
+// Tier order for upgrade/downgrade detection
+const TIER_RANK: Record<PlanTier, number> = { starter: 0, creator: 1, studio_pro: 2 }
+
 const PLANS: PlanDef[] = [
   {
-    tier: 'free',
-    name: 'Free',
-    price: 'Free',
-    priceDetail: 'forever',
+    tier: 'starter',
+    name: 'Старт',
+    price: '$5',
+    priceDetail: '/ месяц',
     features: [
-      '1 channel',
-      '10 AI posts / month',
-      'Basic Brand Kit',
-      'Manual create only',
+      '30 постов с AI в месяц',
+      '1 канал',
     ],
   },
   {
     tier: 'creator',
-    name: 'Creator',
-    price: '$12',
-    priceDetail: '/ month',
+    name: 'Автор',
+    price: '$20',
+    priceDetail: '/ месяц',
     features: [
-      '3 channels',
-      '300 AI posts / month',
-      'Brand Kit',
-      'Emoji Pack',
-      'Link Kit',
-      'Scheduled posts',
+      '150 постов с AI в месяц',
+      '3 канала',
+      'Отложенные посты',
     ],
   },
   {
     tier: 'studio_pro',
-    name: 'Studio Pro',
-    price: '$39',
-    priceDetail: '/ month',
+    name: 'Студия Pro',
+    price: '$70',
+    priceDetail: '/ месяц',
     features: [
-      '10 channels',
-      '1,500 AI posts / month',
-      'Advanced Brand Kit',
-      'Priority generation',
-      'Analytics & team features',
+      '700 постов с AI в месяц',
+      '10 каналов',
+      'Отложенные посты',
+      'Продвижение постов — soon',
     ],
   },
 ]
@@ -74,9 +71,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
       <div className="px-4 mt-2 space-y-3">
         {PLANS.map((plan, i) => {
           const isCurrent = plan.tier === currentTier
-          const isUpgrade =
-            (currentTier === 'free' && (plan.tier === 'creator' || plan.tier === 'studio_pro')) ||
-            (currentTier === 'creator' && plan.tier === 'studio_pro')
+          const isUpgrade = !isCurrent && TIER_RANK[plan.tier] > TIER_RANK[currentTier]
           const isDowngrade = !isCurrent && !isUpgrade
 
           return (
@@ -150,9 +145,9 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                     variant="ghost"
                     size="md"
                     fullWidth
-                    onClick={() => showToast(`Downgrade to ${plan.name} — coming soon`)}
+                    onClick={() => showToast(`Switch to ${plan.name} — coming soon`)}
                   >
-                    {plan.tier === 'free' ? 'Start free' : `Switch to ${plan.name}`}
+                    {`Switch to ${plan.name}`}
                   </Button>
                 )}
               </div>

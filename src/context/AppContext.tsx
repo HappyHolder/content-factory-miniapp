@@ -14,6 +14,7 @@ interface Toast {
 interface AppContextValue {
   state: AppState
   activeChannel: Channel | undefined
+  canSchedulePosts: boolean
   addPost: (post: GeneratedPost) => void
   updatePost: (id: string, updates: Partial<GeneratedPost>) => void
   publishPost: (id: string) => void
@@ -101,10 +102,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const activeChannel = state.channels.find(c => c.id === state.activeChannelId)
 
+  // STARTER cannot schedule posts; CREATOR and STUDIO_PRO can
+  const canSchedulePosts = state.user.subscription.planTier !== 'starter'
+
   return (
     <AppContext.Provider value={{
       state,
       activeChannel,
+      canSchedulePosts,
       addPost,
       updatePost,
       publishPost,

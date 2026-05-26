@@ -18,7 +18,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
   const { user, channels, activeChannelId } = state
   const { subscription } = user
 
-  const isPaidPlan = subscription.planTier !== 'free'
+  const isPaidPlan = true // all plans are paid (no free tier)
 
   return (
     <div>

@@ -8,7 +8,7 @@ export type Language = 'RU' | 'EN'
 export type LinkUsage = 'inline' | 'button' | 'signature' | 'when_relevant' | 'always'
 export type BannerTemplate = 'dark_glass' | 'minimal' | 'branded' | 'news'
 
-export type PlanTier = 'free' | 'creator' | 'studio_pro'
+export type PlanTier = 'starter' | 'creator' | 'studio_pro'
 
 export interface Subscription {
   planTier: PlanTier
@@ -142,6 +142,8 @@ export interface GeneratedPost {
   createdAt: Date
   scheduledAt?: Date
   publishedAt?: Date
+  textRegensUsed?: number
+  imageRegensUsed?: number
 }
 
 export interface AppState {

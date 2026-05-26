@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum SourceType {
+  URL
+  TEXT
+  PROMPT
+  FORWARDED_POST
+  VIDEO
+  AUDIO
+  PDF
+}
+
+enum PostStatus {
+  NEW
+  SCHEDULED
+  PUBLISHED
+  FAILED
+  ARCHIVED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PlanTier {
+  STARTER
+  CREATOR
+  STUDIO_PRO
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id         String  @id @default(cuid())
+  email      String  @unique
+  name       String?
+  telegramId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  channels       Channel[]
+  sourceInputs   SourceInput[]
+  generationJobs GenerationJob[]
+  subscription   Subscription?
+}
+
+model Channel {
+  id     String  @id @default(cuid())
+  name   String
+  handle String?
+  userId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brandKit       BrandKit?
+  generatedPosts GeneratedPost[]
+}
+
+model BrandKit {
+  id        String  @id @default(cuid())
+  channelId String  @unique
+  voiceTone String?
+  postRules String?
+  signature String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  channel   Channel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  linkKit   LinkKit?
+  emojiPack EmojiPack?
+}
+
+model LinkKit {
+  id         String @id @default(cuid())
+  brandKitId String @unique
+  links      Json   @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brandKit BrandKit @relation(fields: [brandKitId], references: [id], onDelete: Cascade)
+}
+
+model EmojiPack {
+  id         String   @id @default(cuid())
+  brandKitId String   @unique
+  emojis     String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brandKit BrandKit @relation(fields: [brandKitId], references: [id], onDelete: Cascade)
+}
+
+model SourceInput {
+  id       String     @id @default(cuid())
+  userId   String
+  type     SourceType
+  content  String
+  url      String?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs GenerationJob[]
+}
+
+model GenerationJob {
+  id            String    @id @default(cuid())
+  userId        String
+  sourceInputId String
+  status        JobStatus @default(PENDING)
+  errorMessage  String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceInput    SourceInput   @relation(fields: [sourceInputId], references: [id], onDelete: Cascade)
+  generatedPosts GeneratedPost[]
+}
+
+model GeneratedPost {
+  id              String     @id @default(cuid())
+  title           String
+  channelId       String
+  jobId           String
+  status          PostStatus @default(NEW)
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  textRegensUsed  Int        @default(0)
+  imageRegensUsed Int        @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  channel  Channel       @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  job      GenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  variants PostVariant[]
+}
+
+model PostVariant {
+  id              String  @id @default(cuid())
+  generatedPostId String
+  variantIndex    Int     @default(0)
+  text            String
+  bannerUrl       String?
+  isSelected      Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  generatedPost GeneratedPost @relation(fields: [generatedPostId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  tier          PlanTier  @default(STARTER)
+  aiPostsLimit  Int
+  aiPostsUsed   Int       @default(0)
+  expiresAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
