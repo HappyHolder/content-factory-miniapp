@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Plus, Trash2, ExternalLink, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { GlassCard } from '@/components/ui/GlassCard'
 import { Sheet } from '@/components/ui/Sheet'
 import { useApp } from '@/context/AppContext'
 import type { LinkItem, LinkUsage } from '@/types'
@@ -12,26 +11,26 @@ interface LinkKitFormProps {
   initialLinks: LinkItem[]
 }
 
-const usageOptions: { value: LinkUsage; label: string }[] = [
-  { value: 'button', label: 'Button under post' },
-  { value: 'inline', label: 'Inline link' },
-  { value: 'signature', label: 'Signature' },
-  { value: 'when_relevant', label: 'When relevant' },
-  { value: 'always', label: 'Always add' },
-]
-
 const defaultLinkTemplates = [
   { label: 'Product', buttonLabel: 'Open Product', anchorText: 'open the app' },
-  { label: 'Channel', buttonLabel: 'Join Channel', anchorText: 'our channel' },
-  { label: 'Chat', buttonLabel: 'Join Chat', anchorText: 'community' },
-  { label: 'Website', buttonLabel: 'Visit Website', anchorText: 'our website' },
+  { label: 'Channel', buttonLabel: 'Join Channel', anchorText: 'our channel'  },
+  { label: 'Chat',    buttonLabel: 'Join Chat',    anchorText: 'community'    },
+  { label: 'Website', buttonLabel: 'Visit Website',anchorText: 'our website'  },
 ]
 
 export function LinkKitForm({ channelId, initialLinks }: LinkKitFormProps) {
-  const { updateBrandKit } = useApp()
+  const { updateBrandKit, t } = useApp()
   const [links, setLinks] = useState<LinkItem[]>(initialLinks)
   const [editingLink, setEditingLink] = useState<LinkItem | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
+
+  const usageOptions: { value: LinkUsage; label: string }[] = [
+    { value: 'button',        label: t('channelStyle.links.usageButton')       },
+    { value: 'inline',        label: t('channelStyle.links.usageInline')       },
+    { value: 'signature',     label: t('channelStyle.links.usageSignature')    },
+    { value: 'when_relevant', label: t('channelStyle.links.usageWhenRelevant') },
+    { value: 'always',        label: t('channelStyle.links.usageAlways')       },
+  ]
 
   const openNew = (template?: { label: string; buttonLabel: string; anchorText: string }) => {
     setEditingLink({
@@ -71,6 +70,14 @@ export function LinkKitForm({ channelId, initialLinks }: LinkKitFormProps) {
     updateBrandKit(channelId, { linkKit: { links: next } })
   }
 
+  const fieldLabel = (field: 'label' | 'url' | 'anchorText' | 'buttonLabel'): string => {
+    if (field === 'label')       return t('channelStyle.links.label')
+    if (field === 'url')         return t('channelStyle.links.url')
+    if (field === 'anchorText')  return t('channelStyle.links.anchorText')
+    if (field === 'buttonLabel') return t('channelStyle.links.buttonLabel')
+    return field
+  }
+
   return (
     <div className="space-y-4">
       {links.length > 0 && (
@@ -79,7 +86,7 @@ export function LinkKitForm({ channelId, initialLinks }: LinkKitFormProps) {
             <div
               key={link.id}
               onClick={() => openEdit(link)}
-              className="flex items-start gap-3 p-3.5 rounded-[16px] bg-white/4 border border-white/8 hover:bg-white/6 cursor-pointer transition-colors"
+              className="flex items-start gap-3 p-3.5 rounded-[16px] bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] cursor-pointer transition-colors"
             >
               <GripVertical size={14} className="text-[#66666E] mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
@@ -89,7 +96,9 @@ export function LinkKitForm({ channelId, initialLinks }: LinkKitFormProps) {
                     {usageOptions.find(u => u.value === link.usage)?.label}
                   </span>
                 </div>
-                <p className="text-xs text-[#66666E] truncate">{link.url || 'No URL'}</p>
+                <p className="text-xs text-[#66666E] truncate">
+                  {link.url || t('channelStyle.links.noUrl')}
+                </p>
                 {link.buttonLabel && (
                   <div className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.20)] text-[11px] text-[#FF6A00]">
                     <ExternalLink size={9} />
@@ -110,16 +119,18 @@ export function LinkKitForm({ channelId, initialLinks }: LinkKitFormProps) {
 
       {links.length === 0 && (
         <div>
-          <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">Quick add</p>
+          <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">
+            {t('channelStyle.links.quickAdd')}
+          </p>
           <div className="grid grid-cols-2 gap-2">
-            {defaultLinkTemplates.map(t => (
+            {defaultLinkTemplates.map(tpl => (
               <button
-                key={t.label}
-                onClick={() => openNew(t)}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-[12px] bg-white/4 border border-white/8 text-sm text-[#A1A1AA] hover:bg-white/8 hover:text-white transition-colors text-left"
+                key={tpl.label}
+                onClick={() => openNew(tpl)}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-[12px] bg-white/[0.03] border border-white/[0.06] text-sm text-[#A1A1AA] hover:bg-white/[0.06] hover:text-white transition-colors text-left"
               >
                 <Plus size={13} className="text-[#FF6A00]" />
-                {t.label}
+                {tpl.label}
               </button>
             ))}
           </div>
@@ -127,25 +138,30 @@ export function LinkKitForm({ channelId, initialLinks }: LinkKitFormProps) {
       )}
 
       <Button variant="secondary" size="md" onClick={() => openNew()} fullWidth>
-        <Plus size={14} /> Add link
+        <Plus size={14} /> {t('channelStyle.links.addLink')}
       </Button>
 
       {/* Edit sheet */}
-      <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={editingLink?.id?.startsWith('l-') ? 'Add Link' : 'Edit Link'} height="80">
+      <Sheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title={editingLink?.id?.startsWith('l-') ? t('channelStyle.links.addLink') : t('channelStyle.links.editLink')}
+        height="80"
+      >
         {editingLink && (
           <div className="space-y-3 pt-1">
             {(['label', 'url', 'anchorText', 'buttonLabel'] as const).map(field => (
               <div key={field}>
                 <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-1.5">
-                  {field === 'anchorText' ? 'Anchor text' : field === 'buttonLabel' ? 'Button label' : field.charAt(0).toUpperCase() + field.slice(1)}
+                  {fieldLabel(field)}
                 </p>
                 <input
                   value={editingLink[field]}
                   onChange={e => setEditingLink(prev => prev ? { ...prev, [field]: e.target.value } : null)}
                   placeholder={
-                    field === 'url' ? 'https://...' :
-                    field === 'anchorText' ? 'click here' :
-                    field === 'buttonLabel' ? 'Open Product' : 'Product'
+                    field === 'url'         ? 'https://...'   :
+                    field === 'anchorText'  ? 'click here'    :
+                    field === 'buttonLabel' ? 'Open Product'  : 'Product'
                   }
                   className="glass-input w-full px-3 py-2.5 text-sm"
                 />
@@ -153,17 +169,19 @@ export function LinkKitForm({ channelId, initialLinks }: LinkKitFormProps) {
             ))}
 
             <div>
-              <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">Usage</p>
+              <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">
+                {t('channelStyle.links.usage')}
+              </p>
               <div className="flex flex-wrap gap-2">
                 {usageOptions.map(opt => (
                   <button
                     key={opt.value}
                     onClick={() => setEditingLink(prev => prev ? { ...prev, usage: opt.value } : null)}
                     className={cn(
-                      'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                      'px-3 py-1 rounded-full text-[12px] font-medium border transition-all',
                       editingLink.usage === opt.value
                         ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00] border-[rgba(255,106,0,0.38)]'
-                        : 'bg-white/5 text-[#A1A1AA] border-white/8'
+                        : 'bg-white/5 text-[#A1A1AA] border-white/[0.06]'
                     )}
                   >
                     {opt.label}
@@ -173,8 +191,12 @@ export function LinkKitForm({ channelId, initialLinks }: LinkKitFormProps) {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <Button variant="secondary" size="md" onClick={() => setSheetOpen(false)} fullWidth>Cancel</Button>
-              <Button variant="primary" size="md" onClick={saveLink} fullWidth>Save</Button>
+              <Button variant="secondary" size="md" onClick={() => setSheetOpen(false)} fullWidth>
+                {t('channelStyle.links.cancel')}
+              </Button>
+              <Button variant="primary" size="md" onClick={saveLink} fullWidth>
+                {t('channelStyle.links.save')}
+              </Button>
             </div>
           </div>
         )}

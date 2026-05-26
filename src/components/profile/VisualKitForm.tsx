@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Upload } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Switch } from '@/components/ui/Switch'
 import { useApp } from '@/context/AppContext'
 import type { VisualKit, BannerTemplate } from '@/types'
 import { cn } from '@/lib/utils'
@@ -25,10 +26,10 @@ function OptionPills<T extends string>({ label, options, value, onChange }: {
             key={opt.value}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'px-3.5 py-1.5 rounded-full text-sm font-medium border transition-all duration-150',
+              'px-3 py-1 rounded-full text-[12px] font-medium border transition-all duration-150',
               value === opt.value
                 ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00] border-[rgba(255,106,0,0.38)]'
-                : 'bg-white/5 text-[#A1A1AA] border-white/8 hover:bg-white/8'
+                : 'bg-white/5 text-[#A1A1AA] border-white/[0.06] hover:bg-white/8'
             )}
           >
             {opt.label}
@@ -39,27 +40,9 @@ function OptionPills<T extends string>({ label, options, value, onChange }: {
   )
 }
 
-function Toggle({ label, description, value, onChange }: {
-  label: string; description?: string; value: boolean; onChange: (v: boolean) => void
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <p className="text-sm font-medium text-white">{label}</p>
-        {description && <p className="text-[12px] text-[#66666E] mt-0.5">{description}</p>}
-      </div>
-      <button
-        onClick={() => onChange(!value)}
-        className={cn('relative w-11 h-6 rounded-full transition-all duration-200 shrink-0 mt-0.5', value ? 'bg-[#FF6A00]' : 'bg-white/12')}
-      >
-        <span className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200', value ? 'translate-x-[22px]' : 'translate-x-0.5')} />
-      </button>
-    </div>
-  )
-}
 
 export function VisualKitForm({ channelId, initialData }: VisualKitFormProps) {
-  const { updateBrandKit } = useApp()
+  const { updateBrandKit, t } = useApp()
   const [data, setData] = useState<VisualKit>(initialData)
 
   const set = <K extends keyof VisualKit>(key: K, val: VisualKit[K]) =>
@@ -68,9 +51,11 @@ export function VisualKitForm({ channelId, initialData }: VisualKitFormProps) {
   const ORANGE_PRESETS = ['#FF6A00', '#FF4500', '#FF8C00', '#FFA500']
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div>
-        <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">Brand color</p>
+        <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">
+          {t('channelStyle.visual.brandColor')}
+        </p>
         <div className="flex items-center gap-3">
           {ORANGE_PRESETS.map(c => (
             <button
@@ -96,8 +81,10 @@ export function VisualKitForm({ channelId, initialData }: VisualKitFormProps) {
       </div>
 
       <div>
-        <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">Logo</p>
-        <div className="flex items-center gap-3 p-3 rounded-[14px] bg-white/4 border border-white/8 border-dashed">
+        <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">
+          {t('channelStyle.visual.logo')}
+        </p>
+        <div className="flex items-center gap-3 p-3 rounded-[14px] bg-white/[0.03] border border-white/[0.06] border-dashed">
           <div className="w-12 h-12 rounded-[10px] bg-white/8 flex items-center justify-center">
             {data.logoUrl
               ? <img src={data.logoUrl} alt="logo" className="w-full h-full object-cover rounded-[10px]" />
@@ -105,55 +92,55 @@ export function VisualKitForm({ channelId, initialData }: VisualKitFormProps) {
             }
           </div>
           <div>
-            <p className="text-sm text-[#A1A1AA]">Upload logo</p>
-            <p className="text-[11px] text-[#66666E]">PNG, SVG · appears on banners</p>
+            <p className="text-sm text-[#A1A1AA]">{t('channelStyle.visual.uploadLogo')}</p>
+            <p className="text-[11px] text-[#66666E]">{t('channelStyle.visual.logoHint')}</p>
           </div>
         </div>
       </div>
 
       <OptionPills<VisualKit['backgroundStyle']>
-        label="Background style"
+        label={t('channelStyle.visual.backgroundStyle')}
         options={[
-          { value: 'dark', label: 'Dark' },
-          { value: 'glass', label: 'Glass' },
-          { value: 'gradient', label: 'Gradient' },
+          { value: 'dark',     label: t('channelStyle.visual.bgDark')     },
+          { value: 'glass',    label: t('channelStyle.visual.bgGlass')    },
+          { value: 'gradient', label: t('channelStyle.visual.bgGradient') },
         ]}
         value={data.backgroundStyle}
         onChange={v => set('backgroundStyle', v)}
       />
 
       <OptionPills<VisualKit['cardStyle']>
-        label="Card style"
+        label={t('channelStyle.visual.cardStyle')}
         options={[
-          { value: 'minimal', label: 'Minimal' },
-          { value: 'branded', label: 'Branded' },
-          { value: 'bold', label: 'Bold' },
+          { value: 'minimal', label: t('channelStyle.visual.cardMinimal') },
+          { value: 'branded', label: t('channelStyle.visual.cardBranded') },
+          { value: 'bold',    label: t('channelStyle.visual.cardBold')    },
         ]}
         value={data.cardStyle}
         onChange={v => set('cardStyle', v)}
       />
 
       <OptionPills<BannerTemplate>
-        label="Banner template"
+        label={t('channelStyle.visual.visualTemplate')}
         options={[
-          { value: 'dark_glass', label: 'Dark Glass' },
-          { value: 'minimal', label: 'Minimal' },
-          { value: 'branded', label: 'Branded' },
-          { value: 'news', label: 'News' },
+          { value: 'dark_glass', label: t('channelStyle.visual.tplDarkGlass') },
+          { value: 'minimal',    label: t('channelStyle.visual.tplMinimal')   },
+          { value: 'branded',    label: t('channelStyle.visual.tplBranded')   },
+          { value: 'news',       label: t('channelStyle.visual.tplNews')      },
         ]}
         value={data.bannerTemplate}
         onChange={v => set('bannerTemplate', v)}
       />
 
-      <Toggle
-        label="Watermark"
-        description="Add 'CF' watermark to generated banners"
+      <Switch
+        label={t('channelStyle.visual.watermark')}
+        description={t('channelStyle.visual.watermarkDesc')}
         value={data.watermark}
         onChange={v => set('watermark', v)}
       />
 
       <Button variant="primary" size="md" onClick={() => updateBrandKit(channelId, { visualKit: data })} fullWidth>
-        Save Visual Kit
+        {t('channelStyle.save.visual')}
       </Button>
     </div>
   )

@@ -22,10 +22,10 @@ function OptionGroup<T extends string>({
             key={opt.value}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'px-3.5 py-1.5 rounded-full text-sm font-medium border transition-all duration-150',
+              'px-3 py-1 rounded-full text-[12px] font-medium border transition-all duration-150',
               value === opt.value
                 ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00] border-[rgba(255,106,0,0.38)]'
-                : 'bg-white/5 text-[#A1A1AA] border-white/8 hover:bg-white/8'
+                : 'bg-white/5 text-[#A1A1AA] border-white/[0.06] hover:bg-white/8'
             )}
           >
             {opt.label}
@@ -36,7 +36,13 @@ function OptionGroup<T extends string>({
   )
 }
 
-function TagInput({ label, tags, onChange }: { label: string; tags: string[]; onChange: (t: string[]) => void }) {
+function TagInput({ label, addLabel, tags, placeholder, onChange }: {
+  label: string
+  addLabel: string
+  tags: string[]
+  placeholder: string
+  onChange: (t: string[]) => void
+}) {
   const [input, setInput] = useState('')
   const add = () => {
     const val = input.trim()
@@ -51,7 +57,7 @@ function TagInput({ label, tags, onChange }: { label: string; tags: string[]; on
           <span
             key={tag}
             onClick={() => onChange(tags.filter(t => t !== tag))}
-            className="px-2.5 py-1 rounded-full text-xs bg-white/8 text-[#A1A1AA] border border-white/10 cursor-pointer hover:border-red-500/40 hover:text-red-400 transition-colors"
+            className="px-2.5 py-1 rounded-full text-xs bg-white/8 text-[#A1A1AA] border border-white/[0.06] cursor-pointer hover:border-red-500/40 hover:text-red-400 transition-colors"
           >
             {tag} ×
           </span>
@@ -62,17 +68,17 @@ function TagInput({ label, tags, onChange }: { label: string; tags: string[]; on
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && add()}
-          placeholder="Add word…"
+          placeholder={placeholder}
           className="glass-input flex-1 px-3 py-2 text-sm"
         />
-        <Button variant="secondary" size="sm" onClick={add}>Add</Button>
+        <Button variant="secondary" size="sm" onClick={add}>{addLabel}</Button>
       </div>
     </div>
   )
 }
 
 export function VoiceProfileForm({ channelId, initialData }: VoiceProfileFormProps) {
-  const { updateBrandKit } = useApp()
+  const { updateBrandKit, t } = useApp()
   const [data, setData] = useState<VoiceProfile>(initialData)
 
   const set = <K extends keyof VoiceProfile>(key: K, val: VoiceProfile[K]) =>
@@ -83,56 +89,73 @@ export function VoiceProfileForm({ channelId, initialData }: VoiceProfileFormPro
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <OptionGroup<Language>
-        label="Language"
+        label={t('channelStyle.voice.language')}
         options={[{ value: 'EN', label: 'EN' }, { value: 'RU', label: 'RU' }]}
         value={data.language}
         onChange={v => set('language', v)}
       />
       <OptionGroup<AddressStyle>
-        label="Address style"
-        options={[{ value: 'ты', label: 'ты (informal)' }, { value: 'вы', label: 'вы (formal)' }]}
+        label={t('channelStyle.voice.addressStyle')}
+        options={[
+          { value: 'ты', label: t('channelStyle.voice.addressTy') },
+          { value: 'вы', label: t('channelStyle.voice.addressVy') },
+        ]}
         value={data.addressStyle}
         onChange={v => set('addressStyle', v)}
       />
       <OptionGroup<Tone>
-        label="Tone"
+        label={t('channelStyle.voice.tone')}
         options={[
-          { value: 'expert', label: 'Expert' },
-          { value: 'calm', label: 'Calm' },
-          { value: 'founder', label: 'Founder' },
-          { value: 'crypto', label: 'Crypto' },
-          { value: 'bold', label: 'Bold' },
-          { value: 'meme', label: 'Meme' },
+          { value: 'expert',  label: t('channelStyle.voice.toneExpert')  },
+          { value: 'calm',    label: t('channelStyle.voice.toneCalm')    },
+          { value: 'founder', label: t('channelStyle.voice.toneFounder') },
+          { value: 'crypto',  label: t('channelStyle.voice.toneCrypto')  },
+          { value: 'bold',    label: t('channelStyle.voice.toneBold')    },
+          { value: 'meme',    label: t('channelStyle.voice.toneMeme')    },
         ]}
         value={data.tone}
         onChange={v => set('tone', v)}
       />
       <OptionGroup<PostLength>
-        label="Post length"
+        label={t('channelStyle.voice.postLength')}
         options={[
-          { value: 'short', label: 'Short' },
-          { value: 'medium', label: 'Medium' },
-          { value: 'long', label: 'Long' },
+          { value: 'short',  label: t('channelStyle.voice.short')  },
+          { value: 'medium', label: t('channelStyle.voice.medium') },
+          { value: 'long',   label: t('channelStyle.voice.long')   },
         ]}
         value={data.postLength}
         onChange={v => set('postLength', v)}
       />
       <OptionGroup<EmojiDensity>
-        label="Emoji density"
+        label={t('channelStyle.voice.emojiDensity')}
         options={[
-          { value: 'none', label: 'None' },
-          { value: 'light', label: 'Light' },
-          { value: 'medium', label: 'Medium' },
-          { value: 'active', label: 'Active' },
+          { value: 'none',   label: t('channelStyle.voice.densityNone')   },
+          { value: 'light',  label: t('channelStyle.voice.densityLight')  },
+          { value: 'medium', label: t('channelStyle.voice.densityMedium') },
+          { value: 'active', label: t('channelStyle.voice.densityActive') },
         ]}
         value={data.emojiDensity}
         onChange={v => set('emojiDensity', v)}
       />
-      <TagInput label="Favorite words" tags={data.favoriteWords} onChange={v => set('favoriteWords', v)} />
-      <TagInput label="Forbidden words" tags={data.forbiddenWords} onChange={v => set('forbiddenWords', v)} />
-      <Button variant="primary" size="md" onClick={handleSave} fullWidth>Save Voice Profile</Button>
+      <TagInput
+        label={t('channelStyle.voice.favoriteWords')}
+        addLabel={t('channelStyle.voice.add')}
+        placeholder={t('channelStyle.voice.addWord')}
+        tags={data.favoriteWords}
+        onChange={v => set('favoriteWords', v)}
+      />
+      <TagInput
+        label={t('channelStyle.voice.forbiddenWords')}
+        addLabel={t('channelStyle.voice.add')}
+        placeholder={t('channelStyle.voice.addWord')}
+        tags={data.forbiddenWords}
+        onChange={v => set('forbiddenWords', v)}
+      />
+      <Button variant="primary" size="md" onClick={handleSave} fullWidth>
+        {t('channelStyle.save.voice')}
+      </Button>
     </div>
   )
 }

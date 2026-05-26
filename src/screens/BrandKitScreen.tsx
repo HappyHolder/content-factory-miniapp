@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, Smile, Palette, Link, PenLine, FileCheck, ChevronRight } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
+import type { TranslationKey } from '@/i18n'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { brandKitService } from '@/services/brandKitService'
@@ -14,20 +15,18 @@ import { PostRulesForm } from '@/components/profile/PostRulesForm'
 
 type SectionId = 'voice' | 'emoji' | 'visual' | 'links' | 'signature' | 'rules'
 
-interface Section {
+interface SectionConfig {
   id: SectionId
   icon: React.ElementType
-  title: string
-  description: string
 }
 
-const sections: Section[] = [
-  { id: 'voice', icon: Mic, title: 'Voice Profile', description: 'Tone, language, style' },
-  { id: 'emoji', icon: Smile, title: 'Emoji Pack', description: 'Custom emoji rules' },
-  { id: 'visual', icon: Palette, title: 'Visual Kit', description: 'Banners, colors, logo' },
-  { id: 'links', icon: Link, title: 'Link Kit', description: 'Product & social links' },
-  { id: 'signature', icon: PenLine, title: 'Signature', description: 'Post sign-off & CTA' },
-  { id: 'rules', icon: FileCheck, title: 'Post Rules', description: 'Content guidelines' },
+const SECTIONS: SectionConfig[] = [
+  { id: 'voice',     icon: Mic       },
+  { id: 'emoji',     icon: Smile     },
+  { id: 'visual',    icon: Palette   },
+  { id: 'links',     icon: Link      },
+  { id: 'signature', icon: PenLine   },
+  { id: 'rules',     icon: FileCheck },
 ]
 
 interface BrandKitScreenProps {
@@ -37,7 +36,7 @@ interface BrandKitScreenProps {
 }
 
 export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitScreenProps) {
-  const { state } = useApp()
+  const { state, t } = useApp()
   const [activeSection, setActiveSection] = useState<SectionId | null>(null)
 
   const brandKit = brandKitService.getByChannelId(channelId)
@@ -46,7 +45,7 @@ export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitS
   if (!brandKit) {
     return (
       <div className="px-4 py-8 text-center">
-        <p className="text-[#A1A1AA]">No Brand Kit found for this channel.</p>
+        <p className="text-[#A1A1AA]">{t('channelStyle.notFound')}</p>
       </div>
     )
   }
@@ -54,12 +53,12 @@ export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitS
   const renderForm = () => {
     if (!activeSection) return null
     switch (activeSection) {
-      case 'voice': return <VoiceProfileForm channelId={channelId} initialData={brandKit.voiceProfile} />
-      case 'emoji': return <EmojiPackForm channelId={channelId} initialData={brandKit.emojiPack} />
-      case 'visual': return <VisualKitForm channelId={channelId} initialData={brandKit.visualKit} />
-      case 'links': return <LinkKitForm channelId={channelId} initialLinks={brandKit.linkKit.links} />
-      case 'signature': return <SignatureForm channelId={channelId} initialData={brandKit.signature} />
-      case 'rules': return <PostRulesForm channelId={channelId} initialData={brandKit.postRules} />
+      case 'voice':     return <VoiceProfileForm channelId={channelId} initialData={brandKit.voiceProfile} />
+      case 'emoji':     return <EmojiPackForm    channelId={channelId} initialData={brandKit.emojiPack}    />
+      case 'visual':    return <VisualKitForm    channelId={channelId} initialData={brandKit.visualKit}    />
+      case 'links':     return <LinkKitForm      channelId={channelId} initialLinks={brandKit.linkKit.links} />
+      case 'signature': return <SignatureForm    channelId={channelId} initialData={brandKit.signature}    />
+      case 'rules':     return <PostRulesForm    channelId={channelId} initialData={brandKit.postRules}    />
     }
   }
 
@@ -71,15 +70,17 @@ export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitS
       transition={{ duration: 0.22 }}
     >
       <PageHeader
-        title="Brand Kit"
+        title={t('channelStyle.title')}
         subtitle={`@${channelUsername}`}
         onBack={onBack}
       />
 
       <div className="px-4 mt-1.5 space-y-1.5">
-        {sections.map((section, i) => {
+        {SECTIONS.map((section, i) => {
           const Icon = section.icon
           const isOpen = activeSection === section.id
+          const titleKey = `channelStyle.sections.${section.id}` as TranslationKey
+          const descKey  = `channelStyle.sections.${section.id}Desc` as TranslationKey
           return (
             <motion.div
               key={section.id}
@@ -99,9 +100,9 @@ export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitS
                   </div>
                   <div className="flex-1 text-left min-w-0">
                     <p className={`text-[13px] font-semibold ${isOpen ? 'text-[#FF6A00]' : 'text-white'}`}>
-                      {section.title}
+                      {t(titleKey)}
                     </p>
-                    <p className="text-[11px] text-[#55555D]">{section.description}</p>
+                    <p className="text-[11px] text-[#55555D]">{t(descKey)}</p>
                   </div>
                   <ChevronRight
                     size={13}
@@ -118,7 +119,7 @@ export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitS
                       transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
                       className="overflow-hidden"
                     >
-                      <div className="px-4 pb-4 pt-1 border-t border-white/6">
+                      <div className="px-4 pb-4 pt-1 border-t border-white/[0.06]">
                         {renderForm()}
                       </div>
                     </motion.div>

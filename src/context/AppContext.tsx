@@ -115,8 +115,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...prev,
       brandKits: brandKitService.getAll(),
     }))
-    showToast('Brand Kit saved')
-  }, [showToast])
+    showToast(t('channelStyle.saved'))
+  }, [showToast, t])
 
   const activeChannel = state.channels.find(c => c.id === state.activeChannelId)
 
