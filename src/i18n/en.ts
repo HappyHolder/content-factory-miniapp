@@ -41,6 +41,7 @@ export const en = {
     monthly:             'Monthly',
     renews:              'Renews',
     active:              'Active',
+    makeActive:          'Make active',
   },
   plans: {
     title:              'Plans',

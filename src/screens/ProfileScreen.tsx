@@ -4,7 +4,6 @@ import {
   Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
-import { PageHeader } from '@/components/layout/PageHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
@@ -40,9 +39,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
 
   return (
     <div>
-      <PageHeader title={t('profile.title')} />
-
-      <div className="px-4 mt-2 space-y-2.5">
+      <div className="px-4 pt-3 space-y-2.5">
 
         {/* Account card */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
@@ -236,26 +233,22 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, index, t
             {channel.title[0]}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <p className="text-[13px] font-semibold text-white">@{channel.username}</p>
-              {channel.isDefault && (
-                <span className="text-[10px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)] px-1.5 py-px rounded-full">
-                  {t('profile.default')}
-                </span>
-              )}
+            <p className="text-[13px] font-semibold text-white">@{channel.username}</p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <p className="text-[11px] text-[#55555D]">{channel.subscribersCount.toLocaleString()} {t('profile.connected')}</p>
             </div>
-            <p className="text-[11px] text-[#55555D]">{channel.subscribersCount.toLocaleString()} subscribers</p>
           </div>
-          <div className="flex items-center gap-1 text-[11px] text-[#66666E] bg-white/[0.04] border border-white/[0.07] px-2 py-px rounded-full">
-            <div className="w-1 h-1 rounded-full bg-[#FF6A00]" />
-            {t('profile.connected')}
-          </div>
+          {isActive && (
+            <span className="shrink-0 text-[10px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)] px-1.5 py-px rounded-full">
+              {t('profile.active')}
+            </span>
+          )}
         </div>
 
         <div className="flex gap-1.5">
-          {!channel.isDefault && (
+          {!isActive && (
             <Button variant="ghost" size="sm" onClick={onSetDefault} className="flex-1">
-              <Check size={11} /> {t('profile.setDefault')}
+              {t('profile.makeActive')}
             </Button>
           )}
           <Button variant="secondary" size="sm" onClick={onOpenBrandKit} className="flex-1">

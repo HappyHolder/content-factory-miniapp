@@ -40,7 +40,8 @@ export const ru: Dict = {
     channelStyle:        'Стиль канала',
     monthly:             'Ежемесячно',
     renews:              'Продлевается',
-    active:              'Активен',
+    active:              'Активный',
+    makeActive:          'Сделать активным',
   },
   plans: {
     title:              'Планы',
@@ -68,8 +69,8 @@ export const ru: Dict = {
   posts: {
     tabs: {
       new:       'Новые',
-      scheduled: 'Запланированные',
-      published: 'Опубликованные',
+      scheduled: 'Отложка',
+      published: 'Опублик.',
     },
     status: {
       new:       'Новый',
