@@ -1,9 +1,16 @@
-import React, { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react'
 import type { AppState, GeneratedPost, Channel, BrandKit } from '@/types'
 import { mockInitialState } from '@/data/mockData'
 import { postService } from '@/services/postService'
 import { brandKitService } from '@/services/brandKitService'
 import { channelService } from '@/services/channelService'
+import {
+  type Language,
+  type TranslationKey,
+  getInitialLanguage,
+  setStoredLanguage,
+  createTranslator,
+} from '@/i18n'
 
 interface Toast {
   id: string
@@ -15,6 +22,9 @@ interface AppContextValue {
   state: AppState
   activeChannel: Channel | undefined
   canSchedulePosts: boolean
+  language: Language
+  setLanguage: (lang: Language) => void
+  t: (key: TranslationKey) => string
   addPost: (post: GeneratedPost) => void
   updatePost: (id: string, updates: Partial<GeneratedPost>) => void
   publishPost: (id: string) => void
@@ -38,6 +48,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return mockInitialState
   })
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [language, setLanguageState] = useState<Language>(getInitialLanguage)
+
+  const setLanguage = useCallback((lang: Language) => {
+    setLanguageState(lang)
+    setStoredLanguage(lang)
+  }, [])
+
+  const t = useMemo(() => createTranslator(language), [language])
 
   const showToast = useCallback((message: string, type: Toast['type'] = 'success') => {
     const id = `t-${Date.now()}`
@@ -110,6 +128,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       state,
       activeChannel,
       canSchedulePosts,
+      language,
+      setLanguage,
+      t,
       addPost,
       updatePost,
       publishPost,

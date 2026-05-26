@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { FileText, Sparkles, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useApp } from '@/context/AppContext'
 
 type Tab = 'posts' | 'create' | 'profile'
 
@@ -10,18 +11,20 @@ interface NavItem {
   icon: React.ElementType
 }
 
-const navItems: NavItem[] = [
-  { id: 'posts', label: 'Posts', icon: FileText },
-  { id: 'create', label: 'Create', icon: Sparkles },
-  { id: 'profile', label: 'Profile', icon: User },
-]
-
 interface BottomNavProps {
   active: Tab
   onChange: (tab: Tab) => void
 }
 
 export function BottomNav({ active, onChange }: BottomNavProps) {
+  const { t } = useApp()
+
+  const navItems: NavItem[] = [
+    { id: 'posts', label: t('nav.posts'), icon: FileText },
+    { id: 'create', label: t('nav.create'), icon: Sparkles },
+    { id: 'profile', label: t('nav.profile'), icon: User },
+  ]
+
   return (
     <nav className="bottom-nav flex items-center px-2">
       {navItems.map(item => {

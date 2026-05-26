@@ -1,12 +1,22 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  User, Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard
+  Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
-import type { Channel } from '@/types'
+import { Sheet } from '@/components/ui/Sheet'
+import type { TranslationKey } from '@/i18n'
+import type { Channel, PlanTier } from '@/types'
+
+// Map planTier to translation key for plan names
+const PLAN_NAME_KEY: Record<PlanTier, 'plans.starter' | 'plans.creator' | 'plans.studioPro'> = {
+  starter:    'plans.starter',
+  creator:    'plans.creator',
+  studio_pro: 'plans.studioPro',
+}
 
 interface ProfileScreenProps {
   onOpenBrandKit: (channelId: string, channelUsername: string) => void
@@ -14,15 +24,23 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProps) {
-  const { state, setActiveChannel, showToast } = useApp()
+  const { state, setActiveChannel, showToast, language, setLanguage, t } = useApp()
   const { user, channels, activeChannelId } = state
   const { subscription } = user
 
   const isPaidPlan = true // all plans are paid (no free tier)
+  const [langSheetOpen, setLangSheetOpen] = useState(false)
+
+  const langLabel = language === 'ru' ? t('language.russian') : t('language.english')
+  const planNameKey = PLAN_NAME_KEY[subscription.planTier]
+
+  // Billing period display
+  const billingLabel = t('profile.monthly')
+  const renewsLabel  = t('profile.renews')
 
   return (
     <div>
-      <PageHeader title="Profile" />
+      <PageHeader title={t('profile.title')} />
 
       <div className="px-4 mt-2 space-y-2.5">
 
@@ -41,7 +59,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
                 ? 'bg-[rgba(255,106,0,0.11)] text-[#FF6A00] border border-[rgba(255,106,0,0.22)]'
                 : 'bg-white/[0.05] text-[#66666E] border border-white/[0.07]'
             }`}>
-              {subscription.planName.toUpperCase()}
+              {t(planNameKey).toUpperCase()}
             </div>
           </GlassCard>
         </motion.div>
@@ -52,23 +70,24 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
             <div className="mb-3">
               <div className="flex items-center gap-1.5 mb-1">
                 <CreditCard size={13} className="text-[#FF6A00]" />
-                <span className="text-[13px] font-semibold text-white">Current plan</span>
+                <span className="text-[13px] font-semibold text-white">{t('profile.currentPlan')}</span>
               </div>
               <div className="flex items-center gap-2 mb-0.5">
                 <p className="text-[20px] font-bold text-white leading-none">
-                  {subscription.planName}
+                  {t(planNameKey)}
                 </p>
                 <span className="text-[11px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)] px-2 py-px rounded-full">
-                  Active
+                  {t('profile.active')}
                 </span>
               </div>
               <p className="text-[12px] text-[#55555D]">
-                {subscription.billingPeriod.charAt(0).toUpperCase() + subscription.billingPeriod.slice(1)}
-                {' · '}Renews {subscription.renewsAt}
+                {billingLabel}
+                {' · '}
+                {renewsLabel} {subscription.renewsAt}
               </p>
             </div>
             <Button variant="primary" size="sm" onClick={onOpenPlans} fullWidth>
-              Manage plan
+              {t('profile.managePlan')}
             </Button>
           </GlassCard>
         </motion.div>
@@ -76,9 +95,9 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
         {/* Channels */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.22 }}>
           <div className="flex items-center justify-between mb-2 px-1">
-            <p className="text-xs font-semibold text-[#66666E] uppercase tracking-wide">Channels</p>
-            <Button variant="ghost" size="sm" onClick={() => showToast('Add channel flow coming soon')}>
-              + Add
+            <p className="text-xs font-semibold text-[#66666E] uppercase tracking-wide">{t('profile.channels')}</p>
+            <Button variant="ghost" size="sm" onClick={() => showToast(t('profile.add') + ' — coming soon')}>
+              {t('profile.add')}
             </Button>
           </div>
           <div className="space-y-2">
@@ -90,6 +109,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
                 onSetDefault={() => setActiveChannel(ch.id)}
                 onOpenBrandKit={() => onOpenBrandKit(ch.id, ch.username)}
                 index={i}
+                t={t}
               />
             ))}
           </div>
@@ -98,27 +118,63 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
         {/* Settings list */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.22 }}>
           <GlassCard padding="none" className="overflow-hidden divide-y divide-white/6">
-            {[
-              { icon: Bot, label: 'Bot settings', sub: 'Configure Telegram bot' },
-              { icon: Globe, label: 'Language', sub: 'English' },
-              { icon: Settings, label: 'App settings', sub: 'Notifications, display' },
-              { icon: HelpCircle, label: 'Support', sub: 'Help & feedback' },
-            ].map(({ icon: Icon, label, sub }) => (
-              <button
-                key={label}
-                onClick={() => showToast(`${label} — coming soon`)}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
-              >
-                <div className="w-7 h-7 rounded-[8px] bg-white/[0.05] flex items-center justify-center">
-                  <Icon size={13} className="text-[#66666E]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-white">{label}</p>
-                  <p className="text-[11px] text-[#55555D]">{sub}</p>
-                </div>
-                <ChevronRight size={13} className="text-[#44444C]" />
-              </button>
-            ))}
+
+            <button
+              onClick={() => showToast(t('profile.botSettings') + ' — coming soon')}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
+            >
+              <div className="w-7 h-7 rounded-[8px] bg-white/[0.05] flex items-center justify-center">
+                <Bot size={13} className="text-[#66666E]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-white">{t('profile.botSettings')}</p>
+                <p className="text-[11px] text-[#55555D]">{t('profile.botSettingsSubtitle')}</p>
+              </div>
+              <ChevronRight size={13} className="text-[#44444C]" />
+            </button>
+
+            <button
+              onClick={() => setLangSheetOpen(true)}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
+            >
+              <div className="w-7 h-7 rounded-[8px] bg-white/[0.05] flex items-center justify-center">
+                <Globe size={13} className="text-[#66666E]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-white">{t('profile.language')}</p>
+                <p className="text-[11px] text-[#55555D]">{langLabel}</p>
+              </div>
+              <ChevronRight size={13} className="text-[#44444C]" />
+            </button>
+
+            <button
+              onClick={() => showToast(t('profile.appSettings') + ' — coming soon')}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
+            >
+              <div className="w-7 h-7 rounded-[8px] bg-white/[0.05] flex items-center justify-center">
+                <Settings size={13} className="text-[#66666E]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-white">{t('profile.appSettings')}</p>
+                <p className="text-[11px] text-[#55555D]">{t('profile.appSettingsSubtitle')}</p>
+              </div>
+              <ChevronRight size={13} className="text-[#44444C]" />
+            </button>
+
+            <button
+              onClick={() => showToast(t('profile.support') + ' — coming soon')}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
+            >
+              <div className="w-7 h-7 rounded-[8px] bg-white/[0.05] flex items-center justify-center">
+                <HelpCircle size={13} className="text-[#66666E]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-white">{t('profile.support')}</p>
+                <p className="text-[11px] text-[#55555D]">{t('profile.supportSubtitle')}</p>
+              </div>
+              <ChevronRight size={13} className="text-[#44444C]" />
+            </button>
+
           </GlassCard>
         </motion.div>
 
@@ -126,16 +182,47 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
           <p className="text-[11px] text-[#66666E]">Content Factory v0.1.0 · MVP prototype</p>
         </div>
       </div>
+
+      {/* Language picker sheet */}
+      <Sheet
+        open={langSheetOpen}
+        onClose={() => setLangSheetOpen(false)}
+        title={t('profile.language')}
+      >
+        <div className="space-y-2 pt-1">
+          {(['ru', 'en'] as const).map(lang => {
+            const isActive = language === lang
+            const label = lang === 'ru' ? t('language.russian') : t('language.english')
+            return (
+              <button
+                key={lang}
+                onClick={() => { setLanguage(lang); setLangSheetOpen(false) }}
+                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-[14px] transition-colors ${
+                  isActive
+                    ? 'bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)]'
+                    : 'bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.07]'
+                }`}
+              >
+                <span className={`text-[14px] font-medium ${isActive ? 'text-white' : 'text-[#A1A1AA]'}`}>
+                  {label}
+                </span>
+                {isActive && <Check size={15} className="text-[#FF6A00]" />}
+              </button>
+            )
+          })}
+        </div>
+      </Sheet>
     </div>
   )
 }
 
-function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, index }: {
+function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, index, t }: {
   channel: Channel
   isActive: boolean
   onSetDefault: () => void
   onOpenBrandKit: () => void
   index: number
+  t: (key: TranslationKey) => string
 }) {
   return (
     <motion.div
@@ -153,7 +240,7 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, index }:
               <p className="text-[13px] font-semibold text-white">@{channel.username}</p>
               {channel.isDefault && (
                 <span className="text-[10px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)] px-1.5 py-px rounded-full">
-                  Default
+                  {t('profile.default')}
                 </span>
               )}
             </div>
@@ -161,18 +248,18 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, index }:
           </div>
           <div className="flex items-center gap-1 text-[11px] text-[#66666E] bg-white/[0.04] border border-white/[0.07] px-2 py-px rounded-full">
             <div className="w-1 h-1 rounded-full bg-[#FF6A00]" />
-            Connected
+            {t('profile.connected')}
           </div>
         </div>
 
         <div className="flex gap-1.5">
           {!channel.isDefault && (
             <Button variant="ghost" size="sm" onClick={onSetDefault} className="flex-1">
-              <Check size={11} /> Set default
+              <Check size={11} /> {t('profile.setDefault')}
             </Button>
           )}
           <Button variant="secondary" size="sm" onClick={onOpenBrandKit} className="flex-1">
-            Brand Kit →
+            {t('profile.channelStyle')} →
           </Button>
         </div>
       </GlassCard>
