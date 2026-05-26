@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Calendar } from 'lucide-react'
 import { Sheet } from '@/components/ui/Sheet'
 import { Button } from '@/components/ui/Button'
+import { useApp } from '@/context/AppContext'
 import { addHours, format } from 'date-fns'
 
 interface ScheduleSheetProps {
@@ -10,16 +11,17 @@ interface ScheduleSheetProps {
   onSchedule: (date: Date) => void
 }
 
-const presets = [
-  { label: 'In 1 hour', hours: 1 },
-  { label: 'In 2 hours', hours: 2 },
-  { label: 'In 6 hours', hours: 6 },
-  { label: 'Tomorrow 9 AM', hours: null },
-]
-
 export function ScheduleSheet({ open, onClose, onSchedule }: ScheduleSheetProps) {
+  const { t } = useApp()
   const [selected, setSelected] = useState<number | null>(null)
   const [custom, setCustom] = useState('')
+
+  const presets: { labelKey: Parameters<typeof t>[0]; hours: number | null }[] = [
+    { labelKey: 'schedule.in1h',           hours: 1    },
+    { labelKey: 'schedule.in2h',           hours: 2    },
+    { labelKey: 'schedule.in6h',           hours: 6    },
+    { labelKey: 'schedule.tomorrowMorning', hours: null },
+  ]
 
   const handlePreset = (hours: number | null, i: number) => {
     setSelected(i)
@@ -41,7 +43,7 @@ export function ScheduleSheet({ open, onClose, onSchedule }: ScheduleSheetProps)
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Schedule Post" height="auto">
+    <Sheet open={open} onClose={onClose} title={t('schedule.title')} height="auto">
       <div className="space-y-4 pt-2">
         <div className="grid grid-cols-2 gap-2">
           {presets.map((p, i) => (
@@ -54,13 +56,15 @@ export function ScheduleSheet({ open, onClose, onSchedule }: ScheduleSheetProps)
                   : 'bg-white/4 border-white/8 text-[#A1A1AA] hover:bg-white/8'
               }`}
             >
-              {p.label}
+              {t(p.labelKey)}
             </button>
           ))}
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-[#66666E] uppercase tracking-wide">Custom time</label>
+          <label className="text-xs font-medium text-[#66666E] uppercase tracking-wide">
+            {t('schedule.customTime')}
+          </label>
           <input
             type="datetime-local"
             value={custom}
@@ -71,10 +75,10 @@ export function ScheduleSheet({ open, onClose, onSchedule }: ScheduleSheetProps)
         </div>
 
         <div className="flex gap-2 pt-1">
-          <Button variant="secondary" onClick={onClose} fullWidth>Cancel</Button>
+          <Button variant="secondary" onClick={onClose} fullWidth>{t('common.cancel')}</Button>
           <Button variant="primary" onClick={handleSchedule} fullWidth>
             <Calendar size={14} />
-            Schedule
+            {t('schedule.schedule')}
           </Button>
         </div>
       </div>

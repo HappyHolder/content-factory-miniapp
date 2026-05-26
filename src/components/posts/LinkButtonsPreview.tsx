@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ExternalLink, ToggleLeft, ToggleRight } from 'lucide-react'
 import type { LinkItem } from '@/types'
 import { cn } from '@/lib/utils'
+import { useApp } from '@/context/AppContext'
 
 interface LinkButtonsPreviewProps {
   buttons: LinkItem[]
@@ -10,6 +11,7 @@ interface LinkButtonsPreviewProps {
 }
 
 export function LinkButtonsPreview({ buttons, allButtons, onToggle }: LinkButtonsPreviewProps) {
+  const { t } = useApp()
   const displayButtons = allButtons || buttons
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() => {
     const map: Record<string, boolean> = {}
@@ -28,8 +30,8 @@ export function LinkButtonsPreview({ buttons, allButtons, onToggle }: LinkButton
   if (displayButtons.length === 0) {
     return (
       <p className="text-sm text-[#66666E] text-center py-4">
-        No link buttons configured.<br />
-        <span className="text-[#A1A1AA]">Add links in Brand Kit → Link Kit</span>
+        {t('postDetails.noButtons')}<br />
+        <span className="text-[#A1A1AA]">{t('postDetails.configureLinks')}</span>
       </p>
     )
   }
@@ -63,7 +65,9 @@ export function LinkButtonsPreview({ buttons, allButtons, onToggle }: LinkButton
 
       {activeButtons.length > 0 && (
         <div className="mt-3 pt-3 border-t border-white/8">
-          <p className="text-[11px] text-[#66666E] uppercase tracking-wide font-semibold mb-2">Preview</p>
+          <p className="text-[11px] text-[#66666E] uppercase tracking-wide font-semibold mb-2">
+            {t('postDetails.previewLabel')}
+          </p>
           <div className="flex flex-wrap gap-2">
             {activeButtons.map(btn => (
               <div

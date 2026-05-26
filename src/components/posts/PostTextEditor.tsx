@@ -11,7 +11,7 @@ interface PostTextEditorProps {
 }
 
 export function PostTextEditor({ postId, variantId, text }: PostTextEditorProps) {
-  const { updateVariantText, showToast } = useApp()
+  const { updateVariantText, showToast, t } = useApp()
   const [value, setValue] = useState(text)
   const charCount = value.length
 
@@ -22,15 +22,15 @@ export function PostTextEditor({ postId, variantId, text }: PostTextEditorProps)
 
   const handleCopy = () => {
     navigator.clipboard.writeText(value).catch(() => {})
-    showToast('Copied to clipboard')
+    showToast(t('common.copied'))
   }
 
   const handleShorter = () => {
-    showToast('Making shorter… (mock)')
+    showToast(t('postDetails.makeShorter') + '…')
   }
 
   const handleSharper = () => {
-    showToast('Making sharper… (mock)')
+    showToast(t('postDetails.makeSharper') + '…')
   }
 
   return (
@@ -45,20 +45,20 @@ export function PostTextEditor({ postId, variantId, text }: PostTextEditorProps)
         onChange={handleChange}
         rows={10}
         className="glass-input w-full px-4 py-3 text-sm text-white leading-relaxed"
-        placeholder="Post text…"
+        placeholder={t('postDetails.postText')}
       />
       <div className="flex items-center justify-between">
         <span className={`text-xs ${charCount > 4096 ? 'text-red-400' : 'text-[#66666E]'}`}>
-          {charCount} chars
+          {charCount} {t('postDetails.chars')}
         </span>
         <div className="flex gap-1.5">
           <Button variant="ghost" size="sm" onClick={handleShorter}>
             <Scissors size={13} />
-            Shorter
+            {t('postDetails.makeShorter')}
           </Button>
           <Button variant="ghost" size="sm" onClick={handleSharper}>
             <Zap size={13} />
-            Sharper
+            {t('postDetails.makeSharper')}
           </Button>
           <Button variant="ghost" size="sm" onClick={handleCopy}>
             <Copy size={13} />

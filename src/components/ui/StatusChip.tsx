@@ -1,18 +1,11 @@
 import { cn } from '@/lib/utils'
+import { useApp } from '@/context/AppContext'
 import type { PostStatus, SourceType } from '@/types'
 
-const statusConfig: Record<PostStatus, { label: string; className: string }> = {
-  new: { label: 'New', className: 'bg-[rgba(255,106,0,0.13)] text-[#FF6A00] border-[rgba(255,106,0,0.28)]' },
-  scheduled: { label: 'Scheduled', className: 'bg-white/6 text-[#A1A1AA] border-white/8' },
-  published: { label: 'Published', className: 'bg-white/4 text-[#55555D] border-white/6' },
-}
-
-const sourceConfig: Record<SourceType, { label: string }> = {
-  bot: { label: 'Bot' },
-  link: { label: 'Link' },
-  prompt: { label: 'Prompt' },
-  text: { label: 'Text' },
-  forwarded_post: { label: 'Forwarded' },
+const statusClassName: Record<PostStatus, string> = {
+  new:       'bg-[rgba(255,106,0,0.13)] text-[#FF6A00] border-[rgba(255,106,0,0.28)]',
+  scheduled: 'bg-white/6 text-[#A1A1AA] border-white/8',
+  published: 'bg-white/4 text-[#55555D] border-white/6',
 }
 
 interface StatusChipProps {
@@ -26,26 +19,42 @@ interface SourceChipProps {
 }
 
 export function StatusChip({ status, className }: StatusChipProps) {
-  const cfg = statusConfig[status]
+  const { t } = useApp()
+
+  const labelKey = {
+    new:       'posts.status.new',
+    scheduled: 'posts.status.scheduled',
+    published: 'posts.status.published',
+  }[status] as Parameters<typeof t>[0]
+
   return (
     <span className={cn(
       'inline-flex items-center px-2 py-px rounded-full text-[11px] font-medium border',
-      cfg.className,
+      statusClassName[status],
       className
     )}>
-      {cfg.label}
+      {t(labelKey)}
     </span>
   )
 }
 
 export function SourceChip({ source, className }: SourceChipProps) {
-  const cfg = sourceConfig[source]
+  const { t } = useApp()
+
+  const labelKey = {
+    bot:            'posts.source.bot',
+    prompt:         'posts.source.prompt',
+    link:           'posts.source.link',
+    text:           'posts.source.text',
+    forwarded_post: 'posts.source.forwardedPost',
+  }[source] as Parameters<typeof t>[0]
+
   return (
     <span className={cn(
       'inline-flex items-center px-2 py-px rounded-full text-[11px] font-medium bg-white/[0.05] text-[#66666E] border border-white/[0.07]',
       className
     )}>
-      {cfg.label}
+      {t(labelKey)}
     </span>
   )
 }

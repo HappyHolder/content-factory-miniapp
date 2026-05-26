@@ -21,7 +21,7 @@ interface PostDetailsScreenProps {
 type Section = 'variants' | 'editor' | 'banner' | 'buttons'
 
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
-  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts } = useApp()
+  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t } = useApp()
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
 
@@ -40,7 +40,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   }
 
   const handleRegenerate = () => {
-    showToast('Regenerating variant… (mock)')
+    showToast(t('postDetails.regenerateVariants') + '…')
   }
 
   const sectionLabel = (id: Section, icon: React.ReactNode, label: string, badge?: string) => (
@@ -91,7 +91,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         <GlassCard padding="none" className="overflow-hidden divide-y divide-white/6">
           {/* Variants */}
           <div>
-            {sectionLabel('variants', <Layers size={15} />, 'Variants', `${post.variants.length}`)}
+            {sectionLabel('variants', <Layers size={15} />, t('postDetails.variants'), `${post.variants.length}`)}
             {openSection === 'variants' && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
@@ -111,7 +111,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
 
           {/* Editor */}
           <div>
-            {sectionLabel('editor', <span className="text-[13px] font-bold">Aa</span>, 'Edit text')}
+            {sectionLabel('editor', <span className="text-[13px] font-bold">Aa</span>, t('postDetails.editText'))}
             {openSection === 'editor' && selectedVariant && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
@@ -129,10 +129,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
             )}
           </div>
 
-          {/* Banner */}
+          {/* Visual (formerly Banner) */}
           {post.banner && (
             <div>
-              {sectionLabel('banner', <ImageIcon size={15} />, 'Banner')}
+              {sectionLabel('banner', <ImageIcon size={15} />, t('postDetails.visual'))}
               {openSection === 'banner' && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
@@ -142,18 +142,23 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                 >
                   <BannerPreview
                     banner={post.banner}
-                    onRegenerate={() => showToast('Banner regenerated (mock)')}
-                    onChangeTemplate={() => showToast('Template changed (mock)')}
-                    onRemove={() => showToast('Banner removed (mock)')}
+                    onRegenerate={() => showToast(t('postDetails.regenerateVisual') + '…')}
+                    onChangeTemplate={() => showToast(t('postDetails.template') + '…')}
+                    onRemove={() => showToast(t('postDetails.visual') + '…')}
                   />
                 </motion.div>
               )}
             </div>
           )}
 
-          {/* Buttons */}
+          {/* Link buttons */}
           <div>
-            {sectionLabel('buttons', <LinkIcon size={15} />, 'Link buttons', allLinkButtons.length > 0 ? `${allLinkButtons.length}` : undefined)}
+            {sectionLabel(
+              'buttons',
+              <LinkIcon size={15} />,
+              t('postDetails.linksButtons'),
+              allLinkButtons.length > 0 ? `${allLinkButtons.length}` : undefined
+            )}
             {openSection === 'buttons' && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
@@ -170,19 +175,19 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
           </div>
         </GlassCard>
 
-        {/* Actions */}
+        {/* Actions — new post */}
         {post.status === 'new' && (
           <div className="space-y-2">
             <div className="flex gap-2">
               <Button variant="primary" size="lg" onClick={handlePublish} fullWidth>
-                <Send size={16} /> Publish now
+                <Send size={16} /> {t('postDetails.publish')}
               </Button>
               <Button
                 variant="secondary"
                 size="lg"
                 onClick={() => {
                   if (!canSchedulePosts) {
-                    showToast('Отложенные посты доступны на тарифе Автор.', 'info')
+                    showToast(t('postDetails.scheduleUpgradeToast'), 'info')
                     return
                   }
                   setScheduleOpen(true)
@@ -192,33 +197,35 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
               </Button>
             </div>
             <Button variant="ghost" size="md" onClick={handleRegenerate} fullWidth>
-              <RefreshCw size={14} /> Regenerate variants
+              <RefreshCw size={14} /> {t('postDetails.regenerateVariants')}
             </Button>
           </div>
         )}
 
+        {/* Actions — scheduled post */}
         {post.status === 'scheduled' && (
           <div className="space-y-2">
             <Button variant="primary" size="lg" onClick={handlePublish} fullWidth>
-              <Send size={16} /> Publish now
+              <Send size={16} /> {t('postDetails.publish')}
             </Button>
             <Button
               variant="secondary"
               size="md"
               onClick={() => {
                 if (!canSchedulePosts) {
-                  showToast('Отложенные посты доступны на тарифе Автор.', 'info')
+                  showToast(t('postDetails.scheduleUpgradeToast'), 'info')
                   return
                 }
                 setScheduleOpen(true)
               }}
               fullWidth
             >
-              <Calendar size={14} /> Change schedule
+              <Calendar size={14} /> {t('postDetails.changeSchedule')}
             </Button>
           </div>
         )}
 
+        {/* Actions — published post */}
         {post.status === 'published' && (
           <div className="space-y-2">
             <Button
@@ -227,10 +234,15 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
               onClick={() => window.open('https://t.me/' + post.channelUsername, '_blank')}
               fullWidth
             >
-              Open in Telegram
+              {t('postDetails.openInTelegram')}
             </Button>
-            <Button variant="ghost" size="md" onClick={() => showToast('Creating similar post… (mock)')} fullWidth>
-              Create similar
+            <Button
+              variant="ghost"
+              size="md"
+              onClick={() => showToast(t('postDetails.createSimilar') + '…')}
+              fullWidth
+            >
+              {t('postDetails.createSimilar')}
             </Button>
           </div>
         )}

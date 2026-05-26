@@ -4,7 +4,7 @@ import { ChevronDown, Check, Plus } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 
 export function ChannelSwitcherHeader() {
-  const { state, activeChannel, setActiveChannel, showToast } = useApp()
+  const { state, activeChannel, setActiveChannel, showToast, t } = useApp()
   const [open, setOpen] = useState(false)
 
   if (!activeChannel) return null
@@ -37,10 +37,8 @@ export function ChannelSwitcherHeader() {
       {/* ── Channel switcher sheet ── */}
       <AnimatePresence>
         {open && (
-          // Single outer container: full viewport, single z-index layer
           <div key="switcher-overlay" className="fixed inset-0 z-[200]">
 
-            {/* Backdrop — fills the outer container, closes on click */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -50,21 +48,7 @@ export function ChannelSwitcherHeader() {
               onClick={() => setOpen(false)}
             />
 
-            {/*
-              Centering wrapper — static, no animation.
-              absolute inset-x-0 bottom-0 positions it at the viewport bottom.
-              flex justify-center centers the sheet panel horizontally.
-              pointer-events-none lets backdrop clicks fall through on desktop
-              where the wrapper is wider than the sheet.
-            */}
             <div className="absolute inset-x-0 bottom-0 flex justify-center pointer-events-none">
-
-              {/*
-                Sheet panel — pointer-events-auto re-enables interaction.
-                Only animates y + opacity: no horizontal transform, so Framer
-                Motion cannot clobber the centering set by the parent flex.
-                max-width matches the app shell (430px) for desktop.
-              */}
               <motion.div
                 initial={{ y: 40, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
@@ -81,7 +65,7 @@ export function ChannelSwitcherHeader() {
                 {/* Title */}
                 <div className="px-5 pt-3 pb-2">
                   <p className="text-[11px] font-semibold text-[#44444C] uppercase tracking-wider">
-                    Switch channel
+                    {t('channelSwitcher.title')}
                   </p>
                 </div>
 
@@ -111,7 +95,7 @@ export function ChannelSwitcherHeader() {
                             @{ch.username}
                           </p>
                           <p className="text-[11px] text-[#44444C]">
-                            {ch.subscribersCount.toLocaleString()} subscribers
+                            {ch.subscribersCount.toLocaleString()} {t('channelSwitcher.subscribers')}
                           </p>
                         </div>
 
@@ -120,7 +104,7 @@ export function ChannelSwitcherHeader() {
                           {ch.isConnected && (
                             <div className="flex items-center gap-1 px-1.5 py-px rounded-full bg-white/[0.04] border border-white/[0.06]">
                               <div className="w-1 h-1 rounded-full bg-[#FF6A00]" />
-                              <span className="text-[10px] text-[#55555D]">Live</span>
+                              <span className="text-[10px] text-[#55555D]">{t('channelSwitcher.live')}</span>
                             </div>
                           )}
                           {isActive ? (
@@ -138,19 +122,18 @@ export function ChannelSwitcherHeader() {
                   {/* Divider */}
                   <div className="mx-3 my-1.5 h-px bg-white/[0.05]" />
 
-                  {/* Add channel — mock */}
+                  {/* Add channel */}
                   <button
-                    onClick={() => { showToast('Add channel — coming soon'); setOpen(false) }}
+                    onClick={() => { showToast(t('channelSwitcher.addChannel') + ' — coming soon'); setOpen(false) }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[14px] hover:bg-white/[0.03] transition-colors text-left"
                   >
                     <div className="w-9 h-9 rounded-full bg-white/[0.03] border border-white/[0.06] flex items-center justify-center shrink-0">
                       <Plus size={14} className="text-[#44444C]" />
                     </div>
-                    <p className="text-[14px] font-medium text-[#44444C]">Add channel</p>
+                    <p className="text-[14px] font-medium text-[#44444C]">{t('channelSwitcher.addChannel')}</p>
                   </button>
                 </div>
               </motion.div>
-
             </div>
           </div>
         )}

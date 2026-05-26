@@ -5,7 +5,7 @@ import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
-import { InputTypeChips, chipPlaceholders } from '@/components/create/InputTypeChips'
+import { InputTypeChips, getPlaceholderKey } from '@/components/create/InputTypeChips'
 import { generationService } from '@/services/generationService'
 import { brandKitService } from '@/services/brandKitService'
 import type { SourceType } from '@/types'
@@ -16,7 +16,7 @@ interface CreateScreenProps {
 }
 
 export function CreateScreen({ onPostCreated }: CreateScreenProps) {
-  const { state, activeChannel, addPost, showToast } = useApp()
+  const { state, activeChannel, addPost, showToast, t } = useApp()
   const [input, setInput] = useState('')
   const [sourceType, setSourceType] = useState<SourceType>('prompt')
   const [isGenerating, setIsGenerating] = useState(false)
@@ -33,7 +33,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
 
     const brandKit = brandKitService.getByChannelId(selectedChannelId)
     if (!brandKit) {
-      showToast('No Brand Kit found for this channel', 'error')
+      showToast(t('create.generationFailed'), 'error')
       return
     }
 
@@ -56,7 +56,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
         onPostCreated(post.id)
       }, 900)
     } catch {
-      showToast('Generation failed. Try again.', 'error')
+      showToast(t('create.generationFailed'), 'error')
     } finally {
       setIsGenerating(false)
     }
@@ -65,8 +65,8 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
   return (
     <div>
       <PageHeader
-        title="Create"
-        subtitle="Turn a link, idea, or text into posts in your channel style."
+        title={t('create.title')}
+        subtitle={t('create.subtitle')}
       />
 
       <div className="px-4 mt-1.5 space-y-2.5">
@@ -83,7 +83,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
               <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder={chipPlaceholders[sourceType]}
+                placeholder={t(getPlaceholderKey(sourceType))}
                 rows={6}
                 className="glass-input w-full px-3 py-3 text-sm leading-relaxed"
                 style={{ background: 'rgba(255,255,255,0.03)' }}
@@ -102,7 +102,10 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
                     <div className="w-5 h-5 rounded-full bg-[rgba(255,106,0,0.18)] flex items-center justify-center text-[9px] font-bold text-[#FF6A00]">
                       {selectedChannel?.title[0] || '?'}
                     </div>
-                    <span>Generate for <span className="text-white font-medium">@{selectedChannel?.username}</span></span>
+                    <span>
+                      {t('create.generateFor')}{' '}
+                      <span className="text-white font-medium">@{selectedChannel?.username}</span>
+                    </span>
                   </span>
                   <ChevronDown size={14} className={cn('transition-transform duration-200', channelDropOpen && 'rotate-180')} />
                 </button>
@@ -158,17 +161,17 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
                 {isGenerating ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    Generating posts…
+                    {t('create.generating')}
                   </>
                 ) : done ? (
                   <>
                     <Check size={16} />
-                    Posts ready — opening…
+                    {t('create.postsReady')}
                   </>
                 ) : (
                   <>
                     <Sparkles size={16} />
-                    Generate posts
+                    {t('create.generatePosts')}
                   </>
                 )}
               </motion.button>
@@ -183,13 +186,15 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
           transition={{ delay: 0.1, duration: 0.25 }}
         >
           <div className="px-1">
-            <p className="text-[10px] font-semibold text-[#44444C] uppercase tracking-wider mb-2">How it works</p>
+            <p className="text-[10px] font-semibold text-[#44444C] uppercase tracking-wider mb-2">
+              {t('create.howItWorks')}
+            </p>
             <div className="space-y-1">
-              {[
-                'Paste any input — link, idea, or text',
-                'AI applies your Brand Kit voice and style',
-                '2–3 ready post variants appear in Posts',
-              ].map((tip, i) => (
+              {([
+                t('create.step1'),
+                t('create.step2'),
+                t('create.step3'),
+              ] as string[]).map((tip, i) => (
                 <div key={i} className="flex items-start gap-2">
                   <span className="w-3.5 h-3.5 rounded-full bg-white/[0.05] text-[#55555D] text-[9px] font-bold flex items-center justify-center shrink-0 mt-px">
                     {i + 1}

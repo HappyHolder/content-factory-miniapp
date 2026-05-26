@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { RefreshCw, LayoutTemplate, X } from 'lucide-react'
 import type { Banner } from '@/types'
 import { Button } from '@/components/ui/Button'
+import { useApp } from '@/context/AppContext'
 
 interface BannerPreviewProps {
   banner: Banner
@@ -12,12 +13,13 @@ interface BannerPreviewProps {
 
 const templatePatterns: Record<string, string> = {
   dark_glass: 'radial-gradient(ellipse at 80% 20%, rgba(255,106,0,0.18) 0%, transparent 55%), radial-gradient(ellipse at 20% 80%, rgba(255,106,0,0.08) 0%, transparent 50%)',
-  minimal: 'radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.04) 0%, transparent 60%)',
-  branded: 'radial-gradient(ellipse at 100% 0%, rgba(255,106,0,0.22) 0%, transparent 50%), linear-gradient(135deg, rgba(255,106,0,0.06) 0%, transparent 50%)',
-  news: 'linear-gradient(135deg, rgba(255,106,0,0.12) 0%, transparent 40%), radial-gradient(ellipse at 0% 100%, rgba(255,106,0,0.08) 0%, transparent 50%)',
+  minimal:    'radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.04) 0%, transparent 60%)',
+  branded:    'radial-gradient(ellipse at 100% 0%, rgba(255,106,0,0.22) 0%, transparent 50%), linear-gradient(135deg, rgba(255,106,0,0.06) 0%, transparent 50%)',
+  news:       'linear-gradient(135deg, rgba(255,106,0,0.12) 0%, transparent 40%), radial-gradient(ellipse at 0% 100%, rgba(255,106,0,0.08) 0%, transparent 50%)',
 }
 
 export function BannerPreview({ banner, onRegenerate, onChangeTemplate, onRemove }: BannerPreviewProps) {
+  const { t } = useApp()
   const pattern = templatePatterns[banner.templateId] || templatePatterns.dark_glass
 
   return (
@@ -70,13 +72,13 @@ export function BannerPreview({ banner, onRegenerate, onChangeTemplate, onRemove
         {onRegenerate && (
           <Button variant="secondary" size="sm" onClick={onRegenerate} className="flex-1">
             <RefreshCw size={13} />
-            Regenerate
+            {t('postDetails.regenerateVisual')}
           </Button>
         )}
         {onChangeTemplate && (
           <Button variant="secondary" size="sm" onClick={onChangeTemplate} className="flex-1">
             <LayoutTemplate size={13} />
-            Template
+            {t('postDetails.template')}
           </Button>
         )}
         {onRemove && (

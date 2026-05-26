@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion'
 import { Link, Lightbulb, FileText, Newspaper, Megaphone } from 'lucide-react'
 import type { SourceType } from '@/types'
+import type { TranslationKey } from '@/i18n'
+import { useApp } from '@/context/AppContext'
 import { cn } from '@/lib/utils'
 
 interface InputTypeChipsProps {
@@ -8,20 +10,27 @@ interface InputTypeChipsProps {
   onChange: (type: SourceType) => void
 }
 
-const chips: { id: SourceType; label: string; icon: React.ElementType; placeholder: string }[] = [
-  { id: 'link', label: 'Link', icon: Link, placeholder: 'Paste a URL — article, product page, announcement…' },
-  { id: 'prompt', label: 'Idea', icon: Lightbulb, placeholder: 'Describe what you want to write about…' },
-  { id: 'text', label: 'Text', icon: FileText, placeholder: 'Paste a text to transform into a post…' },
-  { id: 'bot', label: 'News', icon: Newspaper, placeholder: 'Paste a news item or announcement…' },
-  { id: 'forwarded_post', label: 'Promo', icon: Megaphone, placeholder: 'Describe a promo or offer to create a post for…' },
+// Maps each source type to its label and placeholder translation keys.
+// Placeholders are consumed by the parent (CreateScreen) via getPlaceholderKey().
+const CHIP_CONFIG: { id: SourceType; labelKey: TranslationKey; icon: React.ElementType; placeholderKey: TranslationKey }[] = [
+  { id: 'link',           labelKey: 'create.input.link',  icon: Link,        placeholderKey: 'create.placeholderLink'  },
+  { id: 'prompt',         labelKey: 'create.input.idea',  icon: Lightbulb,   placeholderKey: 'create.placeholder'      },
+  { id: 'text',           labelKey: 'create.input.text',  icon: FileText,    placeholderKey: 'create.placeholderText'  },
+  { id: 'bot',            labelKey: 'create.input.news',  icon: Newspaper,   placeholderKey: 'create.placeholderNews'  },
+  { id: 'forwarded_post', labelKey: 'create.input.promo', icon: Megaphone,   placeholderKey: 'create.placeholderPromo' },
 ]
 
-export const chipPlaceholders = Object.fromEntries(chips.map(c => [c.id, c.placeholder]))
+/** Returns the translation key for the textarea placeholder of a given source type. */
+export function getPlaceholderKey(sourceType: SourceType): TranslationKey {
+  return CHIP_CONFIG.find(c => c.id === sourceType)?.placeholderKey ?? 'create.placeholder'
+}
 
 export function InputTypeChips({ selected, onChange }: InputTypeChipsProps) {
+  const { t } = useApp()
+
   return (
     <div className="flex gap-1.5 flex-wrap">
-      {chips.map((chip, i) => {
+      {CHIP_CONFIG.map((chip, i) => {
         const isActive = chip.id === selected
         const Icon = chip.icon
         return (
@@ -39,7 +48,7 @@ export function InputTypeChips({ selected, onChange }: InputTypeChipsProps) {
             )}
           >
             <Icon size={13} />
-            {chip.label}
+            {t(chip.labelKey)}
           </motion.button>
         )
       })}

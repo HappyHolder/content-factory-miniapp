@@ -18,17 +18,17 @@ interface PostsScreenProps {
 }
 
 export function PostsScreen({ onOpenPost }: PostsScreenProps) {
-  const { state, publishPost, cancelSchedule, showToast } = useApp()
+  const { state, publishPost, cancelSchedule, showToast, t } = useApp()
   const [activeTab, setActiveTab] = useState<TabId>('new')
 
-  const newPosts = state.posts.filter(p => p.status === 'new')
+  const newPosts       = state.posts.filter(p => p.status === 'new')
   const scheduledPosts = state.posts.filter(p => p.status === 'scheduled')
   const publishedPosts = state.posts.filter(p => p.status === 'published')
 
   const tabs = [
-    { id: 'new', label: 'New', count: newPosts.length },
-    { id: 'scheduled', label: 'Scheduled', count: scheduledPosts.length },
-    { id: 'published', label: 'Published' },
+    { id: 'new',       label: t('posts.tabs.new'),       count: newPosts.length       },
+    { id: 'scheduled', label: t('posts.tabs.scheduled'), count: scheduledPosts.length },
+    { id: 'published', label: t('posts.tabs.published')                               },
   ]
 
   return (
@@ -54,7 +54,7 @@ export function PostsScreen({ onOpenPost }: PostsScreenProps) {
         >
           {activeTab === 'new' && (
             newPosts.length === 0
-              ? <EmptyState message="No new posts yet" sub="Send a message to the bot or use Create" />
+              ? <EmptyState message={t('posts.empty.noNew')} sub={t('posts.empty.noNewSub')} />
               : newPosts.map((p, i) => (
                 <PostCard key={p.id} post={p} onClick={() => onOpenPost(p.id)} index={i} />
               ))
@@ -62,7 +62,7 @@ export function PostsScreen({ onOpenPost }: PostsScreenProps) {
 
           {activeTab === 'scheduled' && (
             scheduledPosts.length === 0
-              ? <EmptyState message="Nothing scheduled" sub="Schedule posts from the post editor" />
+              ? <EmptyState message={t('posts.empty.noScheduled')} sub={t('posts.empty.noScheduledSub')} />
               : scheduledPosts.map((p, i) => (
                 <ScheduledCard
                   key={p.id}
@@ -77,7 +77,7 @@ export function PostsScreen({ onOpenPost }: PostsScreenProps) {
 
           {activeTab === 'published' && (
             publishedPosts.length === 0
-              ? <EmptyState message="Nothing published yet" sub="Published posts will appear here" />
+              ? <EmptyState message={t('posts.empty.noPublished')} sub={t('posts.empty.noPublishedSub')} />
               : publishedPosts.map((p, i) => (
                 <PublishedCard
                   key={p.id}
@@ -85,9 +85,9 @@ export function PostsScreen({ onOpenPost }: PostsScreenProps) {
                   onCopy={() => {
                     const variant = p.variants.find(v => v.id === p.selectedVariantId) || p.variants[0]
                     navigator.clipboard.writeText(variant?.text || '').catch(() => {})
-                    showToast('Copied to clipboard')
+                    showToast(t('common.copied'))
                   }}
-                  onCreateSimilar={() => showToast('Creating similar post… (mock)')}
+                  onCreateSimilar={() => showToast(t('posts.actions.createSimilar') + '…')}
                   index={i}
                 />
               ))
@@ -121,6 +121,7 @@ function ScheduledCard({ post, onOpen, onPublishNow, onCancel, index }: {
   onCancel: () => void
   index: number
 }) {
+  const { t } = useApp()
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -140,10 +141,10 @@ function ScheduledCard({ post, onOpen, onPublishNow, onCancel, index }: {
         </div>
         <div className="flex gap-1.5">
           <Button variant="ghost" size="sm" onClick={onOpen} className="flex-1">
-            <Pencil size={11} /> Edit
+            <Pencil size={11} /> {t('posts.actions.open')}
           </Button>
           <Button variant="primary" size="sm" onClick={onPublishNow} className="flex-1">
-            <Send size={11} /> Publish now
+            <Send size={11} /> {t('posts.actions.publishNow')}
           </Button>
           <Button variant="danger" size="sm" onClick={onCancel}>
             <Trash2 size={11} />
@@ -160,6 +161,7 @@ function PublishedCard({ post, onCopy, onCreateSimilar, index }: {
   onCreateSimilar: () => void
   index: number
 }) {
+  const { t } = useApp()
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -177,11 +179,16 @@ function PublishedCard({ post, onCopy, onCreateSimilar, index }: {
           </div>
         </div>
         <div className="flex gap-1.5">
-          <Button variant="ghost" size="sm" onClick={() => window.open('https://t.me/' + post.channelUsername, '_blank')} className="flex-1">
-            <ExternalLink size={11} /> Open
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => window.open('https://t.me/' + post.channelUsername, '_blank')}
+            className="flex-1"
+          >
+            <ExternalLink size={11} /> {t('posts.actions.open')}
           </Button>
           <Button variant="ghost" size="sm" onClick={onCreateSimilar} className="flex-1">
-            Similar
+            {t('posts.actions.createSimilar')}
           </Button>
           <Button variant="ghost" size="sm" onClick={onCopy}>
             <Copy size={11} />

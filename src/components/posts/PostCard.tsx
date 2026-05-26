@@ -4,6 +4,7 @@ import type { GeneratedPost } from '@/types'
 import { StatusChip, SourceChip } from '@/components/ui/StatusChip'
 import { formatRelativeTime, formatScheduledTime } from '@/lib/utils'
 import { BannerMini } from '@/components/posts/BannerMini'
+import { useApp } from '@/context/AppContext'
 
 interface PostCardProps {
   post: GeneratedPost
@@ -12,6 +13,9 @@ interface PostCardProps {
 }
 
 export function PostCard({ post, onClick, index = 0 }: PostCardProps) {
+  const { t } = useApp()
+  const variantWord = post.variants.length === 1 ? t('posts.meta.variant') : t('posts.meta.variants')
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -40,12 +44,12 @@ export function PostCard({ post, onClick, index = 0 }: PostCardProps) {
               <SourceChip source={post.sourceType} />
               <span className="text-[11px] text-[#55555D] flex items-center gap-1">
                 <Layers size={10} />
-                {post.variants.length} {post.variants.length === 1 ? 'variant' : 'variants'}
+                {post.variants.length} {variantWord}
               </span>
               {post.banner && (
                 <span className="text-[11px] text-[#55555D] flex items-center gap-1">
                   <Image size={10} />
-                  Banner
+                  {t('posts.meta.visual')}
                 </span>
               )}
             </div>
