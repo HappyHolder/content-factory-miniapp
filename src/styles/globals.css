@@ -27,6 +27,7 @@
 html, body, #root {
   height: 100%;
   width: 100%;
+  overflow: hidden;           /* one mobile viewport — no browser-level scroll */
   overscroll-behavior: none;
 }
 
@@ -34,7 +35,6 @@ body {
   background-color: #070708;
   color: #FFFFFF;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
-  overflow-x: hidden;
 }
 
 #root {
@@ -46,10 +46,30 @@ body {
   position: relative;
 }
 
-/* Scrollbar */
+/* ── Scrollbars: hide on all engines, keep scroll functionality ── */
+
+/* Chrome / Safari / Chromium-based Telegram WebView */
 ::-webkit-scrollbar {
-  width: 0;
-  height: 0;
+  display: none;
+}
+
+/* Firefox */
+html {
+  scrollbar-width: none;
+}
+
+/* IE / legacy Edge */
+body {
+  -ms-overflow-style: none;
+}
+
+/* Reusable utility — apply to any overflow-y-auto container */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE / legacy Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;             /* Chrome / Safari / Chromium */
 }
 
 /* Glass card utility */

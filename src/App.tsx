@@ -53,7 +53,7 @@ function AppContent() {
 
       <AnimatePresence mode="wait" initial={false}>
         {isModalOpen ? (
-          <div key="modal" className="flex-1 min-h-0 overflow-y-auto page-content">
+          <div key="modal" className="flex-1 min-h-0 overflow-y-auto page-content no-scrollbar">
             {modal.type === 'post_detail' && (
               <PostDetailsScreen postId={modal.postId} onBack={handleBack} />
             )}

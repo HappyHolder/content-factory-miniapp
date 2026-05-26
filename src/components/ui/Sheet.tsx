@@ -31,7 +31,7 @@ export function Sheet({ open, onClose, title, children, className, height = 'aut
             transition={{ type: 'spring', damping: 28, stiffness: 320, mass: 0.9 }}
             className={cn(
               'fixed left-0 right-0 bottom-0 z-[201] max-w-[430px] mx-auto',
-              'bg-[#0E0E10] border-t border-white/10 rounded-t-[28px]',
+              'bg-[#0E0E10] border-t border-white/10 rounded-t-[28px] no-scrollbar',
               height === 'full' && 'h-[92vh] overflow-y-auto',
               height === '80' && 'max-h-[80vh] overflow-y-auto',
               className
