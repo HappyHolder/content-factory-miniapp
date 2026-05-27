@@ -5,6 +5,7 @@ import healthRouter from './routes/health';
 import authRouter from './routes/auth';
 import channelsRouter from './routes/channels';
 import brandkitsRouter from './routes/brandkits';
+import botRouter from './routes/bot';
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use('/api/health',   healthRouter);
 app.use('/api/auth',     authRouter);
 app.use('/api/channels',  channelsRouter);
 app.use('/api/brandkits', brandkitsRouter);
+app.use('/api/bot',       botRouter);
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(env.PORT, () => {

@@ -16,9 +16,10 @@ function requireEnv(key: string): string {
 }
 
 export const env = {
-  DATABASE_URL:        requireEnv('DATABASE_URL'),
-  DIRECT_URL:          requireEnv('DIRECT_URL'),
-  TELEGRAM_BOT_TOKEN:  requireEnv('TELEGRAM_BOT_TOKEN'),
+  DATABASE_URL:              requireEnv('DATABASE_URL'),
+  DIRECT_URL:                requireEnv('DIRECT_URL'),
+  TELEGRAM_BOT_TOKEN:        requireEnv('TELEGRAM_BOT_TOKEN'),
+  TELEGRAM_WEBHOOK_SECRET:   requireEnv('TELEGRAM_WEBHOOK_SECRET'),
   PORT: parseInt(process.env['PORT'] ?? '8787', 10),
   NODE_ENV: (process.env['NODE_ENV'] ?? 'development') as
     | 'development'

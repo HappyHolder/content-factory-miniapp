@@ -76,6 +76,37 @@ export async function getChat(chatId: string, token: string): Promise<TgChat> {
 }
 
 /**
+ * Sends a plain-text message to a Telegram chat via sendMessage.
+ * Throws TelegramApiError on a non-ok response or network failure.
+ * Never logs the token.
+ */
+export async function sendBotMessage(
+  chatId: number,
+  text: string,
+  token: string,
+): Promise<void> {
+  const url = `${TG_API}/bot${token}/sendMessage`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling sendMessage: ${(err as Error).message}`);
+  }
+
+  const body = (await res.json()) as TgApiResponse<unknown>;
+  if (!body.ok) {
+    throw new TelegramApiError(
+      body.description ?? 'sendMessage returned not-ok',
+      body.error_code,
+    );
+  }
+}
+
+/**
  * Returns the membership/role info for a user in a chat.
  * chatId should be in the form "@username".
  * Throws TelegramApiError if the user is not found or the request fails.
