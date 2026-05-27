@@ -12,6 +12,14 @@ import { cn } from '@/lib/utils'
 import { BotSourcesList } from '@/components/create/BotSourcesList'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
+import type { GeneratedPost } from '@/types'
+
+// API returns dates as ISO strings; banner is absent (undefined on receipt).
+type GenerateApiPost = Omit<GeneratedPost, 'createdAt' | 'scheduledAt' | 'publishedAt' | 'banner'> & {
+  createdAt:   string
+  scheduledAt: string | null
+  publishedAt: string | null
+}
 
 interface CreateScreenProps {
   onPostCreated: (id: string) => void
@@ -59,23 +67,52 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
   const handleGenerate = async () => {
     if (!canGenerate || !activeChannel) return
 
-    const brandKit = brandKitService.getByChannelId(state.activeChannelId)
-    if (!brandKit) {
-      showToast(t('create.generationFailed'), 'error')
-      return
-    }
-
     setIsGenerating(true)
     setDone(false)
 
     try {
-      const post = await generationService.generate({
-        input: input.trim(),
-        sourceType,
-        channelId: state.activeChannelId,
-        channelUsername: activeChannel.username,
-        brandKit,
-      })
+      let post: GeneratedPost
+
+      if (authStatus === 'authenticated') {
+        // ── Real backend path ────────────────────────────────────────────────
+        const initData = getTelegramInitData()
+        if (!initData) throw new Error('No initData')
+
+        const res = await fetch(`${API_BASE}/api/posts/generate`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            initData,
+            channelId:  state.activeChannelId,
+            input:      input.trim(),
+            sourceType,
+          }),
+        })
+        if (!res.ok) throw new Error(`generate failed: ${res.status}`)
+
+        const data = await res.json() as { post: GenerateApiPost }
+        post = {
+          ...data.post,
+          createdAt:   new Date(data.post.createdAt),
+          scheduledAt: data.post.scheduledAt != null ? new Date(data.post.scheduledAt) : undefined,
+          publishedAt: data.post.publishedAt != null ? new Date(data.post.publishedAt) : undefined,
+        }
+      } else {
+        // ── Mock / dev path ──────────────────────────────────────────────────
+        const brandKit = brandKitService.getByChannelId(state.activeChannelId)
+        if (!brandKit) {
+          showToast(t('create.generationFailed'), 'error')
+          return
+        }
+        post = await generationService.generate({
+          input:           input.trim(),
+          sourceType,
+          channelId:       state.activeChannelId,
+          channelUsername: activeChannel.username,
+          brandKit,
+        })
+      }
+
       addPost(post)
       setDone(true)
       setInput('')
