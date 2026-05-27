@@ -37,9 +37,15 @@ export const mockChannels: Channel[] = [
 export const mockBrandKits: BrandKit[] = [
   {
     channelId: 'ch1',
+    channelAbout: {
+      topic: 'Создание SaaS-продукта в открытую',
+      targetAudience: 'Инди-фаундеры и стартап-билдеры',
+      contentGoal: 'Делиться честным процессом, растить аудиторию и приводить заявки',
+    },
     voiceProfile: {
       language: 'EN',
       addressStyle: 'ты',
+      authorRole: 'founder',
       tone: 'founder',
       postLength: 'medium',
       emojiDensity: 'light',
@@ -86,10 +92,16 @@ export const mockBrandKits: BrandKit[] = [
     },
     visualKit: {
       primaryColor: '#FF6A00',
+      secondaryColor: '#1A0A00',
       backgroundStyle: 'dark',
       cardStyle: 'branded',
       watermark: true,
       bannerTemplate: 'dark_glass',
+      logoUsage: 'when_relevant',
+      aspectRatio: '16:9',
+      textOnCover: true,
+      references: [],
+      avoidList: ['стоковые фото', 'перегруженные фоны'],
     },
     signature: {
       text: '— Alex, building in public',
@@ -97,19 +109,29 @@ export const mockBrandKits: BrandKit[] = [
       usage: 'always',
     },
     postRules: {
-      defaultStructure: 'Hook → Context → Insight → CTA',
+      defaultStructure: 'Хук → Контекст → Инсайт → CTA',
       neverCopySource: true,
       avoidClickbait: true,
       shortParagraphs: true,
       addCtaIfRelevant: true,
       useLinkKitWhenRelevant: true,
+      paragraphStyle: 'short',
+      listUsage: 'when_relevant',
+      ctaUsage: 'when_relevant',
+      thingsToAvoid: ['корпоративный жаргон', 'размытые метрики'],
     },
   },
   {
     channelId: 'ch2',
+    channelAbout: {
+      topic: 'Tech news and analysis',
+      targetAudience: 'Tech professionals and enthusiasts',
+      contentGoal: 'Deliver concise, accurate tech news coverage',
+    },
     voiceProfile: {
       language: 'EN',
       addressStyle: 'вы',
+      authorRole: 'media',
       tone: 'expert',
       postLength: 'short',
       emojiDensity: 'none',
@@ -126,10 +148,16 @@ export const mockBrandKits: BrandKit[] = [
     linkKit: { links: [] },
     visualKit: {
       primaryColor: '#FF6A00',
+      secondaryColor: '#0D1117',
       backgroundStyle: 'glass',
       cardStyle: 'minimal',
       watermark: false,
       bannerTemplate: 'minimal',
+      logoUsage: 'always',
+      aspectRatio: '16:9',
+      textOnCover: true,
+      references: [],
+      avoidList: [],
     },
     signature: {
       text: 'Tech Digest',
@@ -142,6 +170,10 @@ export const mockBrandKits: BrandKit[] = [
       shortParagraphs: true,
       addCtaIfRelevant: false,
       useLinkKitWhenRelevant: false,
+      paragraphStyle: 'short',
+      listUsage: 'when_relevant',
+      ctaUsage: 'never',
+      thingsToAvoid: [],
     },
   },
 ]

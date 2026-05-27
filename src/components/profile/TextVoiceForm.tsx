@@ -1,0 +1,193 @@
+import { useState } from 'react'
+import { Button } from '@/components/ui/Button'
+import { Switch } from '@/components/ui/Switch'
+import { OptionPills } from '@/components/ui/OptionPills'
+import { useApp } from '@/context/AppContext'
+import type { VoiceProfile, EmojiPackConfig, Language, AddressStyle, AuthorRole, Tone, PostLength, EmojiDensity } from '@/types'
+
+interface TextVoiceFormProps {
+  channelId: string
+  initialVoice: VoiceProfile
+  initialEmoji: EmojiPackConfig
+}
+
+export function TextVoiceForm({ channelId, initialVoice, initialEmoji }: TextVoiceFormProps) {
+  const { updateBrandKit, t } = useApp()
+  const [voice, setVoice] = useState<VoiceProfile>(initialVoice)
+  const [emoji, setEmoji] = useState<EmojiPackConfig>(initialEmoji)
+  const [emojiInput, setEmojiInput] = useState('')
+
+  const setV = <K extends keyof VoiceProfile>(key: K, val: VoiceProfile[K]) =>
+    setVoice(prev => ({ ...prev, [key]: val }))
+  const setE = <K extends keyof EmojiPackConfig>(key: K, val: EmojiPackConfig[K]) =>
+    setEmoji(prev => ({ ...prev, [key]: val }))
+
+  const addEmoji = () => {
+    const chars = [...emojiInput.trim()]
+    const unique = chars.filter(c => c && !emoji.allowedEmojis.includes(c))
+    if (unique.length) setE('allowedEmojis', [...emoji.allowedEmojis, ...unique])
+    setEmojiInput('')
+  }
+
+  const removeEmoji = (e: string) =>
+    setE('allowedEmojis', emoji.allowedEmojis.filter(x => x !== e))
+
+  const handleSave = () => {
+    updateBrandKit(channelId, { voiceProfile: voice, emojiPack: emoji })
+  }
+
+  return (
+    <div className="space-y-4">
+
+      <OptionPills<Language>
+        label={t('channelStyle.textVoice.language')}
+        value={voice.language}
+        onChange={v => setV('language', v)}
+        options={[
+          { value: 'RU', label: t('channelStyle.textVoice.langRU') },
+          { value: 'EN', label: t('channelStyle.textVoice.langEN') },
+        ]}
+      />
+
+      <OptionPills<AddressStyle>
+        label={t('channelStyle.textVoice.addressStyle')}
+        value={voice.addressStyle}
+        onChange={v => setV('addressStyle', v)}
+        options={[
+          { value: 'ты', label: t('channelStyle.textVoice.addressTy') },
+          { value: 'вы', label: t('channelStyle.textVoice.addressVy') },
+        ]}
+      />
+
+      <OptionPills<AuthorRole>
+        label={t('channelStyle.textVoice.authorRole')}
+        value={voice.authorRole ?? 'founder'}
+        onChange={v => setV('authorRole', v)}
+        options={[
+          { value: 'founder', label: t('channelStyle.textVoice.roleFounder') },
+          { value: 'expert',  label: t('channelStyle.textVoice.roleExpert')  },
+          { value: 'media',   label: t('channelStyle.textVoice.roleMedia')   },
+          { value: 'team',    label: t('channelStyle.textVoice.roleTeam')    },
+          { value: 'personal',label: t('channelStyle.textVoice.rolePersonal')},
+        ]}
+      />
+
+      <OptionPills<Tone>
+        label={t('channelStyle.textVoice.tone')}
+        value={voice.tone}
+        onChange={v => setV('tone', v)}
+        options={[
+          { value: 'founder', label: t('channelStyle.textVoice.toneFounder') },
+          { value: 'expert',  label: t('channelStyle.textVoice.toneExpert')  },
+          { value: 'calm',    label: t('channelStyle.textVoice.toneCalm')    },
+          { value: 'bold',    label: t('channelStyle.textVoice.toneBold')    },
+          { value: 'crypto',  label: t('channelStyle.textVoice.toneCrypto')  },
+          { value: 'meme',    label: t('channelStyle.textVoice.toneMeme')    },
+        ]}
+      />
+
+      <OptionPills<PostLength>
+        label={t('channelStyle.textVoice.postLength')}
+        value={voice.postLength}
+        onChange={v => setV('postLength', v)}
+        options={[
+          { value: 'short',  label: t('channelStyle.textVoice.lengthShort')  },
+          { value: 'medium', label: t('channelStyle.textVoice.lengthMedium') },
+          { value: 'long',   label: t('channelStyle.textVoice.lengthLong')   },
+        ]}
+      />
+
+      <OptionPills<EmojiDensity>
+        label={t('channelStyle.textVoice.emojiDensity')}
+        value={voice.emojiDensity}
+        onChange={v => setV('emojiDensity', v)}
+        options={[
+          { value: 'none',   label: t('channelStyle.textVoice.densityNone')   },
+          { value: 'light',  label: t('channelStyle.textVoice.densityLight')  },
+          { value: 'medium', label: t('channelStyle.textVoice.densityMedium') },
+          { value: 'active', label: t('channelStyle.textVoice.densityActive') },
+        ]}
+      />
+
+      {/* Emoji pack sub-section */}
+      <div className="pt-1">
+        <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-1">
+          {t('channelStyle.textVoice.emojiPackSection')}
+        </p>
+        <p className="text-[11px] text-[#55555D] mb-3">
+          {t('channelStyle.textVoice.emojiPackHint')}
+        </p>
+
+        <div className="space-y-3">
+          <div>
+            <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-1.5">
+              {t('channelStyle.textVoice.packLink')}
+            </p>
+            <input
+              value={emoji.packLink}
+              onChange={e => setE('packLink', e.target.value)}
+              placeholder={t('channelStyle.textVoice.packLinkPlaceholder')}
+              className="glass-input w-full px-3 py-2.5 text-sm"
+            />
+            <p className="text-[11px] text-[#66666E] mt-1.5">
+              {t('channelStyle.textVoice.packLinkHint')}
+            </p>
+          </div>
+
+          <Switch
+            label={t('channelStyle.textVoice.strictMode')}
+            description={t('channelStyle.textVoice.strictModeDesc')}
+            value={emoji.strictMode}
+            onChange={v => setE('strictMode', v)}
+          />
+
+          <Switch
+            label={t('channelStyle.textVoice.fallback')}
+            description={t('channelStyle.textVoice.fallbackDesc')}
+            value={emoji.fallbackToStandard}
+            onChange={v => setE('fallbackToStandard', v)}
+          />
+
+          <div>
+            <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">
+              {t('channelStyle.textVoice.allowedEmoji')}
+            </p>
+            <div className="flex flex-wrap gap-2 mb-2 min-h-[32px]">
+              {emoji.allowedEmojis.map(e => (
+                <button
+                  key={e}
+                  onClick={() => removeEmoji(e)}
+                  className="text-xl hover:scale-110 transition-transform active:scale-90 select-none"
+                  title="Tap to remove"
+                >
+                  {e}
+                </button>
+              ))}
+              {emoji.allowedEmojis.length === 0 && (
+                <span className="text-xs text-[#66666E] self-center">
+                  {t('channelStyle.textVoice.noEmoji')}
+                </span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={emojiInput}
+                onChange={e => setEmojiInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addEmoji()}
+                placeholder={t('channelStyle.textVoice.emojiPlaceholder')}
+                className="glass-input flex-1 px-3 py-2 text-sm"
+              />
+              <Button variant="secondary" size="sm" onClick={addEmoji}>
+                {t('channelStyle.textVoice.addEmoji')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Button variant="primary" size="md" onClick={handleSave} fullWidth>
+        {t('channelStyle.save.textVoice')}
+      </Button>
+    </div>
+  )
+}

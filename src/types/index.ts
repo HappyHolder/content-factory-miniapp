@@ -8,6 +8,19 @@ export type Language = 'RU' | 'EN'
 export type LinkUsage = 'inline' | 'button' | 'signature' | 'when_relevant' | 'always'
 export type BannerTemplate = 'dark_glass' | 'minimal' | 'branded' | 'news'
 
+// New types for redesigned channel style profile
+export type AuthorRole = 'founder' | 'expert' | 'media' | 'team' | 'personal'
+export type ParagraphStyle = 'short' | 'medium' | 'long'
+export type ListUsage = 'never' | 'when_relevant' | 'always'
+export type CoverAspectRatio = '16:9' | '4:5' | '1:1' | '9:16'
+export type LogoUsage = 'always' | 'when_relevant' | 'never'
+
+export interface ChannelAbout {
+  topic: string
+  targetAudience: string
+  contentGoal: string
+}
+
 export type PlanTier = 'starter' | 'creator' | 'studio_pro'
 
 export interface Subscription {
@@ -47,6 +60,7 @@ export interface Channel {
 export interface VoiceProfile {
   language: Language
   addressStyle: AddressStyle
+  authorRole?: AuthorRole
   tone: Tone
   postLength: PostLength
   emojiDensity: EmojiDensity
@@ -82,6 +96,13 @@ export interface VisualKit {
   cardStyle: 'minimal' | 'branded' | 'bold'
   watermark: boolean
   bannerTemplate: BannerTemplate
+  // New cover fields
+  secondaryColor?: string
+  aspectRatio?: CoverAspectRatio
+  textOnCover?: boolean
+  logoUsage?: LogoUsage
+  references?: string[]
+  avoidList?: string[]
 }
 
 export interface Signature {
@@ -97,10 +118,16 @@ export interface PostRules {
   shortParagraphs: boolean
   addCtaIfRelevant: boolean
   useLinkKitWhenRelevant: boolean
+  // New format fields
+  paragraphStyle?: ParagraphStyle
+  listUsage?: ListUsage
+  ctaUsage?: 'never' | 'when_relevant' | 'always'
+  thingsToAvoid?: string[]
 }
 
 export interface BrandKit {
   channelId: string
+  channelAbout?: ChannelAbout
   voiceProfile: VoiceProfile
   emojiPack: EmojiPackConfig
   linkKit: LinkKit

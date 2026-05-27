@@ -1,0 +1,116 @@
+import { useApp } from '@/context/AppContext'
+import type { BrandKit, AuthorRole, Tone, PostLength, EmojiDensity, BannerTemplate } from '@/types'
+import type { TranslationKey } from '@/i18n'
+
+interface ChannelStyleSummaryProps {
+  brandKit: BrandKit
+}
+
+const ROLE_KEY: Record<AuthorRole, TranslationKey> = {
+  founder:  'channelStyle.textVoice.roleFounder',
+  expert:   'channelStyle.textVoice.roleExpert',
+  media:    'channelStyle.textVoice.roleMedia',
+  team:     'channelStyle.textVoice.roleTeam',
+  personal: 'channelStyle.textVoice.rolePersonal',
+}
+
+const TONE_KEY: Record<Tone, TranslationKey> = {
+  founder: 'channelStyle.textVoice.toneFounder',
+  expert:  'channelStyle.textVoice.toneExpert',
+  calm:    'channelStyle.textVoice.toneCalm',
+  bold:    'channelStyle.textVoice.toneBold',
+  crypto:  'channelStyle.textVoice.toneCrypto',
+  meme:    'channelStyle.textVoice.toneMeme',
+}
+
+const LENGTH_KEY: Record<PostLength, TranslationKey> = {
+  short:  'channelStyle.textVoice.lengthShort',
+  medium: 'channelStyle.textVoice.lengthMedium',
+  long:   'channelStyle.textVoice.lengthLong',
+}
+
+const DENSITY_KEY: Partial<Record<EmojiDensity, TranslationKey>> = {
+  light:  'channelStyle.textVoice.densityLight',
+  medium: 'channelStyle.textVoice.densityMedium',
+  active: 'channelStyle.textVoice.densityActive',
+}
+
+const COVER_STYLE_KEY: Record<BannerTemplate, TranslationKey> = {
+  dark_glass: 'channelStyle.covers.styleDarkGlass',
+  minimal:    'channelStyle.covers.styleMinimal',
+  branded:    'channelStyle.covers.styleBranded',
+  news:       'channelStyle.covers.styleNews',
+}
+
+export function ChannelStyleSummary({ brandKit }: ChannelStyleSummaryProps) {
+  const { t } = useApp()
+  const { channelAbout, voiceProfile, postRules, visualKit } = brandKit
+
+  const hasTopic = !!channelAbout?.topic
+
+  const roleStr    = voiceProfile.authorRole ? t(ROLE_KEY[voiceProfile.authorRole]) : null
+  const toneStr    = t(TONE_KEY[voiceProfile.tone])
+  const lengthStr  = t(LENGTH_KEY[voiceProfile.postLength])
+  const densityKey = DENSITY_KEY[voiceProfile.emojiDensity]
+  const densityStr = densityKey ? t(densityKey) : null
+
+  // Deduplicate: role and tone can translate to the same word (e.g. 'Founder' / 'Основатель')
+  const traits = [...new Set([
+    roleStr,
+    voiceProfile.language,
+    toneStr,
+    lengthStr,
+    densityStr,
+  ].filter(Boolean) as string[])]
+
+  const coverStyleStr = t(COVER_STYLE_KEY[visualKit.bannerTemplate])
+  const coverHint = [
+    coverStyleStr,
+    visualKit.aspectRatio,
+  ].filter(Boolean).join(' · ')
+
+  const formatHint = postRules?.defaultStructure
+    ? postRules.defaultStructure.split(' → ').slice(0, 2).join(' → ') + ' →…'
+    : null
+
+  return (
+    <div className="px-4 mb-3">
+      <div className="p-4 rounded-[16px] bg-[rgba(255,106,0,0.05)] border border-[rgba(255,106,0,0.14)]">
+        <p className="text-[10px] font-semibold text-[#FF6A00] uppercase tracking-wider mb-2">
+          {t('channelStyle.aiSummary')}
+        </p>
+
+        {hasTopic ? (
+          <p className="text-[13px] font-medium text-white leading-snug mb-2.5">
+            {channelAbout!.topic}
+          </p>
+        ) : (
+          <p className="text-[12px] text-[#44444C] italic mb-2.5">
+            {t('channelStyle.aiSummaryEmpty')}
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-1.5">
+          {traits.map((trait, i) => (
+            <span
+              key={i}
+              className="text-[11px] text-[#A1A1AA] bg-white/[0.04] border border-white/[0.06] px-2 py-0.5 rounded-full"
+            >
+              {trait}
+            </span>
+          ))}
+          {formatHint && (
+            <span className="text-[11px] text-[#66666E] bg-white/[0.03] border border-white/[0.05] px-2 py-0.5 rounded-full font-mono">
+              {formatHint}
+            </span>
+          )}
+          {coverHint && (
+            <span className="text-[11px] text-[#66666E] bg-white/[0.03] border border-white/[0.05] px-2 py-0.5 rounded-full">
+              {coverHint}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
