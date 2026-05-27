@@ -178,6 +178,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         username: string | null
       }
       channels: Channel[]
+      // brandKits is optional so older backend versions stay compatible
+      brandKits?: {
+        channelId:    string
+        channelAbout: unknown
+        voiceProfile: unknown
+        emojiPack:    unknown
+        linkKit:      unknown
+        visualKit:    unknown
+        signature:    unknown
+        postRules:    unknown
+      }[]
       subscription: null
     }
 
@@ -195,9 +206,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         const realChannels: Channel[] = data.channels ?? []
 
-        // Create default frontend BrandKits for every real channel
-        // (server stores null JSON blobs; frontend needs shaped defaults)
-        const realBrandKits = realChannels.map(ch => createDefaultBrandKit(ch.id))
+        // Build shaped BrandKits: start from defaults, then overwrite with
+        // any non-null sections returned from the DB (saved by the user previously).
+        // Null/missing sections keep the default shape so forms always render correctly.
+        const dbBrandKits = data.brandKits ?? []
+        const realBrandKits = realChannels.map(ch => {
+          const kit = createDefaultBrandKit(ch.id)
+          const dbKit = dbBrandKits.find(k => k.channelId === ch.id)
+          if (!dbKit) return kit
+          // Overwrite defaults with saved sections. Casting via `as any` because
+          // Prisma Json? columns arrive as `unknown` but were written from the
+          // same frontend interfaces — the shapes are guaranteed to match.
+          const SECTIONS = [
+            'channelAbout', 'voiceProfile', 'emojiPack',
+            'linkKit', 'visualKit', 'signature', 'postRules',
+          ] as const
+          for (const key of SECTIONS) {
+            if (dbKit[key] != null) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ;(kit as any)[key] = dbKit[key]
+            }
+          }
+          return kit
+        })
 
         // Re-initialise in-memory services to match real user's data
         channelService.init(realChannels)
@@ -300,13 +331,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const updateBrandKit = useCallback((channelId: string, updates: Partial<BrandKit>) => {
+    // 1. Immediate in-memory update — UI reflects changes instantly
     brandKitService.update(channelId, updates)
     setState(prev => ({
       ...prev,
       brandKits: brandKitService.getAll(),
     }))
     showToast(t('channelStyle.saved'))
-  }, [showToast, t])
+
+    // 2. Persist to Neon — fire-and-forget; does not block UI or crash on failure
+    if (authStatus === 'authenticated') {
+      const initData = getTelegramInitData()
+      if (initData) {
+        fetch(`${API_BASE}/api/brandkits/${channelId}`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData, sections: updates }),
+        }).catch(err => {
+          // Non-fatal: in-memory save already succeeded; user sees no error.
+          // Silent log only — do not expose initData or secrets.
+          console.error('[updateBrandKit] Backend save failed:', (err as Error).message)
+        })
+      }
+    }
+  }, [showToast, t, authStatus])
 
   const activeChannel = state.channels.find(c => c.id === state.activeChannelId)
 

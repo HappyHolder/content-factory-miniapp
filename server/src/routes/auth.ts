@@ -9,7 +9,7 @@ const router = Router();
 // Validates Telegram Mini App initData, upserts User by telegramId.
 //
 // Request body:  { initData: string }
-// Response 200:  { user: { id, name, telegramId, username }, channels: Channel[], subscription: null }
+// Response 200:  { user: { id, name, telegramId, username }, channels: Channel[], brandKits: BrandKit[], subscription: null }
 // Response 400:  { error: string }  — missing / malformed body
 // Response 401:  { error: string }  — invalid or expired initData
 // Response 500:  { error: string }  — DB failure
@@ -74,6 +74,40 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
     // Non-fatal: return empty channels rather than failing the whole auth
   }
 
+  // ── Fetch saved BrandKit sections for all channels ────────────────────────
+  // Returned as-is to the frontend. The frontend merges non-null sections over
+  // createDefaultBrandKit() defaults so forms always receive shaped objects.
+  let dbBrandKits: {
+    channelId:    string;
+    channelAbout: unknown;
+    voiceProfile: unknown;
+    emojiPack:    unknown;
+    linkKit:      unknown;
+    visualKit:    unknown;
+    signature:    unknown;
+    postRules:    unknown;
+  }[] = [];
+  if (dbChannels.length > 0) {
+    try {
+      dbBrandKits = await prisma.brandKit.findMany({
+        where:  { channelId: { in: dbChannels.map(ch => ch.id) } },
+        select: {
+          channelId:    true,
+          channelAbout: true,
+          voiceProfile: true,
+          emojiPack:    true,
+          linkKit:      true,
+          visualKit:    true,
+          signature:    true,
+          postRules:    true,
+        },
+      });
+    } catch (err) {
+      console.error('[auth/telegram] BrandKit fetch failed (non-fatal):', err);
+      // Non-fatal: frontend falls back to shaped defaults for all sections
+    }
+  }
+
   // ── Response ──────────────────────────────────────────────────────────────
   res.json({
     user: {
@@ -90,7 +124,8 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       isDefault:        i === 0,
       isConnected:      true,
     })),
-    subscription: null,    // populated once Subscription model is wired up
+    brandKits:    dbBrandKits,   // null sections are fine; frontend merges over defaults
+    subscription: null,          // populated once Subscription model is wired up
   });
 });
 
