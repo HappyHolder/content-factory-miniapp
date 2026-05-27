@@ -153,15 +153,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000)
   }, [])
 
-  // ── Telegram auth ─────────────────────────────────────────────────────────
+  // ── Telegram auth + persisted posts bootstrap ────────────────────────────
   // Fires once at mount. Calls ready() so Telegram shows the app immediately.
   //
   // Dev / browser mode (no initData):
   //   → authStatus stays 'mock'; mock state shown immediately; no fetch.
   //
   // Telegram mode (initData present), auth succeeds:
-  //   → replace user, channels, brandKits, posts, activeChannelId with real data.
-  //   → authStatus → 'authenticated'; real UI renders.
+  //   → POST /api/auth/telegram → real user / channels / brandKits
+  //   → POST /api/posts/list   → persisted GeneratedPosts (non-fatal; [] on failure)
+  //   → authStatus → 'authenticated'; real UI renders with posts surviving reload.
   //
   // Telegram mode, auth fails (network error / 401 / unexpected shape):
   //   → authStatus → 'failed'; minimal error screen shown; app stays stable.
@@ -192,67 +193,132 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       subscription: null
     }
 
-    fetch(`${API_BASE}/api/auth/telegram`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData }),
-    })
-      .then(res => (res.ok ? res.json() as Promise<TelegramAuthResponse> : null))
-      .then((data: TelegramAuthResponse | null) => {
-        if (!data?.user) {
-          setAuthStatus('failed')   // unexpected shape / non-ok response
-          return
-        }
+    // API date fields arrive as ISO strings; banner is absent (undefined).
+    interface ListApiPost {
+      id:               string
+      title:            string
+      sourceType:       string
+      sourceUrl:        string | null
+      sourceSummary:    string
+      channelId:        string
+      channelUsername:  string
+      variants:         { id: string; label: string; text: string; isSelected: boolean }[]
+      selectedVariantId: string | null
+      linkButtons:      unknown[]
+      status:           'new' | 'scheduled' | 'published'
+      createdAt:        string
+      scheduledAt:      string | null
+      publishedAt:      string | null
+      textRegensUsed:   number
+      imageRegensUsed:  number
+    }
 
-        const realChannels: Channel[] = data.channels ?? []
-
-        // Build shaped BrandKits: start from defaults, then overwrite with
-        // any non-null sections returned from the DB (saved by the user previously).
-        // Null/missing sections keep the default shape so forms always render correctly.
-        const dbBrandKits = data.brandKits ?? []
-        const realBrandKits = realChannels.map(ch => {
-          const kit = createDefaultBrandKit(ch.id)
-          const dbKit = dbBrandKits.find(k => k.channelId === ch.id)
-          if (!dbKit) return kit
-          // Overwrite defaults with saved sections. Casting via `as any` because
-          // Prisma Json? columns arrive as `unknown` but were written from the
-          // same frontend interfaces — the shapes are guaranteed to match.
-          const SECTIONS = [
-            'channelAbout', 'voiceProfile', 'emojiPack',
-            'linkKit', 'visualKit', 'signature', 'postRules',
-          ] as const
-          for (const key of SECTIONS) {
-            if (dbKit[key] != null) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              ;(kit as any)[key] = dbKit[key]
-            }
-          }
-          return kit
+    // Async IIFE — lets us await auth then posts sequentially while keeping
+    // the useEffect callback itself synchronous (React requirement).
+    ;(async () => {
+      // ── Step 1: Telegram auth ─────────────────────────────────────────
+      let authData: TelegramAuthResponse | null = null
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/telegram`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData }),
         })
+        authData = res.ok ? (await res.json() as TelegramAuthResponse) : null
+      } catch {
+        setAuthStatus('failed')   // network error
+        return
+      }
 
-        // Re-initialise in-memory services to match real user's data
-        channelService.init(realChannels)
-        postService.init([])
-        brandKitService.init(realBrandKits)
+      if (!authData?.user) {
+        setAuthStatus('failed')   // non-ok response or unexpected shape
+        return
+      }
 
-        setState(prev => ({
-          ...prev,
-          user: {
-            ...prev.user,            // preserve subscription + avatarUrl (not in auth response)
-            id:       data.user.id,
-            name:     data.user.name     ?? prev.user.name,
-            username: data.user.username ?? prev.user.username,
-          },
-          channels:        realChannels,
-          brandKits:       realBrandKits,
-          posts:           [],
-          activeChannelId: realChannels[0]?.id ?? '',
-        }))
-        setAuthStatus('authenticated')
+      const realChannels: Channel[] = authData.channels ?? []
+
+      // Build shaped BrandKits: start from defaults, then overwrite with
+      // any non-null sections returned from the DB (saved by the user previously).
+      // Null/missing sections keep the default shape so forms always render correctly.
+      const dbBrandKits = authData.brandKits ?? []
+      const realBrandKits = realChannels.map(ch => {
+        const kit = createDefaultBrandKit(ch.id)
+        const dbKit = dbBrandKits.find(k => k.channelId === ch.id)
+        if (!dbKit) return kit
+        // Overwrite defaults with saved sections. Casting via `as any` because
+        // Prisma Json? columns arrive as `unknown` but were written from the
+        // same frontend interfaces — the shapes are guaranteed to match.
+        const SECTIONS = [
+          'channelAbout', 'voiceProfile', 'emojiPack',
+          'linkKit', 'visualKit', 'signature', 'postRules',
+        ] as const
+        for (const key of SECTIONS) {
+          if (dbKit[key] != null) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ;(kit as any)[key] = dbKit[key]
+          }
+        }
+        return kit
       })
-      .catch(() => {
-        setAuthStatus('failed')   // network error — show error screen, do not crash
-      })
+
+      // Re-initialise in-memory channel / brandKit services
+      channelService.init(realChannels)
+      brandKitService.init(realBrandKits)
+
+      // ── Step 2: Load persisted posts (non-fatal) ───────────────────────
+      // If this fetch fails for any reason, auth still succeeds with posts = [].
+      // The try/catch boundary means posts errors can never set authStatus 'failed'.
+      let loadedPosts: GeneratedPost[] = []
+      try {
+        const postsRes = await fetch(`${API_BASE}/api/posts/list`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData }),
+        })
+        if (postsRes.ok) {
+          const postsData = await postsRes.json() as { posts: ListApiPost[] }
+          const rawPosts = Array.isArray(postsData.posts) ? postsData.posts : []
+          loadedPosts = rawPosts.map(p => ({
+            id:               p.id,
+            title:            p.title,
+            sourceType:       p.sourceType as GeneratedPost['sourceType'],
+            sourceUrl:        p.sourceUrl    ?? undefined,
+            sourceSummary:    p.sourceSummary,
+            channelId:        p.channelId,
+            channelUsername:  p.channelUsername,
+            variants:         p.variants,
+            selectedVariantId: p.selectedVariantId ?? undefined,
+            linkButtons:      p.linkButtons as GeneratedPost['linkButtons'],
+            status:           p.status,
+            createdAt:        new Date(p.createdAt),
+            scheduledAt:      p.scheduledAt  != null ? new Date(p.scheduledAt)  : undefined,
+            publishedAt:      p.publishedAt  != null ? new Date(p.publishedAt)  : undefined,
+            textRegensUsed:   p.textRegensUsed,
+            imageRegensUsed:  p.imageRegensUsed,
+          }))
+        }
+      } catch {
+        // Non-fatal — keep loadedPosts = []; auth still succeeds below
+      }
+
+      // ── Step 3: Commit state and mark authenticated ────────────────────
+      postService.init(loadedPosts)
+
+      setState(prev => ({
+        ...prev,
+        user: {
+          ...prev.user,            // preserve subscription + avatarUrl (not in auth response)
+          id:       authData!.user.id,
+          name:     authData!.user.name     ?? prev.user.name,
+          username: authData!.user.username ?? prev.user.username,
+        },
+        channels:        realChannels,
+        brandKits:       realBrandKits,
+        posts:           loadedPosts,
+        activeChannelId: realChannels[0]?.id ?? '',
+      }))
+      setAuthStatus('authenticated')
+    })()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshPosts = useCallback(() => {

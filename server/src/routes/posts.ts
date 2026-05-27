@@ -253,4 +253,115 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
   });
 });
 
+// ─── POST /api/posts/list ─────────────────────────────────────────────────────
+//
+// Returns actionable GeneratedPosts for the authenticated user (all channels).
+// FAILED and ARCHIVED statuses are intentionally excluded:
+//   - FAILED posts have no usable content and would surface as a confusing 'new'
+//   - ARCHIVED posts are intentionally hidden from the user
+//
+// Request body: { initData }
+// Response 200: { posts: MappedGeneratedPost[] }   — empty array if none
+// Response 400: missing initData
+// Response 401: invalid initData / user not found
+// Response 500: DB error
+
+router.post('/list', async (req: Request, res: Response): Promise<void> => {
+  const { initData } = req.body as { initData?: unknown };
+
+  // ── 1. Input validation ───────────────────────────────────────────────────
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' });
+    return;
+  }
+
+  // ── 2. Validate Telegram initData ────────────────────────────────────────
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({
+      error: err instanceof Error ? err.message : 'Invalid initData',
+    });
+    return;
+  }
+
+  // ── 3. Resolve authenticated user ────────────────────────────────────────
+  const telegramId = String(parsed.user.id);
+  let dbUser: { id: string } | null = null;
+  try {
+    dbUser = await prisma.user.findUnique({
+      where:  { telegramId },
+      select: { id: true },
+    });
+  } catch (err) {
+    console.error('[posts/list] User lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' });
+    return;
+  }
+  if (!dbUser) {
+    res.status(401).json({ error: 'User not found. Please re-open the app.' });
+    return;
+  }
+
+  // ── 4. Query all actionable posts for this user's channels ────────────────
+  // Join via channel.userId — GeneratedPost has no direct userId column.
+  // Limit 50, newest first.
+  let dbPosts;
+  try {
+    dbPosts = await prisma.generatedPost.findMany({
+      where: {
+        channel: { userId: dbUser.id },
+        status:  { in: ['NEW', 'SCHEDULED', 'PUBLISHED'] },
+      },
+      include: {
+        channel:  { select: { handle: true, name: true } },
+        variants: {
+          orderBy: { variantIndex: 'asc' },
+          select:  { id: true, label: true, text: true, isSelected: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take:    50,
+    });
+  } catch (err) {
+    console.error('[posts/list] Query failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' });
+    return;
+  }
+
+  // ── 5. Map to frontend shape ──────────────────────────────────────────────
+  // Rules:
+  //   - status: DB enum (uppercase) → frontend lowercase via mapStatus()
+  //   - dates: Date → ISO string; null stays null
+  //   - linkButtons: null in DB → [] for frontend
+  //   - banner: omitted entirely (no banner storage yet; frontend treats absent as undefined)
+  //   - isSelected: recomputed from selectedVariantId to stay consistent
+  res.json({
+    posts: dbPosts.map(post => ({
+      id:               post.id,
+      title:            post.title,
+      sourceType:       post.sourceType ?? 'prompt',
+      sourceUrl:        post.sourceUrl ?? null,
+      sourceSummary:    post.sourceSummary ?? '',
+      channelId:        post.channelId,
+      channelUsername:  post.channel.handle ?? post.channel.name,
+      variants:         post.variants.map(v => ({
+        id:         v.id,
+        label:      v.label ?? 'Variant',
+        text:       v.text,
+        isSelected: v.id === post.selectedVariantId,
+      })),
+      selectedVariantId: post.selectedVariantId,
+      linkButtons:       Array.isArray(post.linkButtons) ? post.linkButtons : [],
+      status:            mapStatus(post.status),
+      createdAt:         post.createdAt.toISOString(),
+      scheduledAt:       post.scheduledAt?.toISOString() ?? null,
+      publishedAt:       post.publishedAt?.toISOString() ?? null,
+      textRegensUsed:    post.textRegensUsed,
+      imageRegensUsed:   post.imageRegensUsed,
+    })),
+  });
+});
+
 export default router;
