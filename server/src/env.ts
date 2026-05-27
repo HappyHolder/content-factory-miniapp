@@ -17,6 +17,7 @@ function requireEnv(key: string): string {
 
 export const env = {
   DATABASE_URL: requireEnv('DATABASE_URL'),
+  DIRECT_URL:   requireEnv('DIRECT_URL'),
   PORT: parseInt(process.env['PORT'] ?? '8787', 10),
   NODE_ENV: (process.env['NODE_ENV'] ?? 'development') as
     | 'development'

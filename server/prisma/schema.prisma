@@ -73,41 +73,42 @@ model Channel {
   generatedPosts GeneratedPost[]
 }
 
+// ─── BrandKit ─────────────────────────────────────────────────────────────────
+// All Channel Style sub-sections are stored as Json blobs, one column per section.
+//
+// Why Json and not typed columns/enums:
+//   - BrandKit is always fetched and written as a whole document per channel.
+//   - Individual sub-fields (tone, emoji settings, colors, etc.) are never
+//     filtered or indexed independently.
+//   - Avoids 10+ Prisma enums that each require a migration on every UX change.
+//   - Matches the frontend BrandKit shape directly — no translation layer needed.
+//
+// Why LinkKit was folded in (no longer a separate table):
+//   - The old LinkKit model was a separate table with a single `links Json` column.
+//   - That added a required join on every BrandKit fetch with no queryability gain.
+//   - It is now `linkKit Json?` here, consistent with every other sub-section.
+//
+// Why EmojiPack was removed as a separate model:
+//   - The old EmojiPack model only stored `emojis String[]` — missing 3 of 4 fields.
+//   - Full emoji pack config is now `emojiPack Json?` here.
+
 model BrandKit {
-  id        String  @id @default(cuid())
-  channelId String  @unique
-  voiceTone String?
-  postRules String?
-  signature String?
+  id        String @id @default(cuid())
+  channelId String @unique
+
+  // Channel Style v2 sections — shape defined by frontend BrandKit interface
+  channelAbout Json? // { topic, targetAudience, contentGoal }
+  voiceProfile Json? // { language, addressStyle, authorRole, tone, postLength, emojiDensity, examplePosts[], favoriteWords[], forbiddenWords[] }
+  emojiPack    Json? // { packLink, strictMode, allowedEmojis[], fallbackToStandard }
+  linkKit      Json? // { links: LinkItem[] }
+  visualKit    Json? // { logoUrl, primaryColor, bannerTemplate, secondaryColor, aspectRatio, textOnCover, logoUsage, references[], avoidList[], ... }
+  signature    Json? // { text, cta?, usage }
+  postRules    Json? // { defaultStructure, neverCopySource, avoidClickbait, paragraphStyle, listUsage, ctaUsage, thingsToAvoid[], ... }
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  channel   Channel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  linkKit   LinkKit?
-  emojiPack EmojiPack?
-}
-
-model LinkKit {
-  id         String @id @default(cuid())
-  brandKitId String @unique
-  links      Json   @default("[]")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  brandKit BrandKit @relation(fields: [brandKitId], references: [id], onDelete: Cascade)
-}
-
-model EmojiPack {
-  id         String   @id @default(cuid())
-  brandKitId String   @unique
-  emojis     String[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  brandKit BrandKit @relation(fields: [brandKitId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 }
 
 model SourceInput {
@@ -121,7 +122,7 @@ model SourceInput {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   jobs GenerationJob[]
 }
 
@@ -137,8 +138,8 @@ model GenerationJob {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sourceInput    SourceInput   @relation(fields: [sourceInputId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceInput    SourceInput     @relation(fields: [sourceInputId], references: [id], onDelete: Cascade)
   generatedPosts GeneratedPost[]
 }
 
@@ -153,6 +154,13 @@ model GeneratedPost {
   textRegensUsed  Int        @default(0)
   imageRegensUsed Int        @default(0)
 
+  // Fields present in frontend GeneratedPost type, missing from original scaffold
+  sourceType        String? // mirrors SourceType enum values as string for flexibility
+  sourceUrl         String?
+  sourceSummary     String?
+  linkButtons       Json? // LinkItem[]
+  selectedVariantId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -164,6 +172,7 @@ model GeneratedPost {
 model PostVariant {
   id              String  @id @default(cuid())
   generatedPostId String
+  label           String? // matches frontend PostVariant.label
   variantIndex    Int     @default(0)
   text            String
   bannerUrl       String?
@@ -176,12 +185,12 @@ model PostVariant {
 }
 
 model Subscription {
-  id            String    @id @default(cuid())
-  userId        String    @unique
-  tier          PlanTier  @default(STARTER)
-  aiPostsLimit  Int
-  aiPostsUsed   Int       @default(0)
-  expiresAt     DateTime?
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  tier         PlanTier  @default(STARTER)
+  aiPostsLimit Int
+  aiPostsUsed  Int       @default(0)
+  expiresAt    DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
