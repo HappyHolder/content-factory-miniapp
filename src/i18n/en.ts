@@ -42,6 +42,9 @@ export const en = {
     renews:              'Renews',
     active:              'Active',
     makeActive:          'Make active',
+    noChannels:          'No channels connected yet',
+    noChannelsSub:       'Connect your Telegram channel to start generating posts',
+    noChannelsAction:    'Connect channel',
   },
   plans: {
     title:              'Plans',
@@ -130,6 +133,8 @@ export const en = {
     step1:              'Paste a link, idea, or text',
     step2:              'AI applies your channel style',
     step3:              'Ready variants appear in Posts',
+    noChannel:          'No channel connected',
+    noChannelSub:       'Connect a Telegram channel in Profile to start creating posts',
   },
   channelSwitcher: {
     title:       'Switch channel',

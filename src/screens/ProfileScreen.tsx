@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard
+  Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -98,17 +98,38 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
             </Button>
           </div>
           <div className="space-y-2">
-            {channels.map((ch, i) => (
-              <ChannelCard
-                key={ch.id}
-                channel={ch}
-                isActive={ch.id === activeChannelId}
-                onSetDefault={() => setActiveChannel(ch.id)}
-                onOpenBrandKit={() => onOpenBrandKit(ch.id, ch.username)}
-                index={i}
-                t={t}
-              />
-            ))}
+            {channels.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <GlassCard className="flex flex-col items-center text-center gap-3 py-5">
+                  <div className="w-10 h-10 rounded-full bg-white/[0.05] border border-white/[0.08] flex items-center justify-center">
+                    <Radio size={18} className="text-[#44444C]" />
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-semibold text-white mb-0.5">{t('profile.noChannels')}</p>
+                    <p className="text-[11px] text-[#55555D] leading-relaxed">{t('profile.noChannelsSub')}</p>
+                  </div>
+                  <Button variant="secondary" size="sm" onClick={() => showToast(t('profile.noChannelsAction') + ' — coming soon')}>
+                    {t('profile.noChannelsAction')}
+                  </Button>
+                </GlassCard>
+              </motion.div>
+            ) : (
+              channels.map((ch, i) => (
+                <ChannelCard
+                  key={ch.id}
+                  channel={ch}
+                  isActive={ch.id === activeChannelId}
+                  onSetDefault={() => setActiveChannel(ch.id)}
+                  onOpenBrandKit={() => onOpenBrandKit(ch.id, ch.username)}
+                  index={i}
+                  t={t}
+                />
+              ))
+            )}
           </div>
         </motion.div>
 

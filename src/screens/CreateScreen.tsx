@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Sparkles, Check, Loader2 } from 'lucide-react'
+import { Sparkles, Check, Loader2, Radio } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { ChannelSwitcherHeader } from '@/components/layout/ChannelSwitcherHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -116,6 +116,23 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
             </div>
           </GlassCard>
         </motion.div>
+
+        {/* No-channel notice */}
+        {state.channels.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05, duration: 0.2 }}
+          >
+            <div className="flex items-start gap-3 px-3.5 py-3 rounded-[14px] bg-white/[0.03] border border-white/[0.07]">
+              <Radio size={15} className="text-[#44444C] shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[12px] font-semibold text-white">{t('create.noChannel')}</p>
+                <p className="text-[11px] text-[#55555D] mt-0.5 leading-relaxed">{t('create.noChannelSub')}</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Tips */}
         <motion.div

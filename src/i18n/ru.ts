@@ -42,6 +42,9 @@ export const ru: Dict = {
     renews:              'Продлевается',
     active:              'Активный',
     makeActive:          'Сделать активным',
+    noChannels:          'Каналов пока нет',
+    noChannelsSub:       'Подключите Telegram-канал, чтобы начать создавать посты',
+    noChannelsAction:    'Подключить канал',
   },
   plans: {
     title:              'Планы',
@@ -130,6 +133,8 @@ export const ru: Dict = {
     step1:              'Вставьте ссылку, идею или текст',
     step2:              'AI учитывает стиль вашего канала',
     step3:              'Готовые варианты появятся в Постах',
+    noChannel:          'Нет подключённого канала',
+    noChannelSub:       'Подключите Telegram-канал в Профиле, чтобы создавать посты',
   },
   channelSwitcher: {
     title:       'Сменить канал',

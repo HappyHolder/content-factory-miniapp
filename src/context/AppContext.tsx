@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react'
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react'
 import type { AppState, GeneratedPost, Channel, BrandKit } from '@/types'
 import { mockInitialState } from '@/data/mockData'
 import { postService } from '@/services/postService'
@@ -11,6 +11,11 @@ import {
   setStoredLanguage,
   createTranslator,
 } from '@/i18n'
+import { getTelegramInitData, notifyTelegramReady } from '@/lib/telegram'
+
+// Use VITE_API_BASE_URL if set (local dev pointing at localhost:8787),
+// otherwise fall back to empty string so relative /api paths work in production.
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
 interface Toast {
   id: string
@@ -62,6 +67,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setToasts(prev => [...prev, { id, message, type }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000)
   }, [])
+
+  // ── Telegram auth ─────────────────────────────────────────────────────────
+  // Fires once at mount. Calls ready() so Telegram shows the app immediately.
+  //
+  // Dev / browser mode  (no initData):
+  //   → keep mock state as-is, no fetch.
+  //
+  // Real Telegram mode (initData present), auth succeeds:
+  //   → replace user, channels, brandKits, posts, activeChannelId with backend data.
+  //   → channels is [] until GET /api/channels is implemented; posts are [] for new users.
+  //   → real users must not see @my_channel / @tech_digest or their mock posts.
+  //
+  // Real Telegram mode, auth fails (network error / 401):
+  //   → keep mock state, do not crash.
+  useEffect(() => {
+    notifyTelegramReady()
+    const initData = getTelegramInitData()
+    if (!initData) return  // dev / plain-browser mode — keep mock state
+
+    interface TelegramAuthResponse {
+      user: {
+        id: string
+        name: string | null
+        telegramId: string
+        username: string | null
+      }
+      channels: Channel[]   // [] until GET /api/channels is wired
+      subscription: null
+    }
+
+    fetch(`${API_BASE}/api/auth/telegram`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    })
+      .then(res => (res.ok ? res.json() as Promise<TelegramAuthResponse> : null))
+      .then((data: TelegramAuthResponse | null) => {
+        if (!data?.user) return  // unexpected shape — keep mock state
+
+        const realChannels: Channel[] = data.channels ?? []
+
+        // Re-initialise in-memory services to match real user's data
+        channelService.init(realChannels)
+        postService.init([])       // no posts yet for a new real user
+        brandKitService.init([])   // no brand kits yet
+
+        setState(prev => ({
+          ...prev,
+          user: {
+            ...prev.user,            // preserve subscription + avatarUrl (not in auth response)
+            id:       data.user.id,
+            name:     data.user.name     ?? prev.user.name,
+            username: data.user.username ?? prev.user.username,
+          },
+          channels:        realChannels,
+          brandKits:       [],
+          posts:           [],
+          activeChannelId: realChannels[0]?.id ?? '',
+        }))
+      })
+      .catch(() => { /* network / auth error — keep mock state, do not crash */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshPosts = useCallback(() => {
     setState(prev => ({ ...prev, posts: postService.getAll() }))
