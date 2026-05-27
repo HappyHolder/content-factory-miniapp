@@ -173,6 +173,17 @@ export interface GeneratedPost {
   imageRegensUsed?: number
 }
 
+// Represents a bot-saved source input returned by POST /api/sources.
+// type mirrors the DB SourceType enum values that the bot webhook creates.
+export interface BotSource {
+  id: string
+  type: 'URL' | 'TEXT'
+  content: string
+  url: string | null      // extracted URL if type === 'URL', otherwise null
+  channelId: string | null // from SourceInput.metadata.channelId
+  createdAt: string        // ISO 8601 string from the API
+}
+
 export interface AppState {
   user: User
   channels: Channel[]

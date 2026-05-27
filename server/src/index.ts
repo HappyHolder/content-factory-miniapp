@@ -6,6 +6,7 @@ import authRouter from './routes/auth';
 import channelsRouter from './routes/channels';
 import brandkitsRouter from './routes/brandkits';
 import botRouter from './routes/bot';
+import sourcesRouter from './routes/sources';
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.use('/api/auth',     authRouter);
 app.use('/api/channels',  channelsRouter);
 app.use('/api/brandkits', brandkitsRouter);
 app.use('/api/bot',       botRouter);
+app.use('/api/sources',   sourcesRouter);
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(env.PORT, () => {

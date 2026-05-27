@@ -135,6 +135,11 @@ export const ru: Dict = {
     step3:              'Готовые варианты появятся в Постах',
     noChannel:          'Нет подключённого канала',
     noChannelSub:       'Подключите Telegram-канал в Профиле, чтобы создавать посты',
+    botSourcesTitle:    'Из бота',
+    botSourcesLoading:  'Загружаем источники…',
+    botSourceUse:       'Использовать',
+    botSourceUrl:       'URL',
+    botSourceText:      'Текст',
   },
   connectChannel: {
     title:           'Подключить канал',

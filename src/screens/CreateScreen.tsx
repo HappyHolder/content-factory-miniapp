@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Sparkles, Check, Loader2, Radio } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
@@ -7,19 +7,52 @@ import { GlassCard } from '@/components/ui/GlassCard'
 import { InputTypeChips, getPlaceholderKey } from '@/components/create/InputTypeChips'
 import { generationService } from '@/services/generationService'
 import { brandKitService } from '@/services/brandKitService'
-import type { SourceType } from '@/types'
+import type { SourceType, BotSource } from '@/types'
 import { cn } from '@/lib/utils'
+import { BotSourcesList } from '@/components/create/BotSourcesList'
+import { getTelegramInitData } from '@/lib/telegram'
+import { API_BASE } from '@/lib/api'
 
 interface CreateScreenProps {
   onPostCreated: (id: string) => void
 }
 
 export function CreateScreen({ onPostCreated }: CreateScreenProps) {
-  const { state, activeChannel, addPost, showToast, t } = useApp()
+  const { state, activeChannel, addPost, showToast, t, authStatus } = useApp()
   const [input, setInput] = useState('')
   const [sourceType, setSourceType] = useState<SourceType>('prompt')
   const [isGenerating, setIsGenerating] = useState(false)
   const [done, setDone] = useState(false)
+  const [sources, setSources] = useState<BotSource[]>([])
+  const [isLoadingSources, setIsLoadingSources] = useState(false)
+  const [usedIds, setUsedIds] = useState<Set<string>>(new Set())
+
+  // Fetch bot-saved sources once when the user is authenticated.
+  // Skipped in mock/dev mode (authStatus !== 'authenticated').
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return
+    const initData = getTelegramInitData()
+    if (!initData) return
+
+    setIsLoadingSources(true)
+    fetch(`${API_BASE}/api/sources`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ initData }),
+    })
+      .then(res => (res.ok ? res.json() as Promise<{ sources: BotSource[] }> : null))
+      .then(data => { if (data?.sources) setSources(data.sources) })
+      .catch(() => { /* non-fatal — section stays hidden */ })
+      .finally(() => setIsLoadingSources(false))
+  }, [authStatus]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Prefill the textarea with the selected bot source.
+  // DB 'URL' → frontend 'link' chip; DB 'TEXT' → frontend 'prompt' chip.
+  const handleSelectSource = (source: BotSource) => {
+    setInput(source.type === 'URL' ? (source.url ?? source.content) : source.content)
+    setSourceType(source.type === 'URL' ? 'link' : 'prompt')
+    setUsedIds(prev => new Set([...prev, source.id]))
+  }
 
   const canGenerate = input.trim().length > 3 && !isGenerating
 
@@ -133,6 +166,15 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
             </div>
           </motion.div>
         )}
+
+        {/* Bot sources — visible only in authenticated mode when sources exist or are loading */}
+        <BotSourcesList
+          sources={sources}
+          usedIds={usedIds}
+          isLoading={isLoadingSources}
+          channels={state.channels}
+          onSelect={handleSelectSource}
+        />
 
         {/* Tips */}
         <motion.div

@@ -135,6 +135,11 @@ export const en = {
     step3:              'Ready variants appear in Posts',
     noChannel:          'No channel connected',
     noChannelSub:       'Connect a Telegram channel in Profile to start creating posts',
+    botSourcesTitle:    'From bot',
+    botSourcesLoading:  'Loading sources…',
+    botSourceUse:       'Use',
+    botSourceUrl:       'URL',
+    botSourceText:      'Text',
   },
   connectChannel: {
     title:           'Connect channel',
