@@ -9,7 +9,7 @@ const router = Router();
 // Validates Telegram Mini App initData, upserts User by telegramId.
 //
 // Request body:  { initData: string }
-// Response 200:  { user: { id, name, telegramId, username }, channels: [], subscription: null }
+// Response 200:  { user: { id, name, telegramId, username }, channels: Channel[], subscription: null }
 // Response 400:  { error: string }  — missing / malformed body
 // Response 401:  { error: string }  — invalid or expired initData
 // Response 500:  { error: string }  — DB failure
@@ -61,6 +61,19 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  // ── Fetch this user's connected channels ──────────────────────────────────
+  let dbChannels: { id: string; name: string; handle: string | null }[] = [];
+  try {
+    dbChannels = await prisma.channel.findMany({
+      where:   { userId: dbUser.id },
+      orderBy: { createdAt: 'asc' },
+      select:  { id: true, name: true, handle: true },
+    });
+  } catch (err) {
+    console.error('[auth/telegram] Channel fetch failed (non-fatal):', err);
+    // Non-fatal: return empty channels rather than failing the whole auth
+  }
+
   // ── Response ──────────────────────────────────────────────────────────────
   res.json({
     user: {
@@ -69,7 +82,14 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       telegramId: dbUser.telegramId,
       username:   tgUser.username ?? null,   // from initData; not yet persisted in DB
     },
-    channels:     [],      // populated once GET /api/channels is implemented
+    channels: dbChannels.map((ch, i) => ({
+      id:               ch.id,
+      username:         ch.handle ?? '',
+      title:            ch.name,
+      subscribersCount: 0,       // not stored in DB — fetched live on connect only
+      isDefault:        i === 0,
+      isConnected:      true,
+    })),
     subscription: null,    // populated once Subscription model is wired up
   });
 });

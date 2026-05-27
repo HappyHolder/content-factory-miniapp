@@ -7,6 +7,7 @@ import { useApp } from '@/context/AppContext'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
+import { ConnectChannelSheet } from '@/components/profile/ConnectChannelSheet'
 import type { TranslationKey } from '@/i18n'
 import type { Channel, PlanTier } from '@/types'
 
@@ -28,7 +29,8 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
   const { subscription } = user
 
   const isPaidPlan = true // all plans are paid (no free tier)
-  const [langSheetOpen, setLangSheetOpen] = useState(false)
+  const [langSheetOpen,    setLangSheetOpen]    = useState(false)
+  const [connectSheetOpen, setConnectSheetOpen] = useState(false)
 
   const langLabel = language === 'ru' ? t('language.russian') : t('language.english')
   const planNameKey = PLAN_NAME_KEY[subscription.planTier]
@@ -93,7 +95,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.22 }}>
           <div className="flex items-center justify-between mb-2 px-1">
             <p className="text-xs font-semibold text-[#66666E] uppercase tracking-wide">{t('profile.channels')}</p>
-            <Button variant="ghost" size="sm" onClick={() => showToast(t('profile.add') + ' — coming soon')}>
+            <Button variant="ghost" size="sm" onClick={() => setConnectSheetOpen(true)}>
               {t('profile.add')}
             </Button>
           </div>
@@ -112,7 +114,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
                     <p className="text-[13px] font-semibold text-white mb-0.5">{t('profile.noChannels')}</p>
                     <p className="text-[11px] text-[#55555D] leading-relaxed">{t('profile.noChannelsSub')}</p>
                   </div>
-                  <Button variant="secondary" size="sm" onClick={() => showToast(t('profile.noChannelsAction') + ' — coming soon')}>
+                  <Button variant="secondary" size="sm" onClick={() => setConnectSheetOpen(true)}>
                     {t('profile.noChannelsAction')}
                   </Button>
                 </GlassCard>
@@ -200,6 +202,12 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
           <p className="text-[11px] text-[#66666E]">Content Factory v0.1.0 · MVP prototype</p>
         </div>
       </div>
+
+      {/* Connect channel sheet */}
+      <ConnectChannelSheet
+        open={connectSheetOpen}
+        onClose={() => setConnectSheetOpen(false)}
+      />
 
       {/* Language picker sheet */}
       <Sheet

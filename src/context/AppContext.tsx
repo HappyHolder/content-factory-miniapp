@@ -12,10 +12,64 @@ import {
   createTranslator,
 } from '@/i18n'
 import { getTelegramInitData, notifyTelegramReady } from '@/lib/telegram'
+import { API_BASE } from '@/lib/api'
 
-// Use VITE_API_BASE_URL if set (local dev pointing at localhost:8787),
-// otherwise fall back to empty string so relative /api paths work in production.
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+// ─── Default BrandKit factory ─────────────────────────────────────────────────
+// The server stores BrandKit sections as nullable JSON blobs. The frontend
+// interface requires non-null shaped objects. This factory fills sensible
+// defaults so Channel Style forms render correctly for a freshly connected channel.
+function createDefaultBrandKit(channelId: string): BrandKit {
+  return {
+    channelId,
+    channelAbout: undefined,
+    voiceProfile: {
+      language:     'RU',
+      addressStyle: 'ты',
+      tone:         'expert',
+      postLength:   'medium',
+      emojiDensity: 'light',
+      examplePosts:   [],
+      favoriteWords:  [],
+      forbiddenWords: [],
+    },
+    emojiPack: {
+      packLink:           '',
+      strictMode:         false,
+      allowedEmojis:      [],
+      fallbackToStandard: true,
+    },
+    linkKit: { links: [] },
+    visualKit: {
+      primaryColor:    '#FF6A00',
+      secondaryColor:  '#1A0A00',
+      backgroundStyle: 'dark',
+      cardStyle:       'branded',
+      watermark:       false,
+      bannerTemplate:  'dark_glass',
+      aspectRatio:     '16:9',
+      textOnCover:     true,
+      logoUsage:       'when_relevant',
+      references:      [],
+      avoidList:       [],
+    },
+    signature: {
+      text:  '',
+      usage: 'when_relevant',
+    },
+    postRules: {
+      defaultStructure:      '',
+      neverCopySource:       true,
+      avoidClickbait:        true,
+      shortParagraphs:       true,
+      addCtaIfRelevant:      false,
+      useLinkKitWhenRelevant:false,
+      paragraphStyle:        'short',
+      listUsage:             'when_relevant',
+      ctaUsage:              'when_relevant',
+      thingsToAvoid:         [],
+    },
+  }
+}
 
 interface Toast {
   id: string
@@ -38,6 +92,7 @@ interface AppContextValue {
   selectVariant: (postId: string, variantId: string) => void
   updateVariantText: (postId: string, variantId: string, text: string) => void
   setActiveChannel: (id: string) => void
+  connectChannel: (channel: Channel) => void
   updateBrandKit: (channelId: string, kit: Partial<BrandKit>) => void
   toasts: Toast[]
   showToast: (message: string, type?: Toast['type']) => void
@@ -108,10 +163,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         const realChannels: Channel[] = data.channels ?? []
 
+        // Create default frontend BrandKits for every real channel
+        // (server stores null JSON blobs; frontend needs shaped defaults)
+        const realBrandKits = realChannels.map(ch => createDefaultBrandKit(ch.id))
+
         // Re-initialise in-memory services to match real user's data
         channelService.init(realChannels)
-        postService.init([])       // no posts yet for a new real user
-        brandKitService.init([])   // no brand kits yet
+        postService.init([])
+        brandKitService.init(realBrandKits)
 
         setState(prev => ({
           ...prev,
@@ -122,7 +181,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             username: data.user.username ?? prev.user.username,
           },
           channels:        realChannels,
-          brandKits:       [],
+          brandKits:       realBrandKits,
           posts:           [],
           activeChannelId: realChannels[0]?.id ?? '',
         }))
@@ -176,6 +235,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState(prev => ({ ...prev, activeChannelId: id }))
   }, [])
 
+  const connectChannel = useCallback((channel: Channel) => {
+    const newBrandKit = createDefaultBrandKit(channel.id)
+    brandKitService.upsert(newBrandKit)
+
+    setState(prev => {
+      const alreadyExists = prev.channels.some(c => c.id === channel.id)
+
+      const updatedChannels = alreadyExists
+        // Re-connect of existing channel: refresh data, don't duplicate
+        ? prev.channels.map(c => c.id === channel.id ? channel : c)
+        // New channel: append
+        : [...prev.channels, channel]
+
+      const updatedBrandKits = alreadyExists
+        ? prev.brandKits.map(k => k.channelId === channel.id ? newBrandKit : k)
+        : [...prev.brandKits, newBrandKit]
+
+      // Sync in-memory service to match new channels array
+      channelService.init(updatedChannels)
+
+      return {
+        ...prev,
+        channels:        updatedChannels,
+        brandKits:       updatedBrandKits,
+        activeChannelId: channel.id,
+      }
+    })
+  }, [])
+
   const updateBrandKit = useCallback((channelId: string, updates: Partial<BrandKit>) => {
     brandKitService.update(channelId, updates)
     setState(prev => ({
@@ -206,6 +294,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       selectVariant,
       updateVariantText,
       setActiveChannel,
+      connectChannel,
       updateBrandKit,
       toasts,
       showToast,
