@@ -14,6 +14,13 @@ import {
 import { getTelegramInitData, notifyTelegramReady } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 
+// ─── Auth status ─────────────────────────────────────────────────────────────
+// 'mock'          — dev/browser mode (no initData); mock data shown immediately
+// 'checking'      — Telegram mode, POST /api/auth/telegram in-flight; blank shell rendered
+// 'authenticated' — auth succeeded; real user/channels/posts in state
+// 'failed'        — auth or network error; minimal error screen shown, app stable
+export type AuthStatus = 'mock' | 'checking' | 'authenticated' | 'failed'
+
 // ─── Default BrandKit factory ─────────────────────────────────────────────────
 // The server stores BrandKit sections as nullable JSON blobs. The frontend
 // interface requires non-null shaped objects. This factory fills sensible
@@ -79,6 +86,7 @@ interface Toast {
 
 interface AppContextValue {
   state: AppState
+  authStatus: AuthStatus
   activeChannel: Channel | undefined
   canSchedulePosts: boolean
   language: Language
@@ -101,7 +109,29 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  // Detect Telegram mode synchronously before the first render.
+  // getTelegramInitData() reads window.Telegram.WebApp.initData which is set
+  // by the SDK script tag before any React code runs — safe to call here.
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(() =>
+    getTelegramInitData() ? 'checking' : 'mock'
+  )
+
   const [state, setState] = useState<AppState>(() => {
+    if (getTelegramInitData()) {
+      // Telegram mode — start with an empty shell so no mock data is ever
+      // rendered while POST /api/auth/telegram is in-flight.
+      postService.init([])
+      brandKitService.init([])
+      channelService.init([])
+      return {
+        ...mockInitialState,   // preserves subscription shape / user placeholder
+        channels:        [],
+        brandKits:       [],
+        posts:           [],
+        activeChannelId: '',
+      }
+    }
+    // Dev / plain-browser mode — use mock data as today
     postService.init(mockInitialState.posts)
     brandKitService.init(mockInitialState.brandKits)
     channelService.init(mockInitialState.channels)
@@ -126,20 +156,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ── Telegram auth ─────────────────────────────────────────────────────────
   // Fires once at mount. Calls ready() so Telegram shows the app immediately.
   //
-  // Dev / browser mode  (no initData):
-  //   → keep mock state as-is, no fetch.
+  // Dev / browser mode (no initData):
+  //   → authStatus stays 'mock'; mock state shown immediately; no fetch.
   //
-  // Real Telegram mode (initData present), auth succeeds:
-  //   → replace user, channels, brandKits, posts, activeChannelId with backend data.
-  //   → channels is [] until GET /api/channels is implemented; posts are [] for new users.
-  //   → real users must not see @my_channel / @tech_digest or their mock posts.
+  // Telegram mode (initData present), auth succeeds:
+  //   → replace user, channels, brandKits, posts, activeChannelId with real data.
+  //   → authStatus → 'authenticated'; real UI renders.
   //
-  // Real Telegram mode, auth fails (network error / 401):
-  //   → keep mock state, do not crash.
+  // Telegram mode, auth fails (network error / 401 / unexpected shape):
+  //   → authStatus → 'failed'; minimal error screen shown; app stays stable.
   useEffect(() => {
     notifyTelegramReady()
     const initData = getTelegramInitData()
-    if (!initData) return  // dev / plain-browser mode — keep mock state
+    if (!initData) return  // dev / plain-browser mode — authStatus stays 'mock'
 
     interface TelegramAuthResponse {
       user: {
@@ -148,7 +177,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         telegramId: string
         username: string | null
       }
-      channels: Channel[]   // [] until GET /api/channels is wired
+      channels: Channel[]
       subscription: null
     }
 
@@ -159,7 +188,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })
       .then(res => (res.ok ? res.json() as Promise<TelegramAuthResponse> : null))
       .then((data: TelegramAuthResponse | null) => {
-        if (!data?.user) return  // unexpected shape — keep mock state
+        if (!data?.user) {
+          setAuthStatus('failed')   // unexpected shape / non-ok response
+          return
+        }
 
         const realChannels: Channel[] = data.channels ?? []
 
@@ -185,8 +217,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           posts:           [],
           activeChannelId: realChannels[0]?.id ?? '',
         }))
+        setAuthStatus('authenticated')
       })
-      .catch(() => { /* network / auth error — keep mock state, do not crash */ })
+      .catch(() => {
+        setAuthStatus('failed')   // network error — show error screen, do not crash
+      })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshPosts = useCallback(() => {
@@ -281,6 +316,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       state,
+      authStatus,
       activeChannel,
       canSchedulePosts,
       language,

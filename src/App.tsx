@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
 import { AppProvider, useApp } from '@/context/AppContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -20,7 +21,7 @@ type ModalScreen =
   | { type: 'plans' }
 
 function AppContent() {
-  const { toasts } = useApp()
+  const { toasts, authStatus } = useApp()
   const [activeTab, setActiveTab] = useState<MainTab>('posts')
   const [modal, setModal] = useState<ModalScreen>({ type: 'none' })
 
@@ -46,6 +47,32 @@ function AppContent() {
   }
 
   const isModalOpen = modal.type !== 'none'
+
+  // ── Auth gate ─────────────────────────────────────────────────────────────
+  // Show a neutral loading screen while POST /api/auth/telegram is in-flight
+  // so real Telegram users never see a flash of mock @my_channel / mock posts.
+  // Dev/browser mode (authStatus === 'mock') bypasses this entirely.
+  if (authStatus === 'checking') {
+    return (
+      <div className="flex flex-col h-full bg-[#070708] items-center justify-center gap-3">
+        <Loader2 size={22} className="animate-spin text-[#FF6A00]" />
+        <p className="text-[12px] text-[#55555D]">Loading…</p>
+      </div>
+    )
+  }
+
+  if (authStatus === 'failed') {
+    return (
+      <div className="flex flex-col h-full bg-[#070708] items-center justify-center px-8">
+        <div className="text-center space-y-2">
+          <p className="text-[14px] font-semibold text-white">Could not connect</p>
+          <p className="text-[12px] text-[#55555D] leading-relaxed">
+            Close and reopen the app to try again.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#070708] overflow-hidden">
