@@ -46,7 +46,7 @@ enum PlanTier {
 
 model User {
   id         String  @id @default(cuid())
-  email      String  @unique
+  email      String? @unique
   name       String?
   telegramId String? @unique
 
@@ -62,7 +62,7 @@ model User {
 model Channel {
   id     String  @id @default(cuid())
   name   String
-  handle String?
+  handle String? @unique
   userId String
 
   createdAt DateTime @default(now())
@@ -71,6 +71,8 @@ model Channel {
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   brandKit       BrandKit?
   generatedPosts GeneratedPost[]
+
+  @@index([userId])
 }
 
 // ─── BrandKit ─────────────────────────────────────────────────────────────────
@@ -124,6 +126,8 @@ model SourceInput {
 
   user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   jobs GenerationJob[]
+
+  @@index([userId])
 }
 
 model GenerationJob {
@@ -141,13 +145,16 @@ model GenerationJob {
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   sourceInput    SourceInput     @relation(fields: [sourceInputId], references: [id], onDelete: Cascade)
   generatedPosts GeneratedPost[]
+
+  @@index([userId])
+  @@index([status])
 }
 
 model GeneratedPost {
   id              String     @id @default(cuid())
   title           String
   channelId       String
-  jobId           String
+  jobId           String?
   status          PostStatus @default(NEW)
   scheduledAt     DateTime?
   publishedAt     DateTime?
@@ -164,9 +171,14 @@ model GeneratedPost {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  channel  Channel       @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  job      GenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  channel  Channel        @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  job      GenerationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
   variants PostVariant[]
+
+  @@index([channelId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([jobId])
 }
 
 model PostVariant {
@@ -182,6 +194,8 @@ model PostVariant {
   updatedAt DateTime @updatedAt
 
   generatedPost GeneratedPost @relation(fields: [generatedPostId], references: [id], onDelete: Cascade)
+
+  @@index([generatedPostId])
 }
 
 model Subscription {
