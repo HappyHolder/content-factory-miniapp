@@ -191,6 +191,7 @@ export const en = {
     previewLabel:       'Preview',
     scheduleUpgradeToast: 'Scheduled posts are available on the Creator plan.',
     regenLimitToast:    'Regeneration limit reached for this post. Create a new AI post.',
+    publishFailed:      'Publishing failed. Try again.',
   },
   schedule: {
     title:          'Schedule post',

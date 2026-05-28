@@ -191,6 +191,7 @@ export const ru: Dict = {
     previewLabel:       'Предпросмотр',
     scheduleUpgradeToast: 'Отложенные посты доступны на тарифе Автор.',
     regenLimitToast:    'Лимит перегенераций для этого поста исчерпан. Создайте новый пост с AI.',
+    publishFailed:      'Ошибка публикации. Попробуйте снова.',
   },
   schedule: {
     title:           'Запланировать пост',

@@ -12,6 +12,8 @@ import { BannerPreview } from '@/components/posts/BannerPreview'
 import { LinkButtonsPreview } from '@/components/posts/LinkButtonsPreview'
 import { ScheduleSheet } from '@/components/posts/ScheduleSheet'
 import { brandKitService } from '@/services/brandKitService'
+import { getTelegramInitData } from '@/lib/telegram'
+import { API_BASE } from '@/lib/api'
 
 interface PostDetailsScreenProps {
   postId: string
@@ -21,9 +23,10 @@ interface PostDetailsScreenProps {
 type Section = 'variants' | 'editor' | 'banner' | 'buttons'
 
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
-  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t } = useApp()
+  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost } = useApp()
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
+  const [isPublishing, setIsPublishing] = useState(false)
 
   const post = state.posts.find(p => p.id === postId)
   if (!post) return null
@@ -34,9 +37,41 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     l.usage === 'button' || l.usage === 'always'
   ) || []
 
-  const handlePublish = () => {
-    publishPost(post.id)
-    onBack()
+  const handlePublish = async () => {
+    if (isPublishing) return
+
+    if (authStatus !== 'authenticated') {
+      // Dev / mock path — keep existing local-only behaviour
+      publishPost(post.id)
+      onBack()
+      return
+    }
+
+    // Real backend path
+    setIsPublishing(true)
+    try {
+      const initData = getTelegramInitData()!
+      const res = await fetch(`${API_BASE}/api/posts/publish`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, postId: post.id }),
+      })
+      if (!res.ok) {
+        const errData = await res.json() as { error?: string }
+        showToast(errData.error ?? t('postDetails.publishFailed'), 'error')
+        return
+      }
+      const data = await res.json() as { post: { status: string; publishedAt: string } }
+      updatePost(post.id, {
+        status:      'published',
+        publishedAt: new Date(data.post.publishedAt),
+      })
+      onBack()
+    } catch {
+      showToast(t('postDetails.publishFailed'), 'error')
+    } finally {
+      setIsPublishing(false)
+    }
   }
 
   const handleRegenerate = () => {
@@ -179,8 +214,8 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         {post.status === 'new' && (
           <div className="space-y-2">
             <div className="flex gap-2">
-              <Button variant="primary" size="lg" onClick={handlePublish} fullWidth>
-                <Send size={16} /> {t('postDetails.publish')}
+              <Button variant="primary" size="lg" onClick={handlePublish} disabled={isPublishing} fullWidth>
+                <Send size={16} /> {isPublishing ? t('common.loading') : t('postDetails.publish')}
               </Button>
               <Button
                 variant="secondary"
@@ -205,8 +240,8 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         {/* Actions — scheduled post */}
         {post.status === 'scheduled' && (
           <div className="space-y-2">
-            <Button variant="primary" size="lg" onClick={handlePublish} fullWidth>
-              <Send size={16} /> {t('postDetails.publish')}
+            <Button variant="primary" size="lg" onClick={handlePublish} disabled={isPublishing} fullWidth>
+              <Send size={16} /> {isPublishing ? t('common.loading') : t('postDetails.publish')}
             </Button>
             <Button
               variant="secondary"

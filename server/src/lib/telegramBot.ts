@@ -77,11 +77,12 @@ export async function getChat(chatId: string, token: string): Promise<TgChat> {
 
 /**
  * Sends a plain-text message to a Telegram chat via sendMessage.
+ * chatId may be a numeric user/chat ID or a public username string ("@channelname").
  * Throws TelegramApiError on a non-ok response or network failure.
  * Never logs the token.
  */
 export async function sendBotMessage(
-  chatId: number,
+  chatId: number | string,
   text: string,
   token: string,
 ): Promise<void> {
