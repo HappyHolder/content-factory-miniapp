@@ -74,6 +74,33 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     }
   }
 
+  const handleSchedulePost = async (date: Date) => {
+    if (authStatus !== 'authenticated') {
+      // Dev / mock mode — local-only
+      schedulePost(post.id, date)
+      return
+    }
+
+    // Optimistic local update so the UI responds immediately
+    schedulePost(post.id, date)
+
+    // Persist to DB
+    try {
+      const initData = getTelegramInitData()!
+      const res = await fetch(`${API_BASE}/api/posts/schedule`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, postId: post.id, scheduledAt: date.toISOString() }),
+      })
+      if (!res.ok) {
+        const errData = await res.json() as { error?: string }
+        showToast(errData.error ?? t('postDetails.scheduleFailed'), 'error')
+      }
+    } catch {
+      showToast(t('postDetails.scheduleFailed'), 'error')
+    }
+  }
+
   const handleRegenerate = () => {
     showToast(t('postDetails.regenerateVariants') + '…')
   }
@@ -286,7 +313,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
       <ScheduleSheet
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
-        onSchedule={date => schedulePost(post.id, date)}
+        onSchedule={handleSchedulePost}
       />
     </motion.div>
   )

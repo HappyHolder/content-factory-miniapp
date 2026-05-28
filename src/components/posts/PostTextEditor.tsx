@@ -3,6 +3,8 @@ import { motion } from 'framer-motion'
 import { Copy, Scissors, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
+import { getTelegramInitData } from '@/lib/telegram'
+import { API_BASE } from '@/lib/api'
 
 interface PostTextEditorProps {
   postId: string
@@ -11,13 +13,44 @@ interface PostTextEditorProps {
 }
 
 export function PostTextEditor({ postId, variantId, text }: PostTextEditorProps) {
-  const { updateVariantText, showToast, t } = useApp()
+  const { updateVariantText, showToast, t, authStatus } = useApp()
   const [value, setValue] = useState(text)
+  const [isSaving, setIsSaving] = useState(false)
   const charCount = value.length
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setValue(e.target.value)
     updateVariantText(postId, variantId, e.target.value)
+  }
+
+  const handleSave = async () => {
+    if (isSaving) return
+
+    if (authStatus !== 'authenticated') {
+      // Dev / mock mode — local state already updated on every keystroke
+      showToast(t('postDetails.textSaved'))
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const initData = getTelegramInitData()!
+      const res = await fetch(`${API_BASE}/api/posts/update-variant`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, postId, variantId, text: value }),
+      })
+      if (!res.ok) {
+        const errData = await res.json() as { error?: string }
+        showToast(errData.error ?? t('postDetails.scheduleFailed'), 'error')
+        return
+      }
+      showToast(t('postDetails.textSaved'))
+    } catch {
+      showToast(t('postDetails.scheduleFailed'), 'error')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleCopy = () => {
@@ -65,6 +98,15 @@ export function PostTextEditor({ postId, variantId, text }: PostTextEditorProps)
           </Button>
         </div>
       </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={handleSave}
+        disabled={isSaving}
+        fullWidth
+      >
+        {isSaving ? t('common.loading') : t('postDetails.save')}
+      </Button>
     </motion.div>
   )
 }

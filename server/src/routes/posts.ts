@@ -453,4 +453,213 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   });
 });
 
+// ─── POST /api/posts/update-variant ──────────────────────────────────────────
+//
+// Persists edited variant text to PostVariant.text in Neon.
+// Called by the "Save" button in PostTextEditor after the user finishes editing.
+//
+// Request body: { initData, postId, variantId, text }
+// Response 200: { ok: true }
+// Response 400: missing / invalid fields
+// Response 401: invalid initData / user not found
+// Response 403: post belongs to another user
+// Response 404: variant not found / does not belong to post
+// Response 500: DB error
+
+router.post('/update-variant', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId, variantId, text } = req.body as {
+    initData?:  unknown;
+    postId?:    unknown;
+    variantId?: unknown;
+    text?:      unknown;
+  };
+
+  // ── 1. Input validation ───────────────────────────────────────────────────
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof postId !== 'string' || !postId.trim()) {
+    res.status(400).json({ error: 'postId is required' }); return;
+  }
+  if (typeof variantId !== 'string' || !variantId.trim()) {
+    res.status(400).json({ error: 'variantId is required' }); return;
+  }
+  if (typeof text !== 'string') {
+    res.status(400).json({ error: 'text must be a string' }); return;
+  }
+  if (text.length > 16_000) {
+    res.status(400).json({ error: 'text exceeds maximum length of 16000 characters' }); return;
+  }
+
+  // ── 2. Validate Telegram initData ────────────────────────────────────────
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  // ── 3. Resolve authenticated user ────────────────────────────────────────
+  const telegramId = String(parsed.user.id);
+  let dbUser: { id: string } | null = null;
+  try {
+    dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+  } catch (err) {
+    console.error('[posts/update-variant] User lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!dbUser) {
+    res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
+  }
+
+  // ── 4. Load variant + post + channel for ownership check ─────────────────
+  // Prisma relation name from PostVariant → GeneratedPost is "generatedPost".
+  let variant: {
+    id:              string;
+    generatedPostId: string;
+    generatedPost:   { id: string; channel: { userId: string } };
+  } | null = null;
+  try {
+    variant = await prisma.postVariant.findUnique({
+      where:  { id: variantId },
+      select: {
+        id:              true,
+        generatedPostId: true,
+        generatedPost: {
+          select: {
+            id:      true,
+            channel: { select: { userId: true } },
+          },
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[posts/update-variant] Variant lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!variant) {
+    res.status(404).json({ error: 'Variant not found.' }); return;
+  }
+  if (variant.generatedPostId !== postId) {
+    res.status(404).json({ error: 'Variant does not belong to this post.' }); return;
+  }
+  if (variant.generatedPost.channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+
+  // ── 5. Persist updated text ───────────────────────────────────────────────
+  try {
+    await prisma.postVariant.update({
+      where: { id: variantId },
+      data:  { text },
+    });
+  } catch (err) {
+    console.error('[posts/update-variant] DB update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({ ok: true });
+});
+
+// ─── POST /api/posts/schedule ─────────────────────────────────────────────────
+//
+// Schedules a post: sets status=SCHEDULED and scheduledAt in GeneratedPost.
+//
+// Request body: { initData, postId, scheduledAt }  — scheduledAt: ISO 8601 string
+// Response 200: { post: { id, status: 'scheduled', scheduledAt: ISO string } }
+// Response 400: missing / invalid fields
+// Response 401: invalid initData / user not found
+// Response 403: post belongs to another user
+// Response 404: post not found
+// Response 409: post is already published
+// Response 500: DB error
+
+router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId, scheduledAt: scheduledAtRaw } = req.body as {
+    initData?:    unknown;
+    postId?:      unknown;
+    scheduledAt?: unknown;
+  };
+
+  // ── 1. Input validation ───────────────────────────────────────────────────
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof postId !== 'string' || !postId.trim()) {
+    res.status(400).json({ error: 'postId is required' }); return;
+  }
+  if (typeof scheduledAtRaw !== 'string' || !scheduledAtRaw.trim()) {
+    res.status(400).json({ error: 'scheduledAt is required' }); return;
+  }
+  const scheduledAt = new Date(scheduledAtRaw);
+  if (isNaN(scheduledAt.getTime())) {
+    res.status(400).json({ error: 'scheduledAt must be a valid ISO 8601 date string' }); return;
+  }
+
+  // ── 2. Validate Telegram initData ────────────────────────────────────────
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  // ── 3. Resolve authenticated user ────────────────────────────────────────
+  const telegramId = String(parsed.user.id);
+  let dbUser: { id: string } | null = null;
+  try {
+    dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+  } catch (err) {
+    console.error('[posts/schedule] User lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!dbUser) {
+    res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
+  }
+
+  // ── 4. Load post + channel for ownership check ────────────────────────────
+  let post: { id: string; status: string; channel: { userId: string } } | null = null;
+  try {
+    post = await prisma.generatedPost.findUnique({
+      where:  { id: postId },
+      select: {
+        id:      true,
+        status:  true,
+        channel: { select: { userId: true } },
+      },
+    });
+  } catch (err) {
+    console.error('[posts/schedule] Post lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!post) {
+    res.status(404).json({ error: 'Post not found.' }); return;
+  }
+  if (post.channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+  if (post.status === 'PUBLISHED') {
+    res.status(409).json({ error: 'Cannot schedule an already published post.' }); return;
+  }
+
+  // ── 5. Persist SCHEDULED status + scheduledAt ─────────────────────────────
+  try {
+    await prisma.generatedPost.update({
+      where: { id: postId },
+      data:  { status: 'SCHEDULED', scheduledAt },
+    });
+  } catch (err) {
+    console.error('[posts/schedule] DB update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({
+    post: {
+      id:          postId,
+      status:      'scheduled',
+      scheduledAt: scheduledAt.toISOString(),
+    },
+  });
+});
+
 export default router;
