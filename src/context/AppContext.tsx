@@ -106,6 +106,50 @@ interface AppContextValue {
   showToast: (message: string, type?: Toast['type']) => void
 }
 
+// ─── API post shape ───────────────────────────────────────────────────────────
+// Defined at module level so both the auth effect and the visibilitychange
+// refresh effect can share the type and mapping without duplication.
+
+interface ListApiPost {
+  id:                string
+  title:             string
+  sourceType:        string
+  sourceUrl:         string | null
+  sourceSummary:     string
+  channelId:         string
+  channelUsername:   string
+  variants:          { id: string; label: string; text: string; isSelected: boolean }[]
+  selectedVariantId: string | null
+  linkButtons:       unknown[]
+  status:            'new' | 'scheduled' | 'published'
+  createdAt:         string
+  scheduledAt:       string | null
+  publishedAt:       string | null
+  textRegensUsed:    number
+  imageRegensUsed:   number
+}
+
+function mapListPost(p: ListApiPost): GeneratedPost {
+  return {
+    id:                p.id,
+    title:             p.title,
+    sourceType:        p.sourceType as GeneratedPost['sourceType'],
+    sourceUrl:         p.sourceUrl         ?? undefined,
+    sourceSummary:     p.sourceSummary,
+    channelId:         p.channelId,
+    channelUsername:   p.channelUsername,
+    variants:          p.variants,
+    selectedVariantId: p.selectedVariantId  ?? undefined,
+    linkButtons:       p.linkButtons        as GeneratedPost['linkButtons'],
+    status:            p.status,
+    createdAt:         new Date(p.createdAt),
+    scheduledAt:       p.scheduledAt != null ? new Date(p.scheduledAt) : undefined,
+    publishedAt:       p.publishedAt != null ? new Date(p.publishedAt) : undefined,
+    textRegensUsed:    p.textRegensUsed,
+    imageRegensUsed:   p.imageRegensUsed,
+  }
+}
+
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -193,26 +237,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       subscription: null
     }
 
-    // API date fields arrive as ISO strings; banner is absent (undefined).
-    interface ListApiPost {
-      id:               string
-      title:            string
-      sourceType:       string
-      sourceUrl:        string | null
-      sourceSummary:    string
-      channelId:        string
-      channelUsername:  string
-      variants:         { id: string; label: string; text: string; isSelected: boolean }[]
-      selectedVariantId: string | null
-      linkButtons:      unknown[]
-      status:           'new' | 'scheduled' | 'published'
-      createdAt:        string
-      scheduledAt:      string | null
-      publishedAt:      string | null
-      textRegensUsed:   number
-      imageRegensUsed:  number
-    }
-
     // Async IIFE — lets us await auth then posts sequentially while keeping
     // the useEffect callback itself synchronous (React requirement).
     ;(async () => {
@@ -278,24 +302,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (postsRes.ok) {
           const postsData = await postsRes.json() as { posts: ListApiPost[] }
           const rawPosts = Array.isArray(postsData.posts) ? postsData.posts : []
-          loadedPosts = rawPosts.map(p => ({
-            id:               p.id,
-            title:            p.title,
-            sourceType:       p.sourceType as GeneratedPost['sourceType'],
-            sourceUrl:        p.sourceUrl    ?? undefined,
-            sourceSummary:    p.sourceSummary,
-            channelId:        p.channelId,
-            channelUsername:  p.channelUsername,
-            variants:         p.variants,
-            selectedVariantId: p.selectedVariantId ?? undefined,
-            linkButtons:      p.linkButtons as GeneratedPost['linkButtons'],
-            status:           p.status,
-            createdAt:        new Date(p.createdAt),
-            scheduledAt:      p.scheduledAt  != null ? new Date(p.scheduledAt)  : undefined,
-            publishedAt:      p.publishedAt  != null ? new Date(p.publishedAt)  : undefined,
-            textRegensUsed:   p.textRegensUsed,
-            imageRegensUsed:  p.imageRegensUsed,
-          }))
+          loadedPosts = rawPosts.map(mapListPost)
         }
       } catch {
         // Non-fatal — keep loadedPosts = []; auth still succeeds below
@@ -320,6 +327,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setAuthStatus('authenticated')
     })()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Visibility-change refresh ─────────────────────────────────────────────
+  // When the Telegram Mini App panel is reopened after being hidden, re-fetch
+  // the posts list so scheduler-published posts move from Scheduled → Published
+  // without requiring a full app restart.
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return
+    const initData = getTelegramInitData()
+    if (!initData) return
+
+    function onVisible() {
+      if (document.visibilityState !== 'visible') return
+      fetch(`${API_BASE}/api/posts/list`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData }),
+      })
+        .then(r => r.ok ? (r.json() as Promise<{ posts: ListApiPost[] }>) : null)
+        .then(data => {
+          if (!data?.posts) return
+          const mapped = (Array.isArray(data.posts) ? data.posts : []).map(mapListPost)
+          postService.init(mapped)
+          setState(prev => ({ ...prev, posts: mapped }))
+        })
+        .catch(() => {})
+    }
+
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [authStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshPosts = useCallback(() => {
     setState(prev => ({ ...prev, posts: postService.getAll() }))
@@ -354,9 +391,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshPosts, showToast])
 
   const selectVariant = useCallback((postId: string, variantId: string) => {
+    // Immediate local update — UI responds instantly
     postService.selectVariant(postId, variantId)
     refreshPosts()
-  }, [refreshPosts])
+
+    // Persist to DB so scheduler and manual publish use the right variant text
+    if (authStatus === 'authenticated') {
+      const initData = getTelegramInitData()
+      if (initData) {
+        fetch(`${API_BASE}/api/posts/select-variant`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData, postId, variantId }),
+        }).catch(err => {
+          console.error('[selectVariant] Backend save failed:', (err as Error).message)
+        })
+      }
+    }
+  }, [refreshPosts, authStatus])
 
   const updateVariantText = useCallback((postId: string, variantId: string, text: string) => {
     postService.updateVariantText(postId, variantId, text)

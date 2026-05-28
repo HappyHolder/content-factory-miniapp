@@ -453,6 +453,107 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   });
 });
 
+// ─── POST /api/posts/select-variant ──────────────────────────────────────────
+//
+// Persists the user's variant selection to GeneratedPost.selectedVariantId.
+// Must be called whenever the user picks a different variant in the UI so that
+// both manual publish and the scheduler use the correct variant text.
+//
+// Request body: { initData, postId, variantId }
+// Response 200: { ok: true }
+// Response 400: missing / invalid fields
+// Response 401: invalid initData / user not found
+// Response 403: post belongs to another user
+// Response 404: variant not found / does not belong to post
+// Response 500: DB error
+
+router.post('/select-variant', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId, variantId } = req.body as {
+    initData?:  unknown;
+    postId?:    unknown;
+    variantId?: unknown;
+  };
+
+  // ── 1. Input validation ───────────────────────────────────────────────────
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof postId !== 'string' || !postId.trim()) {
+    res.status(400).json({ error: 'postId is required' }); return;
+  }
+  if (typeof variantId !== 'string' || !variantId.trim()) {
+    res.status(400).json({ error: 'variantId is required' }); return;
+  }
+
+  // ── 2. Validate Telegram initData ────────────────────────────────────────
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  // ── 3. Resolve authenticated user ────────────────────────────────────────
+  const telegramId = String(parsed.user.id);
+  let dbUser: { id: string } | null = null;
+  try {
+    dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+  } catch (err) {
+    console.error('[posts/select-variant] User lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!dbUser) {
+    res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
+  }
+
+  // ── 4. Load variant + post + channel for ownership check ─────────────────
+  let variant: {
+    id:              string;
+    generatedPostId: string;
+    generatedPost:   { id: string; channel: { userId: string } };
+  } | null = null;
+  try {
+    variant = await prisma.postVariant.findUnique({
+      where:  { id: variantId },
+      select: {
+        id:              true,
+        generatedPostId: true,
+        generatedPost: {
+          select: {
+            id:      true,
+            channel: { select: { userId: true } },
+          },
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[posts/select-variant] Variant lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!variant) {
+    res.status(404).json({ error: 'Variant not found.' }); return;
+  }
+  if (variant.generatedPostId !== postId) {
+    res.status(404).json({ error: 'Variant does not belong to this post.' }); return;
+  }
+  if (variant.generatedPost.channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+
+  // ── 5. Persist selectedVariantId ─────────────────────────────────────────
+  try {
+    await prisma.generatedPost.update({
+      where: { id: postId },
+      data:  { selectedVariantId: variantId },
+    });
+  } catch (err) {
+    console.error('[posts/select-variant] DB update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({ ok: true });
+});
+
 // ─── POST /api/posts/update-variant ──────────────────────────────────────────
 //
 // Persists edited variant text to PostVariant.text in Neon.
