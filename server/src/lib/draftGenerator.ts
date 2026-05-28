@@ -56,6 +56,30 @@ function buildTitle(input: string): string {
   return firstLine.length <= 60 ? firstLine : firstLine.slice(0, 57) + '…';
 }
 
+/**
+ * Extracts LinkItem entries from the BrandKit linkKit that should appear as
+ * Telegram inline keyboard buttons (usage === 'button' | 'always').
+ * brandKit is typed as unknown because Prisma Json columns arrive untyped.
+ */
+function extractButtonLinks(brandKit: unknown): {
+  id: string; label: string; url: string;
+  anchorText: string; buttonLabel: string; usage: string;
+}[] {
+  if (!brandKit || typeof brandKit !== 'object') return [];
+  const lk = (brandKit as Record<string, unknown>)['linkKit'];
+  if (!lk || typeof lk !== 'object' || Array.isArray(lk)) return [];
+  const links = (lk as Record<string, unknown>)['links'];
+  if (!Array.isArray(links)) return [];
+  return links.filter((l): l is {
+    id: string; label: string; url: string;
+    anchorText: string; buttonLabel: string; usage: string;
+  } => {
+    if (!l || typeof l !== 'object') return false;
+    const usage = (l as Record<string, unknown>)['usage'];
+    return usage === 'button' || usage === 'always';
+  });
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 /**
@@ -99,6 +123,9 @@ export async function createDraftPostForChannel(
     console.error('[draftGenerator] BrandKit lookup failed:', (err as Error).message);
   }
 
+  // ── Extract button links from BrandKit (non-fatal — empty array if absent) ─
+  const buttonLinks = extractButtonLinks(brandKit);
+
   // ── Generate variant drafts (AI or placeholder fallback) ──────────────────
   const title         = buildTitle(input);
   const sourceSummary = input.slice(0, 120);
@@ -119,8 +146,10 @@ export async function createDraftPostForChannel(
         channelId,
         sourceType,
         sourceSummary,
-        sourceUrl:  sourceUrl ?? null,
-        status:     'NEW',
+        sourceUrl:   sourceUrl ?? null,
+        status:      'NEW',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        linkButtons: buttonLinks as any,
         variants: {
           create: variantDrafts.map((v, i) => ({
             label:        v.label,
@@ -149,7 +178,7 @@ export async function createDraftPostForChannel(
   // ── Map to frontend shape ─────────────────────────────────────────────────
   // - status always 'new' (just created)
   // - createdAt as ISO string (frontend does new Date() on receipt)
-  // - linkButtons: [] (no link-button personalisation at generation time)
+  // - linkButtons: BrandKit links with usage 'button' | 'always' (may be [])
   // - channelUsername: handle preferred; name as fallback
   return {
     id:               dbPost.id,
@@ -166,7 +195,7 @@ export async function createDraftPostForChannel(
       isSelected: v.id === dbPost.selectedVariantId,
     })),
     selectedVariantId: dbPost.selectedVariantId,
-    linkButtons:       [],
+    linkButtons:       buttonLinks,
     status:            'new',
     createdAt:         dbPost.createdAt.toISOString(),
     scheduledAt:       null,

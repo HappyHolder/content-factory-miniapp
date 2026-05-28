@@ -75,9 +75,20 @@ export async function getChat(chatId: string, token: string): Promise<TgChat> {
   return body.result;
 }
 
+// ─── Inline keyboard ─────────────────────────────────────────────────────────
+
+/**
+ * Telegram Bot API inline_keyboard reply_markup.
+ * Each row is an array of buttons; we put one button per row for channel posts.
+ */
+export interface TelegramInlineKeyboard {
+  inline_keyboard: { text: string; url: string }[][];
+}
+
 /**
  * Sends a plain-text message to a Telegram chat via sendMessage.
  * chatId may be a numeric user/chat ID or a public username string ("@channelname").
+ * Pass replyMarkup to attach an inline keyboard (link buttons) to the message.
  * Throws TelegramApiError on a non-ok response or network failure.
  * Never logs the token.
  */
@@ -85,6 +96,7 @@ export async function sendBotMessage(
   chatId: number | string,
   text: string,
   token: string,
+  replyMarkup?: TelegramInlineKeyboard,
 ): Promise<void> {
   const url = `${TG_API}/bot${token}/sendMessage`;
   let res: Response;
@@ -92,7 +104,11 @@ export async function sendBotMessage(
     res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text }),
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      }),
     });
   } catch (err) {
     throw new TelegramApiError(`Network error calling sendMessage: ${(err as Error).message}`);

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { sendBotMessage, TelegramApiError } from '../lib/telegramBot';
+import { sendBotMessage, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 
 const router = Router();
@@ -14,6 +14,23 @@ function mapStatus(s: string): 'new' | 'scheduled' | 'published' {
   if (s === 'SCHEDULED') return 'scheduled';
   if (s === 'PUBLISHED') return 'published';
   return 'new';   // NEW, FAILED, ARCHIVED all surface as 'new' in the Mini App
+}
+
+/**
+ * Normalises a link URL for use in a Telegram inline keyboard button.
+ * Telegram requires http:// or https:// URLs.
+ *   "@handle"          → "https://t.me/handle"
+ *   "https://…"        → unchanged
+ *   "http://…"         → unchanged
+ *   anything else      → null (button skipped)
+ */
+function normalizeTelegramUrl(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const u = raw.trim();
+  if (!u) return null;
+  if (u.startsWith('https://') || u.startsWith('http://')) return u;
+  if (u.startsWith('@')) return `https://t.me/${u.slice(1)}`;
+  return null;
 }
 
 // ─── POST /api/posts/generate ─────────────────────────────────────────────────
@@ -307,6 +324,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     id:                string;
     status:            string;
     selectedVariantId: string | null;
+    linkButtons:       unknown;           // Json? — LinkItem[] stored by draftGenerator
     channel: {
       userId: string;
       handle: string | null;
@@ -322,6 +340,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
         id:                true,
         status:            true,
         selectedVariantId: true,
+        linkButtons:       true,
         channel: {
           select: { userId: true, handle: true, name: true },
         },
@@ -370,7 +389,25 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 9. Send to Telegram channel ──────────────────────────────────────────
+  // ── 9. Build optional inline keyboard from stored link buttons ───────────
+  // linkButtons was populated from BrandKit at draft-creation time and stored
+  // as Json in GeneratedPost. Each button with a valid URL becomes one row.
+  let replyMarkup: TelegramInlineKeyboard | undefined;
+  if (Array.isArray(post.linkButtons) && post.linkButtons.length > 0) {
+    const rows = (post.linkButtons as Record<string, unknown>[])
+      .map(btn => {
+        const url = normalizeTelegramUrl(btn['url']);
+        if (!url) return null;
+        const text = String(btn['buttonLabel'] || btn['label'] || url).trim() || url;
+        return [{ text, url }];
+      })
+      .filter((row): row is { text: string; url: string }[] => row !== null);
+    if (rows.length > 0) {
+      replyMarkup = { inline_keyboard: rows };
+    }
+  }
+
+  // ── 10. Send to Telegram channel ─────────────────────────────────────────
   // DB is only updated AFTER a successful Telegram delivery so status never
   // shows PUBLISHED for a message that was never actually sent.
   try {
@@ -378,6 +415,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       `@${post.channel.handle}`,
       selectedVariant.text,
       env.TELEGRAM_BOT_TOKEN,
+      replyMarkup,
     );
   } catch (err) {
     const msg = err instanceof TelegramApiError
@@ -388,7 +426,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 10. Persist PUBLISHED status ─────────────────────────────────────────
+  // ── 11. Persist PUBLISHED status ─────────────────────────────────────────
   const publishedAt = new Date();
   try {
     await prisma.generatedPost.update({
@@ -405,7 +443,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 11. Return updated post fields ───────────────────────────────────────
+  // ── 12. Return updated post fields ───────────────────────────────────────
   res.json({
     post: {
       id:          postId,
