@@ -422,6 +422,112 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
   return drafts;
 }
 
+// ─── Strict emoji enforcement ─────────────────────────────────────────────────
+//
+// Post-processing step applied after AI generation (and placeholder fallback).
+// When BrandKit emojiPack.strictMode === true, any emoji NOT in allowedEmojis
+// is removed from the variant text. Normal text, punctuation, and whitespace
+// are never affected.
+//
+// Emoji matching uses Unicode property escapes (ES2018+, supported on Node ≥ 10):
+//   \p{Emoji_Modifier_Base}   — base codepoints that accept a skin-tone modifier
+//   \p{Emoji_Modifier}        — skin-tone modifier codepoints (🏻–🏿)
+//   \p{Emoji_Presentation}    — codepoints whose default presentation is emoji
+//   \p{Emoji}                 — all codepoints with the Emoji property
+//   \p{Regional_Indicator}    — A–Z regional indicator pairs that form flag emoji
+//
+// The regex matches full grapheme clusters so that multi-codepoint sequences
+// (skin-tone variants, ZWJ family/profession sequences, flag pairs, keycaps)
+// are treated as one unit during the allowed-set lookup.
+//
+// Known limitations:
+//   - Variation selectors (U+FE0F / U+FE0E) may differ between what the user
+//     typed in the UI and what DeepSeek outputs; buildAllowedEmojiSet() adds
+//     both the stored form and the VS-stripped form to mitigate this.
+//   - Characters with text-presentation (e.g. plain ❤ / U+2764 without U+FE0F)
+//     are NOT matched and pass through untouched. Only the emoji-presentation
+//     form (❤️ = U+2764 + U+FE0F) is subject to filtering. This is intentional
+//     and conservative: text-mode characters are never stripped by this filter.
+//   - Skin-tone modifier variants (👍🏻) are matched as a single unit. If only
+//     the base (👍) is in allowedEmojis, the skin-tone variant will be removed.
+//     Add each skin-tone variant explicitly to allowedEmojis if needed.
+//   - Very exotic ZWJ sequences that include Regional Indicators in the middle
+//     are not matched as a unit; in practice these do not exist in Unicode.
+
+/**
+ * Matches a single complete emoji grapheme cluster, including:
+ *   - Emoji + skin-tone modifier (👍🏻)
+ *   - Emoji defaulting to emoji presentation (🚀, 😀)
+ *   - Emoji + variation selector U+FE0F to force emoji presentation (❤️, ©️)
+ *   - Any of the above joined by ZWJ U+200D into compound sequences (👨‍💻, 👨‍👩‍👧)
+ *   - Regional indicator pairs — flag emoji (🇷🇺, 🇺🇸)
+ *   - Keycap sequences (0️⃣–9️⃣, #️⃣, *️⃣)
+ *
+ * The regex body uses raw Unicode codepoints (valid in ES2020 regex literals):
+ *   U+FE0F  variation selector 16 — forces emoji presentation  (e.g. ❤️)
+ *   U+20E3  combining enclosing keycap                          (e.g. 1️⃣)
+ *   U+200D  zero-width joiner                                   (e.g. 👨‍💻)
+ */
+const EMOJI_SEQUENCE_RE =
+  /\p{Regional_Indicator}{2}|(?:\d|[#*])️?⃣|(?:\p{Emoji_Modifier_Base}\p{Emoji_Modifier}|\p{Emoji_Presentation}|\p{Emoji}️)(?:‍(?:\p{Emoji_Modifier_Base}\p{Emoji_Modifier}|\p{Emoji_Presentation}|\p{Emoji}️))*/gu;
+
+/** Strip U+FE0E (text VS) and U+FE0F (emoji VS) for normalised set lookup. */
+const VS_RE = /︎|️/g;
+
+/**
+ * Safely extracts strictMode and allowedEmojis from a BrandKit blob.
+ * Returns safe defaults when the field is absent or malformed.
+ */
+function extractEmojiPack(brandKit: unknown): { allowedEmojis: string[]; strictMode: boolean } {
+  const defaults = { allowedEmojis: [] as string[], strictMode: false };
+  if (!brandKit || typeof brandKit !== 'object') return defaults;
+  const ep = (brandKit as Record<string, unknown>)['emojiPack'];
+  if (!ep || typeof ep !== 'object') return defaults;
+  const pack       = ep as Record<string, unknown>;
+  const strictMode = pack['strictMode'] === true;
+  const raw        = pack['allowedEmojis'];
+  const allowedEmojis = Array.isArray(raw)
+    ? raw.filter((e): e is string => typeof e === 'string' && e.length > 0)
+    : [];
+  return { allowedEmojis, strictMode };
+}
+
+/**
+ * Builds a lookup set from the allowed emoji list.
+ * Each emoji is stored both as-is and with variation selectors (U+FE0F / U+FE0E)
+ * stripped, so that minor encoding differences between the UI and the AI output
+ * do not cause a false-negative rejection.
+ *
+ * Example: user saved "❤" (U+2764) but AI outputs "❤️" (U+2764 U+FE0F).
+ * The stripped form "❤" is in the set, so "❤️" is kept.
+ */
+function buildAllowedEmojiSet(allowedEmojis: string[]): Set<string> {
+  const set = new Set<string>();
+  for (const e of allowedEmojis) {
+    set.add(e);
+    const stripped = e.replace(VS_RE, '');
+    if (stripped !== e) set.add(stripped);
+  }
+  return set;
+}
+
+/**
+ * Removes every emoji grapheme cluster from text that is not in allowedSet.
+ * Non-emoji characters (letters, digits, punctuation, whitespace) are never
+ * modified. Returns a new string; input is not mutated.
+ */
+function applyStrictEmojiFilter(text: string, allowedSet: Set<string>): string {
+  // String.prototype.replace resets lastIndex to 0 before executing a global
+  // regex, so reuse of the module-level constant is safe.
+  return text.replace(EMOJI_SEQUENCE_RE, (match) => {
+    if (allowedSet.has(match)) return match;
+    // Also accept if only the variation-selector form differs
+    const stripped = match.replace(VS_RE, '');
+    if (allowedSet.has(stripped)) return match;  // allowed base → keep original form
+    return '';  // not in allowed list → remove
+  });
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 /**
@@ -431,10 +537,22 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
  * - AI_PROVIDER=deepseek: calls DeepSeek API with full Channel Style context;
  *   falls back to placeholder on any error (non-200, timeout, bad JSON, wrong
  *   variant count, invalid shape).
+ *
+ * Post-processing: if BrandKit emojiPack.strictMode === true and allowedEmojis
+ * is non-empty, all variants are filtered to remove disallowed emoji sequences.
+ * This applies to both AI-generated and placeholder variants.
  */
 export async function generatePostVariants(params: GenerateParams): Promise<VariantDraft[]> {
-  if (env.AI_PROVIDER === 'deepseek') {
-    return generateWithDeepSeek(params);
+  const drafts = env.AI_PROVIDER === 'deepseek'
+    ? await generateWithDeepSeek(params)
+    : buildPlaceholderVariants(params.input);
+
+  // ── Strict emoji enforcement (post-processing) ─────────────────────────────
+  const { allowedEmojis, strictMode } = extractEmojiPack(params.brandKit);
+  if (strictMode && allowedEmojis.length > 0) {
+    const allowedSet = buildAllowedEmojiSet(allowedEmojis);
+    return drafts.map(d => ({ ...d, text: applyStrictEmojiFilter(d.text, allowedSet) }));
   }
-  return buildPlaceholderVariants(params.input);
+
+  return drafts;
 }
