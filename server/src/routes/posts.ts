@@ -3,17 +3,11 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { sendBotMessage, TelegramApiError } from '../lib/telegramBot';
-import { generatePostVariants } from '../lib/aiGenerator';
+import { createDraftPostForChannel } from '../lib/draftGenerator';
 
 const router = Router();
 
 // ─── Local helpers ────────────────────────────────────────────────────────────
-
-function buildTitle(input: string): string {
-  const firstLine = input.split('\n')[0]?.trim() ?? '';
-  if (!firstLine) return 'Generated post';
-  return firstLine.length <= 60 ? firstLine : firstLine.slice(0, 57) + '…';
-}
 
 // Maps DB PostStatus enum value to the frontend lowercase string.
 function mapStatus(s: string): 'new' | 'scheduled' | 'published' {
@@ -117,130 +111,21 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 5. Load BrandKit for the channel (optional — used by AI for style context) ──
-  let brandKit: unknown | null = null;
+  // ── 5. Create draft: BrandKit load + AI generation + DB persist ─────────────
+  // Delegated to the shared draftGenerator helper so the logic is not
+  // duplicated between this route and the bot webhook auto-draft flow.
   try {
-    const bk = await prisma.brandKit.findUnique({
-      where:  { channelId: channel.id },
-      select: {
-        channelAbout: true,
-        voiceProfile: true,
-        postRules:    true,
-        emojiPack:    true,
-        linkKit:      true,
-        signature:    true,
-      },
+    const draft = await createDraftPostForChannel({
+      channelId:  channel.id,
+      input:      trimmedInput,
+      sourceType: sourceType as string,
+      sourceUrl:  null,
     });
-    brandKit = bk ?? null;
+    res.json({ post: draft });
   } catch (err) {
-    // Non-fatal — generation proceeds without style context
-    console.error('[posts/generate] BrandKit lookup failed:', (err as Error).message);
-  }
-
-  // ── 6. Generate variant drafts (AI or placeholder) ────────────────────────
-  const title         = buildTitle(trimmedInput);
-  const sourceSummary = trimmedInput.slice(0, 120);
-  const variantDrafts = await generatePostVariants({
-    input:      trimmedInput,
-    sourceType: sourceType as string,
-    channel: {
-      handle: channel.handle,
-      name:   channel.name,
-    },
-    brandKit,
-  });
-
-  // ── 7. Persist: GeneratedPost + 3 PostVariant rows ───────────────────────
-  // Interactive transaction (Prisma 5, GA):
-  //   Step A — create post with nested variants in one round-trip
-  //   Step B — write selectedVariantId (needs variant IDs from step A)
-  let dbPost: {
-    id:               string;
-    title:            string;
-    channelId:        string;
-    sourceType:       string | null;
-    sourceSummary:    string | null;
-    status:           string;
-    selectedVariantId: string | null;
-    createdAt:        Date;
-    variants: {
-      id:         string;
-      label:      string | null;
-      text:       string;
-      isSelected: boolean;
-    }[];
-  };
-
-  try {
-    dbPost = await prisma.$transaction(async (tx) => {
-      const created = await tx.generatedPost.create({
-        data: {
-          title,
-          channelId:     channel!.id,
-          sourceType:    sourceType as string,
-          sourceSummary,
-          status:        'NEW',
-          variants: {
-            create: variantDrafts.map((v, i) => ({
-              label:        v.label,
-              variantIndex: i,
-              text:         v.text,
-              isSelected:   i === 0,
-            })),
-          },
-        },
-        include: {
-          variants: { orderBy: { variantIndex: 'asc' } },
-        },
-      });
-
-      const firstVariantId = created.variants[0]!.id;
-
-      await tx.generatedPost.update({
-        where: { id: created.id },
-        data:  { selectedVariantId: firstVariantId },
-      });
-
-      // Return the fully assembled object — selectedVariantId is now set
-      return { ...created, selectedVariantId: firstVariantId };
-    });
-  } catch (err) {
-    console.error('[posts/generate] DB transaction failed:', (err as Error).message);
+    console.error('[posts/generate] Draft creation failed:', (err as Error).message);
     res.status(500).json({ error: 'Internal server error' });
-    return;
   }
-
-  // ── 8. Map to frontend shape and respond ─────────────────────────────────
-  // - status: DB enum (uppercase) → frontend string (lowercase)
-  // - createdAt: Date → ISO string (frontend converts back with new Date())
-  // - banner: omitted entirely (optional in frontend type; PostCard handles absent gracefully)
-  // - linkButtons: [] required by frontend GeneratedPost type
-  // - channelUsername: Channel.handle preferred; Channel.name as fallback
-  res.json({
-    post: {
-      id:               dbPost.id,
-      title:            dbPost.title,
-      sourceType:       dbPost.sourceType ?? sourceType,
-      sourceUrl:        null,
-      sourceSummary:    dbPost.sourceSummary ?? '',
-      channelId:        dbPost.channelId,
-      channelUsername:  channel.handle ?? channel.name,
-      variants:         dbPost.variants.map(v => ({
-        id:         v.id,
-        label:      v.label ?? 'Variant',
-        text:       v.text,
-        isSelected: v.id === dbPost.selectedVariantId,
-      })),
-      selectedVariantId: dbPost.selectedVariantId,
-      linkButtons:       [],
-      status:            mapStatus(dbPost.status),
-      createdAt:         dbPost.createdAt.toISOString(),
-      scheduledAt:       null,
-      publishedAt:       null,
-      textRegensUsed:    0,
-      imageRegensUsed:   0,
-    },
-  });
 });
 
 // ─── POST /api/posts/list ─────────────────────────────────────────────────────

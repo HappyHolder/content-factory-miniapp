@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { sendBotMessage } from '../lib/telegramBot';
+import { createDraftPostForChannel } from '../lib/draftGenerator';
 
 const router = Router();
 
@@ -23,8 +24,14 @@ interface TgMessage {
     is_bot?: boolean;
   };
   chat: { id: number };
+  // text-only messages
   text?: string;
   entities?: TgMessageEntity[];
+  // photo / video / document captions
+  caption?: string;
+  caption_entities?: TgMessageEntity[];
+  // forwarded messages carry a forward_date field
+  forward_date?: number;
 }
 
 interface TelegramUpdate {
@@ -80,27 +87,27 @@ async function trySendReply(chatId: number, text: string): Promise<void> {
 // Receives Telegram Update objects sent by Telegram's servers.
 //
 // Auth:    X-Telegram-Bot-Api-Secret-Token header (set via setWebhook secret_token).
-//          Returns 401 if missing or wrong — this is the only non-200 response
-//          allowed (we want Telegram to stop retrying a malformed/spoofed request).
+//          Returns 401 if missing or wrong — the only non-200 response allowed
+//          (Telegram stops retrying a 401).
 //
 // All valid bot-update paths return 200 so Telegram does not retry.
 // User-facing errors are communicated via bot replies, not HTTP status codes.
 //
 // Happy path:
 //   1. Validate secret token header.
-//   2. Parse Update — ignore non-message, missing from, missing text (with 200).
+//   2. Parse Update — ignore non-message, missing from, empty source text.
 //   3. Resolve User by message.from.id (telegramId).
 //   4. Resolve user's first Channel (ordered by createdAt asc).
-//   5. Detect SourceType (URL or TEXT), extract URL if present.
+//   5. Classify SourceType (URL or TEXT), extract URL if present.
 //   6. Persist SourceInput.
-//   7. Reply to user and return 200.
+//   7. Auto-generate draft via DeepSeek + Channel Style (non-fatal).
+//   8. Reply to user and return 200.
 
 router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   // ── 1. Authenticate the request ──────────────────────────────────────────
   const incomingSecret = req.headers['x-telegram-bot-api-secret-token'];
   if (incomingSecret !== env.TELEGRAM_WEBHOOK_SECRET) {
-    // 401 is intentional here — tells Telegram this endpoint rejected the
-    // delivery. Telegram will not endlessly retry a 401.
+    // 401 tells Telegram this endpoint rejected the delivery → no endless retry.
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
@@ -123,15 +130,16 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // Ignore non-text messages (stickers, photos, voice, etc.)
-  // Optionally send a gentle nudge so the user knows what to do.
-  if (!message.text) {
+  // Accept both plain text messages and photo/video/document captions.
+  const sourceText     = message.text ?? message.caption ?? '';
+  const sourceEntities = message.entities ?? message.caption_entities ?? [];
+
+  if (!sourceText.trim()) {
     await trySendReply(chatId, 'For now, send text or a link.');
     res.status(200).json({ ok: true });
     return;
   }
 
-  const text       = message.text;
   const telegramId = String(message.from.id);
 
   // ── 3. Resolve authenticated user ────────────────────────────────────────
@@ -159,7 +167,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   try {
     channels = await prisma.channel.findMany({
       where:   { userId: dbUser.id },
-      orderBy: { createdAt: 'asc' },   // oldest first = default channel, consistent with auth.ts
+      orderBy: { createdAt: 'asc' },   // oldest first = default channel
       select:  { id: true, name: true, handle: true },
     });
   } catch (err) {
@@ -178,8 +186,8 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   const targetChannel = channels[0]!;
 
   // ── 5. Classify source and extract URL ───────────────────────────────────
-  const sourceIsUrl  = isUrlSource(text, message.entities);
-  const extractedUrl = sourceIsUrl ? extractFirstUrl(text, message.entities) : null;
+  const sourceIsUrl  = isUrlSource(sourceText, sourceEntities);
+  const extractedUrl = sourceIsUrl ? extractFirstUrl(sourceText, sourceEntities) : null;
 
   // ── 6. Persist SourceInput ───────────────────────────────────────────────
   try {
@@ -187,25 +195,47 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       data: {
         userId:  dbUser.id,
         type:    sourceIsUrl ? 'URL' : 'TEXT',
-        content: text,
+        content: sourceText,
         url:     extractedUrl ?? null,
         metadata: {
           telegramMessageId: message.message_id,
           telegramChatId:    chatId,
           source:            'telegram_bot',
           channelId:         targetChannel.id,
+          hasCaption:        message.caption !== undefined,
+          isForwarded:       message.forward_date !== undefined,
         },
       },
     });
   } catch (err) {
     console.error('[bot/webhook] SourceInput create failed:', (err as Error).message);
-    // Non-fatal from Telegram's perspective — return 200, no reply (DB error is internal)
+    // Non-fatal from Telegram's perspective — return 200, no user reply
     res.status(200).json({ ok: true });
     return;
   }
 
-  // ── 7. Confirm to the user and return ────────────────────────────────────
-  await trySendReply(chatId, '✅ Source saved. Open the Mini App to generate a post.');
+  // ── 7. Auto-generate draft via DeepSeek + Channel Style ──────────────────
+  // Non-fatal: if generation fails the SourceInput is already saved and the
+  // user can generate manually from the Create screen in the Mini App.
+  let draftCreated = false;
+  try {
+    await createDraftPostForChannel({
+      channelId:  targetChannel.id,
+      input:      sourceText,
+      sourceType: extractedUrl ? 'link' : 'prompt',
+      sourceUrl:  extractedUrl ?? null,
+    });
+    draftCreated = true;
+  } catch (err) {
+    console.error('[bot/webhook] Draft generation failed:', (err as Error).message);
+  }
+
+  // ── 8. Reply to user and return ──────────────────────────────────────────
+  const reply = draftCreated
+    ? '✅ Draft created. Open the Mini App to review and publish.'
+    : '✅ Source saved, but draft generation failed. Open the Mini App to generate manually.';
+
+  await trySendReply(chatId, reply);
   res.status(200).json({ ok: true });
 });
 

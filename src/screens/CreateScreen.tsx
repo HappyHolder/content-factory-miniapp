@@ -57,7 +57,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
   // Prefill the textarea with the selected bot source.
   // DB 'URL' → frontend 'link' chip; DB 'TEXT' → frontend 'prompt' chip.
   const handleSelectSource = (source: BotSource) => {
-    setInput(source.type === 'URL' ? (source.url ?? source.content) : source.content)
+    setInput(source.content)
     setSourceType(source.type === 'URL' ? 'link' : 'prompt')
     setUsedIds(prev => new Set([...prev, source.id]))
   }
