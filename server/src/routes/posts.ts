@@ -122,7 +122,14 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
   try {
     const bk = await prisma.brandKit.findUnique({
       where:  { channelId: channel.id },
-      select: { channelAbout: true, voiceProfile: true, postRules: true },
+      select: {
+        channelAbout: true,
+        voiceProfile: true,
+        postRules:    true,
+        emojiPack:    true,
+        linkKit:      true,
+        signature:    true,
+      },
     });
     brandKit = bk ?? null;
   } catch (err) {
