@@ -68,14 +68,27 @@ export function CtaLinksForm({ channelId, initialSignature, initialLinks }: CtaL
   const saveLink = () => {
     if (!editingLink) return
     const exists = links.some(l => l.id === editingLink.id)
-    setLinks(exists
+    const newLinks = exists
       ? links.map(l => l.id === editingLink.id ? editingLink : l)
       : [...links, editingLink]
-    )
+    setLinks(newLinks)
     setSheetOpen(false)
+    // Persist immediately — user expects "Save" in the sheet to be the final action.
+    // Also saves the current signature so both sections stay in sync.
+    updateBrandKit(channelId, {
+      signature: { text: sigText, cta: sigCta || undefined, usage: sigUsage },
+      linkKit:   { links: newLinks },
+    })
   }
 
-  const deleteLink = (id: string) => setLinks(links.filter(l => l.id !== id))
+  const deleteLink = (id: string) => {
+    const newLinks = links.filter(l => l.id !== id)
+    setLinks(newLinks)
+    updateBrandKit(channelId, {
+      signature: { text: sigText, cta: sigCta || undefined, usage: sigUsage },
+      linkKit:   { links: newLinks },
+    })
+  }
 
   const handleSave = () => {
     updateBrandKit(channelId, {
