@@ -3,54 +3,16 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { sendBotMessage, TelegramApiError } from '../lib/telegramBot';
+import { generatePostVariants } from '../lib/aiGenerator';
 
 const router = Router();
 
-// ─── Placeholder generation helpers ──────────────────────────────────────────
-// No AI — deterministic templates that embed the user's input.
-// Replaced by real AI in a later phase without changing the route contract.
+// ─── Local helpers ────────────────────────────────────────────────────────────
 
 function buildTitle(input: string): string {
   const firstLine = input.split('\n')[0]?.trim() ?? '';
   if (!firstLine) return 'Generated post';
   return firstLine.length <= 60 ? firstLine : firstLine.slice(0, 57) + '…';
-}
-
-interface VariantDraft {
-  label: string;
-  text:  string;
-}
-
-function buildVariants(input: string, title: string): VariantDraft[] {
-  const preview = input.length > 200 ? input.slice(0, 200) + '…' : input;
-  const short   = input.length > 80  ? input.slice(0, 80)  + '…' : input;
-
-  // Variant A — concise: title + full preview + brief close
-  const textA =
-    `${title}\n\n` +
-    `${preview}\n\n` +
-    `Worth paying close attention to.`;
-
-  // Variant B — structured: header + bullet list + close
-  const textB =
-    `${title}\n\n` +
-    `Here's what matters:\n\n` +
-    `→ ${short}\n` +
-    `→ The context shapes everything here\n` +
-    `→ The details will determine the outcome\n\n` +
-    `More signal, less noise.`;
-
-  // Variant C — punchy: short hook + sharp close
-  const textC =
-    `${short}\n\n` +
-    `Here's the real point: this changes the picture.\n\n` +
-    `Not hype. Signal worth tracking.`;
-
-  return [
-    { label: 'Variant A', text: textA },
-    { label: 'Variant B', text: textB },
-    { label: 'Variant C', text: textC },
-  ];
 }
 
 // Maps DB PostStatus enum value to the frontend lowercase string.
@@ -62,9 +24,8 @@ function mapStatus(s: string): 'new' | 'scheduled' | 'published' {
 
 // ─── POST /api/posts/generate ─────────────────────────────────────────────────
 //
-// Creates a GeneratedPost + 3 PostVariant rows in Neon using placeholder text.
-// No AI call. Designed to be upgraded to real generation without breaking the
-// route contract (same request / response shape).
+// Generates 3 post variants via AI (or placeholder when AI_PROVIDER=placeholder)
+// and persists them as a GeneratedPost + 3 PostVariant rows in Neon.
 //
 // Request body: { initData, channelId, input, sourceType }
 // Response 200: { post: MappedGeneratedPost }
@@ -156,12 +117,33 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 5. Build placeholder content ─────────────────────────────────────────
+  // ── 5. Load BrandKit for the channel (optional — used by AI for style context) ──
+  let brandKit: unknown | null = null;
+  try {
+    const bk = await prisma.brandKit.findUnique({
+      where:  { channelId: channel.id },
+      select: { channelAbout: true, voiceProfile: true, postRules: true },
+    });
+    brandKit = bk ?? null;
+  } catch (err) {
+    // Non-fatal — generation proceeds without style context
+    console.error('[posts/generate] BrandKit lookup failed:', (err as Error).message);
+  }
+
+  // ── 6. Generate variant drafts (AI or placeholder) ────────────────────────
   const title         = buildTitle(trimmedInput);
   const sourceSummary = trimmedInput.slice(0, 120);
-  const variantDrafts = buildVariants(trimmedInput, title);
+  const variantDrafts = await generatePostVariants({
+    input:      trimmedInput,
+    sourceType: sourceType as string,
+    channel: {
+      handle: channel.handle,
+      name:   channel.name,
+    },
+    brandKit,
+  });
 
-  // ── 6. Persist: GeneratedPost + 3 PostVariant rows ───────────────────────
+  // ── 7. Persist: GeneratedPost + 3 PostVariant rows ───────────────────────
   // Interactive transaction (Prisma 5, GA):
   //   Step A — create post with nested variants in one round-trip
   //   Step B — write selectedVariantId (needs variant IDs from step A)
@@ -221,7 +203,7 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 7. Map to frontend shape and respond ─────────────────────────────────
+  // ── 8. Map to frontend shape and respond ─────────────────────────────────
   // - status: DB enum (uppercase) → frontend string (lowercase)
   // - createdAt: Date → ISO string (frontend converts back with new Date())
   // - banner: omitted entirely (optional in frontend type; PostCard handles absent gracefully)

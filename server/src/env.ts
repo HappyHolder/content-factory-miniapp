@@ -15,6 +15,17 @@ function requireEnv(key: string): string {
   return value;
 }
 
+const AI_PROVIDER = (process.env['AI_PROVIDER'] ?? 'placeholder') as 'placeholder' | 'deepseek';
+
+// DEEPSEEK_API_KEY is only required when the provider is explicitly set to deepseek.
+// This lets the server start without an AI key in placeholder / dev mode.
+if (AI_PROVIDER === 'deepseek' && !process.env['DEEPSEEK_API_KEY']) {
+  throw new Error(
+    '[env] DEEPSEEK_API_KEY is required when AI_PROVIDER=deepseek.\n' +
+    '      Set it in server/.env or in your Render environment variables.'
+  );
+}
+
 export const env = {
   DATABASE_URL:              requireEnv('DATABASE_URL'),
   DIRECT_URL:                requireEnv('DIRECT_URL'),
@@ -25,4 +36,8 @@ export const env = {
     | 'development'
     | 'production'
     | 'test',
+  AI_PROVIDER,
+  DEEPSEEK_API_KEY:  process.env['DEEPSEEK_API_KEY']  ?? '',
+  DEEPSEEK_BASE_URL: process.env['DEEPSEEK_BASE_URL'] ?? 'https://api.deepseek.com',
+  DEEPSEEK_MODEL:    process.env['DEEPSEEK_MODEL']    ?? 'deepseek-chat',
 } as const;
