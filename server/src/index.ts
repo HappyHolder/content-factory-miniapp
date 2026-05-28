@@ -8,6 +8,7 @@ import brandkitsRouter from './routes/brandkits';
 import botRouter from './routes/bot';
 import sourcesRouter from './routes/sources';
 import postsRouter from './routes/posts';
+import { startScheduler } from './lib/scheduler';
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.listen(env.PORT, () => {
   console.log(
     `[content-factory-api] Running on port ${env.PORT} (${env.NODE_ENV})`
   );
+  startScheduler();
 });
 
 export default app;
