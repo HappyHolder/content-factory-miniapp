@@ -2,7 +2,6 @@ export type PostStatus = 'new' | 'scheduled' | 'published'
 export type SourceType = 'bot' | 'link' | 'prompt' | 'text' | 'forwarded_post'
 export type Tone = 'expert' | 'calm' | 'founder' | 'crypto' | 'bold' | 'meme'
 export type PostLength = 'short' | 'medium' | 'long'
-export type EmojiDensity = 'none' | 'light' | 'medium' | 'active'
 export type AddressStyle = 'ты' | 'вы'
 export type Language = 'RU' | 'EN'
 export type LinkUsage = 'inline' | 'button' | 'signature' | 'when_relevant' | 'always'
@@ -63,30 +62,11 @@ export interface VoiceProfile {
   authorRole?: AuthorRole
   tone: Tone
   postLength: PostLength
-  emojiDensity: EmojiDensity
   examplePosts: string[]
   favoriteWords: string[]
   forbiddenWords: string[]
 }
 
-/**
- * A single entry in the emoji pack's allowed list.
- * Can be a plain Unicode string (legacy) or a richer object.
- * Only object entries with customEmojiId are eligible for Telegram custom emoji entities.
- */
-export interface EmojiPackEntry {
-  unicode: string          // the emoji character displayed and used as fallback text
-  key?: string             // short semantic name, e.g. "rocket"
-  customEmojiId?: string   // Telegram custom_emoji_id for Bot API entities
-}
-
-export interface EmojiPackConfig {
-  packLink: string
-  strictMode: boolean
-  /** Backward-compatible: existing saved rows may be string[], new entries are EmojiPackEntry[]. */
-  allowedEmojis: Array<string | EmojiPackEntry>
-  fallbackToStandard: boolean
-}
 
 export interface LinkItem {
   id: string
@@ -141,7 +121,6 @@ export interface BrandKit {
   channelId: string
   channelAbout?: ChannelAbout
   voiceProfile: VoiceProfile
-  emojiPack: EmojiPackConfig
   linkKit: LinkKit
   visualKit: VisualKit
   signature: Signature

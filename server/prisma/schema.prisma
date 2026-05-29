@@ -90,9 +90,6 @@ model Channel {
 //   - That added a required join on every BrandKit fetch with no queryability gain.
 //   - It is now `linkKit Json?` here, consistent with every other sub-section.
 //
-// Why EmojiPack was removed as a separate model:
-//   - The old EmojiPack model only stored `emojis String[]` — missing 3 of 4 fields.
-//   - Full emoji pack config is now `emojiPack Json?` here.
 
 model BrandKit {
   id        String @id @default(cuid())
@@ -100,8 +97,7 @@ model BrandKit {
 
   // Channel Style v2 sections — shape defined by frontend BrandKit interface
   channelAbout Json? // { topic, targetAudience, contentGoal }
-  voiceProfile Json? // { language, addressStyle, authorRole, tone, postLength, emojiDensity, examplePosts[], favoriteWords[], forbiddenWords[] }
-  emojiPack    Json? // { packLink, strictMode, allowedEmojis[], fallbackToStandard }
+  voiceProfile Json? // { language, addressStyle, authorRole, tone, postLength, examplePosts[], favoriteWords[], forbiddenWords[] }
   linkKit      Json? // { links: LinkItem[] }
   visualKit    Json? // { logoUrl, primaryColor, bannerTemplate, secondaryColor, aspectRatio, textOnCover, logoUsage, references[], avoidList[], ... }
   signature    Json? // { text, cta?, usage }

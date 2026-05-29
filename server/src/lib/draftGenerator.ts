@@ -113,7 +113,6 @@ export async function createDraftPostForChannel(
         channelAbout: true,
         voiceProfile: true,
         postRules:    true,
-        emojiPack:    true,
         linkKit:      true,
         signature:    true,
       },

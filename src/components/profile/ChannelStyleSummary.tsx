@@ -1,5 +1,5 @@
 import { useApp } from '@/context/AppContext'
-import type { BrandKit, AuthorRole, Tone, PostLength, EmojiDensity, BannerTemplate } from '@/types'
+import type { BrandKit, AuthorRole, Tone, PostLength, BannerTemplate } from '@/types'
 import type { TranslationKey } from '@/i18n'
 
 interface ChannelStyleSummaryProps {
@@ -29,12 +29,6 @@ const LENGTH_KEY: Record<PostLength, TranslationKey> = {
   long:   'channelStyle.textVoice.lengthLong',
 }
 
-const DENSITY_KEY: Partial<Record<EmojiDensity, TranslationKey>> = {
-  light:  'channelStyle.textVoice.densityLight',
-  medium: 'channelStyle.textVoice.densityMedium',
-  active: 'channelStyle.textVoice.densityActive',
-}
-
 const COVER_STYLE_KEY: Record<BannerTemplate, TranslationKey> = {
   dark_glass: 'channelStyle.covers.styleDarkGlass',
   minimal:    'channelStyle.covers.styleMinimal',
@@ -48,11 +42,9 @@ export function ChannelStyleSummary({ brandKit }: ChannelStyleSummaryProps) {
 
   const hasTopic = !!channelAbout?.topic
 
-  const roleStr    = voiceProfile.authorRole ? t(ROLE_KEY[voiceProfile.authorRole]) : null
-  const toneStr    = t(TONE_KEY[voiceProfile.tone])
-  const lengthStr  = t(LENGTH_KEY[voiceProfile.postLength])
-  const densityKey = DENSITY_KEY[voiceProfile.emojiDensity]
-  const densityStr = densityKey ? t(densityKey) : null
+  const roleStr   = voiceProfile.authorRole ? t(ROLE_KEY[voiceProfile.authorRole]) : null
+  const toneStr   = t(TONE_KEY[voiceProfile.tone])
+  const lengthStr = t(LENGTH_KEY[voiceProfile.postLength])
 
   // Deduplicate: role and tone can translate to the same word (e.g. 'Founder' / 'Основатель')
   const traits = [...new Set([
@@ -60,7 +52,6 @@ export function ChannelStyleSummary({ brandKit }: ChannelStyleSummaryProps) {
     voiceProfile.language,
     toneStr,
     lengthStr,
-    densityStr,
   ].filter(Boolean) as string[])]
 
   const coverStyleStr = t(COVER_STYLE_KEY[visualKit.bannerTemplate])

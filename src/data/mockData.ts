@@ -48,19 +48,12 @@ export const mockBrandKits: BrandKit[] = [
       authorRole: 'founder',
       tone: 'founder',
       postLength: 'medium',
-      emojiDensity: 'light',
       examplePosts: [
         'We just hit 10k users. Here\'s what we learned building in public.',
         'The feature nobody asked for — but everyone needed.',
       ],
       favoriteWords: ['build', 'ship', 'launch', 'grow'],
       forbiddenWords: ['synergy', 'leverage', 'disrupt'],
-    },
-    emojiPack: {
-      packLink: 't.me/addemoji/FounderPack',
-      strictMode: false,
-      allowedEmojis: ['🚀', '💡', '⚡', '🎯', '✅', '🔥'],
-      fallbackToStandard: true,
     },
     linkKit: {
       links: [
@@ -134,16 +127,9 @@ export const mockBrandKits: BrandKit[] = [
       authorRole: 'media',
       tone: 'expert',
       postLength: 'short',
-      emojiDensity: 'none',
       examplePosts: [],
       favoriteWords: [],
       forbiddenWords: [],
-    },
-    emojiPack: {
-      packLink: '',
-      strictMode: true,
-      allowedEmojis: [],
-      fallbackToStandard: false,
     },
     linkKit: { links: [] },
     visualKit: {

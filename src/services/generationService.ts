@@ -9,15 +9,13 @@ const variantLabels = [
 function generateVariants(input: string, brandKit: BrandKit): PostVariant[] {
   const tone = brandKit.voiceProfile.tone
   const length = brandKit.voiceProfile.postLength
-  const density = brandKit.voiceProfile.emojiDensity
   const sig = brandKit.signature.text
 
-  const emoji = density === 'none' ? '' : density === 'light' ? ' ⚡' : ' 🚀'
   const labelSet = variantLabels[Math.floor(Math.random() * variantLabels.length)]
 
   const longText = `${input}
 
-This is an insight worth sharing with the channel.${emoji}
+This is an insight worth sharing with the channel.
 
 ${tone === 'founder' ? 'Here\'s what we learned:' : 'Key takeaways:'}
 
@@ -27,7 +25,7 @@ ${tone === 'founder' ? 'Here\'s what we learned:' : 'Key takeaways:'}
 
 ${sig}`
 
-  const shortText = `${input}${emoji}
+  const shortText = `${input}
 
 The key insight: timing and positioning beat effort every time.
 

@@ -81,7 +81,6 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
     channelId:    string;
     channelAbout: unknown;
     voiceProfile: unknown;
-    emojiPack:    unknown;
     linkKit:      unknown;
     visualKit:    unknown;
     signature:    unknown;
@@ -95,7 +94,6 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
           channelId:    true,
           channelAbout: true,
           voiceProfile: true,
-          emojiPack:    true,
           linkKit:      true,
           visualKit:    true,
           signature:    true,

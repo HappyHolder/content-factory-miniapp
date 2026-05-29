@@ -65,7 +65,6 @@ export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitS
           <TextVoiceForm
             channelId={channelId}
             initialVoice={brandKit.voiceProfile}
-            initialEmoji={brandKit.emojiPack}
           />
         )
       case 'postFormat':

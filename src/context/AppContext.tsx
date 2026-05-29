@@ -34,16 +34,9 @@ function createDefaultBrandKit(channelId: string): BrandKit {
       addressStyle: 'ты',
       tone:         'expert',
       postLength:   'medium',
-      emojiDensity: 'light',
       examplePosts:   [],
       favoriteWords:  [],
       forbiddenWords: [],
-    },
-    emojiPack: {
-      packLink:           '',
-      strictMode:         false,
-      allowedEmojis:      [],
-      fallbackToStandard: true,
     },
     linkKit: { links: [] },
     visualKit: {
@@ -228,7 +221,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         channelId:    string
         channelAbout: unknown
         voiceProfile: unknown
-        emojiPack:    unknown
         linkKit:      unknown
         visualKit:    unknown
         signature:    unknown
@@ -273,7 +265,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Prisma Json? columns arrive as `unknown` but were written from the
         // same frontend interfaces — the shapes are guaranteed to match.
         const SECTIONS = [
-          'channelAbout', 'voiceProfile', 'emojiPack',
+          'channelAbout', 'voiceProfile',
           'linkKit', 'visualKit', 'signature', 'postRules',
         ] as const
         for (const key of SECTIONS) {
