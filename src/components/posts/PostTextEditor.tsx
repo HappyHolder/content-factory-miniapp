@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Copy, Scissors, Zap } from 'lucide-react'
+import { Copy } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -58,14 +58,6 @@ export function PostTextEditor({ postId, variantId, text }: PostTextEditorProps)
     showToast(t('common.copied'))
   }
 
-  const handleShorter = () => {
-    showToast(t('postDetails.makeShorter') + '…')
-  }
-
-  const handleSharper = () => {
-    showToast(t('postDetails.makeSharper') + '…')
-  }
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -84,19 +76,9 @@ export function PostTextEditor({ postId, variantId, text }: PostTextEditorProps)
         <span className={`text-xs ${charCount > 4096 ? 'text-red-400' : 'text-[#66666E]'}`}>
           {charCount} {t('postDetails.chars')}
         </span>
-        <div className="flex gap-1.5">
-          <Button variant="ghost" size="sm" onClick={handleShorter}>
-            <Scissors size={13} />
-            {t('postDetails.makeShorter')}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleSharper}>
-            <Zap size={13} />
-            {t('postDetails.makeSharper')}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleCopy}>
-            <Copy size={13} />
-          </Button>
-        </div>
+        <Button variant="ghost" size="sm" onClick={handleCopy}>
+          <Copy size={13} />
+        </Button>
       </div>
       <Button
         variant="secondary"

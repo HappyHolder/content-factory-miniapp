@@ -179,8 +179,7 @@ export const en = {
     regenerateVariants: 'Regenerate variants',
     save:               'Save',
     copy:               'Copy',
-    makeShorter:        'Shorter',
-    makeSharper:        'Sharper',
+
     regenerateText:     'Regenerate text',
     regenerateVisual:   'Regenerate visual',
     template:           'Template',

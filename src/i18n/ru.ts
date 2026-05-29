@@ -179,8 +179,7 @@ export const ru: Dict = {
     regenerateVariants: 'Перегенерировать варианты',
     save:               'Сохранить',
     copy:               'Скопировать',
-    makeShorter:        'Короче',
-    makeSharper:        'Острее',
+
     regenerateText:     'Перегенерировать текст',
     regenerateVisual:   'Перегенерировать визуал',
     template:           'Шаблон',
