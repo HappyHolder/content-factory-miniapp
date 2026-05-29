@@ -49,9 +49,10 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({
             initData,
-            channelId:  state.activeChannelId,
-            input:      textPrompt.trim(),
-            sourceType: 'prompt',
+            channelId:   state.activeChannelId,
+            input:       textPrompt.trim(),
+            sourceType:  'prompt',
+            ...(imagePrompt.trim() ? { imagePrompt: imagePrompt.trim() } : {}),
           }),
         })
         if (!res.ok) throw new Error(`generate failed: ${res.status}`)

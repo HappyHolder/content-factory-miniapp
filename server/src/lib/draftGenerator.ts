@@ -13,14 +13,16 @@
 
 import { prisma } from '../db';
 import { generatePostVariants } from './aiGenerator';
+import { generateImageForPost } from './imageGenerator';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export interface CreateDraftParams {
-  channelId:  string;
-  input:      string;
-  sourceType: string;
-  sourceUrl:  string | null;
+  channelId:   string;
+  input:       string;
+  sourceType:  string;
+  sourceUrl:   string | null;
+  imagePrompt?: string;   // optional; if provided, Replicate image generation is attempted
 }
 
 /** Frontend-compatible post shape — identical to what /api/posts/generate returns. */
@@ -37,6 +39,7 @@ export interface DraftPost {
     label:      string;
     text:       string;
     isSelected: boolean;
+    bannerUrl:  string | null;
   }[];
   selectedVariantId: string | null;
   linkButtons:       unknown[];
@@ -96,7 +99,7 @@ function extractButtonLinks(brandKit: unknown): {
 export async function createDraftPostForChannel(
   params: CreateDraftParams,
 ): Promise<DraftPost> {
-  const { channelId, input, sourceType, sourceUrl } = params;
+  const { channelId, input, sourceType, sourceUrl, imagePrompt } = params;
 
   // ── Load channel ──────────────────────────────────────────────────────────
   const channel = await prisma.channel.findUniqueOrThrow({
@@ -115,6 +118,7 @@ export async function createDraftPostForChannel(
         postRules:    true,
         linkKit:      true,
         signature:    true,
+        visualKit:    true,   // needed for image generation style hints
       },
     });
     brandKit = bk ?? null;
@@ -174,11 +178,44 @@ export async function createDraftPostForChannel(
     return { ...created, selectedVariantId: firstVariantId };
   });
 
+  // ── Optional image generation (non-fatal) ────────────────────────────────
+  // Only attempted when imagePrompt is provided. Errors are swallowed so that
+  // the text draft is always returned regardless of Replicate status.
+  let firstVariantBannerUrl: string | null = null;
+  const trimmedImagePrompt = imagePrompt?.trim();
+  if (trimmedImagePrompt) {
+    try {
+      const visualKit = brandKit && typeof brandKit === 'object'
+        ? (brandKit as Record<string, unknown>)['visualKit'] ?? undefined
+        : undefined;
+
+      const imageUrl = await generateImageForPost({
+        prompt:    trimmedImagePrompt,
+        visualKit,
+      });
+
+      if (imageUrl) {
+        firstVariantBannerUrl = imageUrl;
+        const firstVariantId = dbPost.variants[0]?.id;
+        if (firstVariantId) {
+          await prisma.postVariant.update({
+            where: { id: firstVariantId },
+            data:  { bannerUrl: imageUrl },
+          });
+        }
+      }
+    } catch (err) {
+      // Non-fatal — text draft is unaffected
+      console.warn('[draftGenerator] Image generation failed:', (err as Error).message);
+    }
+  }
+
   // ── Map to frontend shape ─────────────────────────────────────────────────
   // - status always 'new' (just created)
   // - createdAt as ISO string (frontend does new Date() on receipt)
   // - linkButtons: BrandKit links with usage 'button' | 'always' (may be [])
   // - channelUsername: handle preferred; name as fallback
+  // - bannerUrl: only set on variant[0] if image was generated, null otherwise
   return {
     id:               dbPost.id,
     title:            dbPost.title,
@@ -187,11 +224,12 @@ export async function createDraftPostForChannel(
     sourceSummary:    dbPost.sourceSummary ?? '',
     channelId:        dbPost.channelId,
     channelUsername:  channel.handle ?? channel.name,
-    variants: dbPost.variants.map(v => ({
+    variants: dbPost.variants.map((v, i) => ({
       id:         v.id,
       label:      v.label ?? 'Variant',
       text:       v.text,
       isSelected: v.id === dbPost.selectedVariantId,
+      bannerUrl:  i === 0 ? firstVariantBannerUrl : null,
     })),
     selectedVariantId: dbPost.selectedVariantId,
     linkButtons:       buttonLinks,

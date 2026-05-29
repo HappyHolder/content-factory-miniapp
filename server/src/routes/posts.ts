@@ -47,11 +47,12 @@ function normalizeTelegramUrl(raw: unknown): string | null {
 // Response 500: DB error
 
 router.post('/generate', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, input, sourceType } = req.body as {
-    initData?:   unknown;
-    channelId?:  unknown;
-    input?:      unknown;
-    sourceType?: unknown;
+  const { initData, channelId, input, sourceType, imagePrompt } = req.body as {
+    initData?:    unknown;
+    channelId?:   unknown;
+    input?:       unknown;
+    sourceType?:  unknown;
+    imagePrompt?: unknown;
   };
 
   // ── 1. Input validation ───────────────────────────────────────────────────
@@ -133,10 +134,11 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
   // duplicated between this route and the bot webhook auto-draft flow.
   try {
     const draft = await createDraftPostForChannel({
-      channelId:  channel.id,
-      input:      trimmedInput,
-      sourceType: sourceType as string,
-      sourceUrl:  null,
+      channelId:   channel.id,
+      input:       trimmedInput,
+      sourceType:  sourceType as string,
+      sourceUrl:   null,
+      imagePrompt: typeof imagePrompt === 'string' ? imagePrompt : undefined,
     });
     res.json({ post: draft });
   } catch (err) {
@@ -210,7 +212,7 @@ router.post('/list', async (req: Request, res: Response): Promise<void> => {
         channel:  { select: { handle: true, name: true } },
         variants: {
           orderBy: { variantIndex: 'asc' },
-          select:  { id: true, label: true, text: true, isSelected: true },
+          select:  { id: true, label: true, text: true, isSelected: true, bannerUrl: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -243,6 +245,7 @@ router.post('/list', async (req: Request, res: Response): Promise<void> => {
         label:      v.label ?? 'Variant',
         text:       v.text,
         isSelected: v.id === post.selectedVariantId,
+        bannerUrl:  v.bannerUrl ?? null,
       })),
       selectedVariantId: post.selectedVariantId,
       linkButtons:       Array.isArray(post.linkButtons) ? post.linkButtons : [],

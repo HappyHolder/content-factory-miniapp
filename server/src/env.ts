@@ -26,6 +26,8 @@ if (AI_PROVIDER === 'deepseek' && !process.env['DEEPSEEK_API_KEY']) {
   );
 }
 
+const IMAGE_PROVIDER = (process.env['IMAGE_PROVIDER'] ?? 'none') as 'none' | 'replicate';
+
 export const env = {
   DATABASE_URL:              requireEnv('DATABASE_URL'),
   DIRECT_URL:                requireEnv('DIRECT_URL'),
@@ -40,4 +42,8 @@ export const env = {
   DEEPSEEK_API_KEY:  process.env['DEEPSEEK_API_KEY']  ?? '',
   DEEPSEEK_BASE_URL: process.env['DEEPSEEK_BASE_URL'] ?? 'https://api.deepseek.com',
   DEEPSEEK_MODEL:    process.env['DEEPSEEK_MODEL']    ?? 'deepseek-chat',
+  // Image generation — all optional; server starts fine if absent
+  IMAGE_PROVIDER,
+  IMAGE_MODEL:            process.env['IMAGE_MODEL']            ?? 'google/imagen-4',
+  REPLICATE_API_TOKEN:    process.env['REPLICATE_API_TOKEN']    ?? '',
 } as const;

@@ -111,7 +111,7 @@ interface ListApiPost {
   sourceSummary:     string
   channelId:         string
   channelUsername:   string
-  variants:          { id: string; label: string; text: string; isSelected: boolean }[]
+  variants:          { id: string; label: string; text: string; isSelected: boolean; bannerUrl: string | null }[]
   selectedVariantId: string | null
   linkButtons:       unknown[]
   status:            'new' | 'scheduled' | 'published'

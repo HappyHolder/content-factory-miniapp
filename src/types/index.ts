@@ -132,6 +132,7 @@ export interface PostVariant {
   label: string
   text: string
   isSelected: boolean
+  bannerUrl?: string | null
 }
 
 export interface Banner {

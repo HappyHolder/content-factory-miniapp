@@ -192,7 +192,8 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
           </div>
 
           {/* Visual (formerly Banner) */}
-          {post.banner && (
+          {/* Visual section — real generated image (bannerUrl) or legacy mock banner */}
+          {(selectedVariant?.bannerUrl || post.banner) && (
             <div>
               {sectionLabel('banner', <ImageIcon size={15} />, t('postDetails.visual'))}
               {openSection === 'banner' && (
@@ -202,12 +203,21 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                   transition={{ duration: 0.22 }}
                   className="px-3 pb-3 overflow-hidden"
                 >
-                  <BannerPreview
-                    banner={post.banner}
-                    onRegenerate={() => showToast(t('postDetails.regenerateVisual') + '…')}
-                    onChangeTemplate={() => showToast(t('postDetails.template') + '…')}
-                    onRemove={() => showToast(t('postDetails.visual') + '…')}
-                  />
+                  {selectedVariant?.bannerUrl ? (
+                    <img
+                      src={selectedVariant.bannerUrl}
+                      alt={post.title}
+                      className="w-full rounded-[14px] object-cover"
+                      style={{ aspectRatio: '1 / 1' }}
+                    />
+                  ) : post.banner ? (
+                    <BannerPreview
+                      banner={post.banner}
+                      onRegenerate={() => showToast(t('postDetails.regenerateVisual') + '…')}
+                      onChangeTemplate={() => showToast(t('postDetails.template') + '…')}
+                      onRemove={() => showToast(t('postDetails.visual') + '…')}
+                    />
+                  ) : null}
                 </motion.div>
               )}
             </div>
