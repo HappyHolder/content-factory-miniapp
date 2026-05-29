@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
 import { useApp } from '@/context/AppContext'
-import type { VoiceProfile, EmojiPackConfig, Language, AddressStyle, AuthorRole, Tone, PostLength, EmojiDensity } from '@/types'
+import type { VoiceProfile, EmojiPackConfig, EmojiPackEntry, Language, AddressStyle, AuthorRole, Tone, PostLength, EmojiDensity } from '@/types'
 
 interface TextVoiceFormProps {
   channelId: string
@@ -22,15 +22,39 @@ export function TextVoiceForm({ channelId, initialVoice, initialEmoji }: TextVoi
   const setE = <K extends keyof EmojiPackConfig>(key: K, val: EmojiPackConfig[K]) =>
     setEmoji(prev => ({ ...prev, [key]: val }))
 
+  // ── Emoji pack helpers ─────────────────────────────────────────────────────
+  // allowedEmojis is backward-compatible: entries may be plain strings (legacy)
+  // or EmojiPackEntry objects (new). Helpers normalise access.
+
+  const entryUnicode = (e: string | EmojiPackEntry) =>
+    typeof e === 'string' ? e : e.unicode
+
+  const entryId = (e: string | EmojiPackEntry) =>
+    typeof e === 'string' ? '' : (e.customEmojiId ?? '')
+
   const addEmoji = () => {
     const chars = [...emojiInput.trim()]
-    const unique = chars.filter(c => c && !emoji.allowedEmojis.includes(c))
+    const existing = emoji.allowedEmojis.map(entryUnicode)
+    const unique = chars.filter(c => c && !existing.includes(c))
     if (unique.length) setE('allowedEmojis', [...emoji.allowedEmojis, ...unique])
     setEmojiInput('')
   }
 
-  const removeEmoji = (e: string) =>
-    setE('allowedEmojis', emoji.allowedEmojis.filter(x => x !== e))
+  const removeEmoji = (unicode: string) =>
+    setE('allowedEmojis', emoji.allowedEmojis.filter(x => entryUnicode(x) !== unicode))
+
+  /** Update (or clear) the customEmojiId for an existing entry. */
+  const setEntryCustomId = (unicode: string, id: string) => {
+    setE('allowedEmojis', emoji.allowedEmojis.map(x => {
+      if (entryUnicode(x) !== unicode) return x
+      const base: EmojiPackEntry = typeof x === 'object' ? { ...x } : { unicode }
+      if (id) return { ...base, customEmojiId: id }
+      // Strip customEmojiId; if no other fields remain, revert to plain string
+      const { customEmojiId: _dropped, ...rest } = { ...base, customEmojiId: undefined }
+      void _dropped
+      return (rest.key) ? rest as EmojiPackEntry : unicode
+    }))
+  }
 
   const handleSave = () => {
     updateBrandKit(channelId, { voiceProfile: voice, emojiPack: emoji })
@@ -152,17 +176,28 @@ export function TextVoiceForm({ channelId, initialVoice, initialEmoji }: TextVoi
             <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">
               {t('channelStyle.textVoice.allowedEmoji')}
             </p>
-            <div className="flex flex-wrap gap-2 mb-2 min-h-[32px]">
-              {emoji.allowedEmojis.map(e => (
-                <button
-                  key={e}
-                  onClick={() => removeEmoji(e)}
-                  className="text-xl hover:scale-110 transition-transform active:scale-90 select-none"
-                  title="Tap to remove"
-                >
-                  {e}
-                </button>
-              ))}
+            <div className="flex flex-col gap-2 mb-2 min-h-[32px]">
+              {emoji.allowedEmojis.map(e => {
+                const unicode = entryUnicode(e)
+                const customId = entryId(e)
+                return (
+                  <div key={unicode} className="flex items-center gap-2">
+                    <button
+                      onClick={() => removeEmoji(unicode)}
+                      className="text-xl hover:scale-110 transition-transform active:scale-90 select-none shrink-0"
+                      title="Tap to remove"
+                    >
+                      {unicode}
+                    </button>
+                    <input
+                      value={customId}
+                      onChange={ev => setEntryCustomId(unicode, ev.target.value.trim())}
+                      placeholder="Custom emoji ID (optional)"
+                      className="glass-input flex-1 px-2 py-1 text-xs font-mono"
+                    />
+                  </div>
+                )
+              })}
               {emoji.allowedEmojis.length === 0 && (
                 <span className="text-xs text-[#66666E] self-center">
                   {t('channelStyle.textVoice.noEmoji')}

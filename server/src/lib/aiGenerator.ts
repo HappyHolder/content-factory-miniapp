@@ -183,13 +183,22 @@ function buildStyleContext(brandKit: unknown): StyleContext {
   }
 
   // ── emojiPack ─────────────────────────────────────────────────────────────
+  // allowedEmojis supports both legacy string[] and new EmojiPackEntry[] shapes.
   const emojiPack = bk['emojiPack'];
   if (emojiPack && typeof emojiPack === 'object') {
-    const ep     = emojiPack as Record<string, unknown>;
+    const ep      = emojiPack as Record<string, unknown>;
     const allowed = ep['allowedEmojis'];
     if (Array.isArray(allowed) && allowed.length > 0) {
       const emojis = allowed
-        .filter((e): e is string => typeof e === 'string' && !!e)
+        .map((e): string | null => {
+          if (typeof e === 'string' && e) return e;
+          if (e && typeof e === 'object') {
+            const u = (e as Record<string, unknown>)['unicode'];
+            if (typeof u === 'string' && u) return u;
+          }
+          return null;
+        })
+        .filter((e): e is string => e !== null)
         .join(' ');
       if (emojis) {
         const strict = ep['strictMode'] === true;
@@ -478,6 +487,19 @@ const VS_RE = /︎|️/g;
  * Safely extracts strictMode and allowedEmojis from a BrandKit blob.
  * Returns safe defaults when the field is absent or malformed.
  */
+/**
+ * Extracts the unicode string from an allowedEmojis entry.
+ * Handles both legacy string entries and new EmojiPackEntry objects.
+ */
+function emojiEntryUnicode(entry: unknown): string | null {
+  if (typeof entry === 'string' && entry.length > 0) return entry;
+  if (entry && typeof entry === 'object') {
+    const u = (entry as Record<string, unknown>)['unicode'];
+    if (typeof u === 'string' && u.length > 0) return u;
+  }
+  return null;
+}
+
 function extractEmojiPack(brandKit: unknown): { allowedEmojis: string[]; strictMode: boolean } {
   const defaults = { allowedEmojis: [] as string[], strictMode: false };
   if (!brandKit || typeof brandKit !== 'object') return defaults;
@@ -487,7 +509,7 @@ function extractEmojiPack(brandKit: unknown): { allowedEmojis: string[]; strictM
   const strictMode = pack['strictMode'] === true;
   const raw        = pack['allowedEmojis'];
   const allowedEmojis = Array.isArray(raw)
-    ? raw.filter((e): e is string => typeof e === 'string' && e.length > 0)
+    ? raw.map(emojiEntryUnicode).filter((e): e is string => e !== null)
     : [];
   return { allowedEmojis, strictMode };
 }

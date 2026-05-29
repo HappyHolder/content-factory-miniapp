@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { sendBotMessage, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
+import { buildCustomEmojiEntities } from '../lib/telegramEmoji';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 
 const router = Router();
@@ -326,6 +327,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     selectedVariantId: string | null;
     linkButtons:       unknown;           // Json? — LinkItem[] stored by draftGenerator
     channel: {
+      id:     string;
       userId: string;
       handle: string | null;
       name:   string;
@@ -342,7 +344,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
         selectedVariantId: true,
         linkButtons:       true,
         channel: {
-          select: { userId: true, handle: true, name: true },
+          select: { id: true, userId: true, handle: true, name: true },
         },
         variants: {
           orderBy: { variantIndex: 'asc' },
@@ -407,7 +409,23 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     }
   }
 
-  // ── 10. Send to Telegram channel ─────────────────────────────────────────
+  // ── 10. Build custom emoji entities from BrandKit (non-fatal) ────────────
+  // Load the channel's emojiPack to annotate any emoji that have a
+  // customEmojiId. Falls back to no entities if the BrandKit is absent or
+  // the query fails — the post is still sent with plain Unicode emoji.
+  let emojiPack: unknown = null;
+  try {
+    const bk = await prisma.brandKit.findUnique({
+      where:  { channelId: post.channel.id },
+      select: { emojiPack: true },
+    });
+    emojiPack = bk?.emojiPack ?? null;
+  } catch (err) {
+    console.error('[posts/publish] BrandKit lookup failed (emoji entities skipped):', (err as Error).message);
+  }
+  const { entities: emojiEntities } = buildCustomEmojiEntities(selectedVariant.text, emojiPack);
+
+  // ── 11. Send to Telegram channel ─────────────────────────────────────────
   // DB is only updated AFTER a successful Telegram delivery so status never
   // shows PUBLISHED for a message that was never actually sent.
   try {
@@ -416,6 +434,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       selectedVariant.text,
       env.TELEGRAM_BOT_TOKEN,
       replyMarkup,
+      emojiEntities.length > 0 ? emojiEntities : undefined,
     );
   } catch (err) {
     const msg = err instanceof TelegramApiError
@@ -426,7 +445,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 11. Persist PUBLISHED status ─────────────────────────────────────────
+  // ── 12. Persist PUBLISHED status ─────────────────────────────────────────
   const publishedAt = new Date();
   try {
     await prisma.generatedPost.update({
@@ -443,7 +462,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 12. Return updated post fields ───────────────────────────────────────
+  // ── 13. Return updated post fields ───────────────────────────────────────
   res.json({
     post: {
       id:          postId,

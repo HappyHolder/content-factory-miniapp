@@ -69,10 +69,22 @@ export interface VoiceProfile {
   forbiddenWords: string[]
 }
 
+/**
+ * A single entry in the emoji pack's allowed list.
+ * Can be a plain Unicode string (legacy) or a richer object.
+ * Only object entries with customEmojiId are eligible for Telegram custom emoji entities.
+ */
+export interface EmojiPackEntry {
+  unicode: string          // the emoji character displayed and used as fallback text
+  key?: string             // short semantic name, e.g. "rocket"
+  customEmojiId?: string   // Telegram custom_emoji_id for Bot API entities
+}
+
 export interface EmojiPackConfig {
   packLink: string
   strictMode: boolean
-  allowedEmojis: string[]
+  /** Backward-compatible: existing saved rows may be string[], new entries are EmojiPackEntry[]. */
+  allowedEmojis: Array<string | EmojiPackEntry>
   fallbackToStandard: boolean
 }
 

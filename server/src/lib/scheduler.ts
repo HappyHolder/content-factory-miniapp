@@ -19,6 +19,7 @@
 import { prisma } from '../db';
 import { env } from '../env';
 import { sendBotMessage, TelegramInlineKeyboard } from './telegramBot';
+import { buildCustomEmojiEntities } from './telegramEmoji';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,7 @@ async function publishDuePosts(): Promise<void> {
   // ── Find all due posts ────────────────────────────────────────────────────
   let duePosts: {
     id:                string;
+    channelId:         string;
     selectedVariantId: string | null;
     linkButtons:       unknown;
     channel:           { handle: string | null };
@@ -63,6 +65,7 @@ async function publishDuePosts(): Promise<void> {
       },
       select: {
         id:                true,
+        channelId:         true,
         selectedVariantId: true,
         linkButtons:       true,
         channel: {
@@ -123,6 +126,19 @@ async function publishDuePosts(): Promise<void> {
       }
     }
 
+    // Build custom emoji entities from BrandKit (non-fatal)
+    let emojiPack: unknown = null;
+    try {
+      const bk = await prisma.brandKit.findUnique({
+        where:  { channelId: post.channelId },
+        select: { emojiPack: true },
+      });
+      emojiPack = bk?.emojiPack ?? null;
+    } catch {
+      // Non-fatal: publish continues with plain Unicode emoji
+    }
+    const { entities: emojiEntities } = buildCustomEmojiEntities(selectedVariant.text, emojiPack);
+
     // Send to Telegram
     try {
       await sendBotMessage(
@@ -130,6 +146,7 @@ async function publishDuePosts(): Promise<void> {
         selectedVariant.text,
         env.TELEGRAM_BOT_TOKEN,
         replyMarkup,
+        emojiEntities.length > 0 ? emojiEntities : undefined,
       );
     } catch (err) {
       console.error(`[scheduler] Post ${post.id}: Telegram send failed — will retry next poll:`, (err as Error).message);
