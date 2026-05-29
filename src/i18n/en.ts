@@ -177,6 +177,11 @@ export const en = {
     publishFailed:      'Publishing failed. Try again.',
     textSaved:          'Text saved',
     scheduleFailed:     'Scheduling failed. Try again.',
+    deletePost:         'Delete post',
+    deletePostConfirm:  'Delete this post? This action cannot be undone.',
+    deleting:           'Deleting…',
+    deletePostSuccess:  'Post deleted',
+    deleteFailed:       'Failed to delete post. Try again.',
   },
   schedule: {
     title:          'Schedule post',

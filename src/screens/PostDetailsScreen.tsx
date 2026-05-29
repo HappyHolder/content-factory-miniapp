@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2 } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatusChip, SourceChip } from '@/components/ui/StatusChip'
@@ -23,11 +23,12 @@ interface PostDetailsScreenProps {
 type Section = 'variants' | 'editor' | 'banner' | 'buttons'
 
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
-  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost, updateVariantBannerUrl } = useApp()
+  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost, updateVariantBannerUrl, deletePost } = useApp()
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
   const [isRegeneratingVisual, setIsRegeneratingVisual] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const post = state.posts.find(p => p.id === postId)
   if (!post) return null
@@ -100,6 +101,39 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     } catch {
       showToast(t('postDetails.scheduleFailed'), 'error')
     }
+  }
+
+  const handleDelete = async () => {
+    if (isDeleting) return
+    if (!window.confirm(t('postDetails.deletePostConfirm'))) return
+
+    const initData = getTelegramInitData()
+
+    if (authStatus === 'authenticated') {
+      if (!initData) return
+      setIsDeleting(true)
+      try {
+        const res = await fetch(`${API_BASE}/api/posts/delete`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData, postId: post.id }),
+        })
+        if (!res.ok) {
+          showToast(t('postDetails.deleteFailed'), 'error')
+          return
+        }
+      } catch {
+        showToast(t('postDetails.deleteFailed'), 'error')
+        return
+      } finally {
+        setIsDeleting(false)
+      }
+    }
+
+    // Remove from local state and navigate back regardless of auth mode
+    deletePost(post.id)
+    showToast(t('postDetails.deletePostSuccess'))
+    onBack()
   }
 
   const handleRegenerate = () => {
@@ -359,6 +393,23 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
             </Button>
           </div>
         )}
+
+        {/* Delete — available for all statuses.
+            Deletes the post from Content Factory only.
+            Published posts are NOT removed from the Telegram channel
+            because message IDs are not stored. */}
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={handleDelete}
+          disabled={isDeleting}
+          fullWidth
+        >
+          {isDeleting
+            ? <><Loader2 size={13} className="animate-spin" />{t('postDetails.deleting')}</>
+            : <><Trash2 size={13} />{t('postDetails.deletePost')}</>
+          }
+        </Button>
       </div>
 
       <ScheduleSheet

@@ -778,6 +778,93 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
   });
 });
 
+// ─── POST /api/posts/delete ──────────────────────────────────────────────────
+//
+// Permanently deletes a GeneratedPost and all its PostVariant rows from the DB.
+//
+// ⚠  Published posts: deleting here removes the post from Content Factory ONLY.
+//    The Telegram channel message is NOT deleted because message IDs are not
+//    stored in this app. The post will simply disappear from the Posts list.
+//
+// Cascade: PostVariant rows are deleted automatically by the DB (onDelete: Cascade
+// is configured on the PostVariant → GeneratedPost relation in schema.prisma).
+// No explicit child-row cleanup is needed.
+//
+// Scheduled posts: once the row is gone the scheduler will never pick it up,
+// so deletion naturally cancels any pending scheduled publish.
+//
+// Request body: { initData, postId }
+// Response 200: { ok: true }
+// Response 400: missing / invalid fields
+// Response 401: invalid initData / user not found
+// Response 403: post belongs to another user
+// Response 404: post not found
+// Response 500: DB error
+
+router.post('/delete', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId } = req.body as {
+    initData?: unknown;
+    postId?:   unknown;
+  };
+
+  // ── 1. Input validation ───────────────────────────────────────────────────
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof postId !== 'string' || !postId.trim()) {
+    res.status(400).json({ error: 'postId is required' }); return;
+  }
+
+  // ── 2. Validate Telegram initData ────────────────────────────────────────
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  // ── 3. Resolve authenticated user ────────────────────────────────────────
+  const telegramId = String(parsed.user.id);
+  let dbUser: { id: string } | null = null;
+  try {
+    dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+  } catch (err) {
+    console.error('[posts/delete] User lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!dbUser) {
+    res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
+  }
+
+  // ── 4. Load post with ownership check ────────────────────────────────────
+  let post: { id: string; channel: { userId: string } } | null = null;
+  try {
+    post = await prisma.generatedPost.findUnique({
+      where:  { id: postId },
+      select: { id: true, channel: { select: { userId: true } } },
+    });
+  } catch (err) {
+    console.error('[posts/delete] Post lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!post) {
+    res.status(404).json({ error: 'Post not found.' }); return;
+  }
+  if (post.channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+
+  // ── 5. Delete post (cascade removes PostVariant rows automatically) ───────
+  try {
+    await prisma.generatedPost.delete({ where: { id: postId } });
+  } catch (err) {
+    console.error('[posts/delete] Delete failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({ ok: true });
+});
+
 // ─── POST /api/posts/regenerate-visual ───────────────────────────────────────
 //
 // Regenerates the cover image for a specific PostVariant using Replicate.

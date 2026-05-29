@@ -177,6 +177,11 @@ export const ru: Dict = {
     publishFailed:      'Ошибка публикации. Попробуйте снова.',
     textSaved:          'Текст сохранён',
     scheduleFailed:     'Ошибка планирования. Попробуйте снова.',
+    deletePost:         'Удалить пост',
+    deletePostConfirm:  'Удалить этот пост? Это действие нельзя отменить.',
+    deleting:           'Удаляем…',
+    deletePostSuccess:  'Пост удалён',
+    deleteFailed:       'Не удалось удалить пост. Попробуйте снова.',
   },
   schedule: {
     title:           'Запланировать пост',
