@@ -156,6 +156,46 @@ export async function sendBotMessage(
   }
 }
 
+// ─── Sticker / custom emoji set ───────────────────────────────────────────────
+
+/**
+ * Fetches a Telegram sticker set by name and returns only the entries that
+ * carry a custom_emoji_id — suitable for populating emojiPack allowedEmojis.
+ *
+ * Set name is the last path segment of a t.me/addemoji/<name> link.
+ * Throws TelegramApiError when the set is not found or the request fails.
+ * Never logs the token.
+ */
+export async function getStickerSet(
+  setName: string,
+  token: string,
+): Promise<{ unicode: string; customEmojiId: string }[]> {
+  const url = `${TG_API}/bot${token}/getStickerSet?name=${encodeURIComponent(setName)}`;
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling getStickerSet: ${(err as Error).message}`);
+  }
+
+  const body = (await res.json()) as TgApiResponse<{
+    stickers: { emoji?: string; custom_emoji_id?: string }[];
+  }>;
+  if (!body.ok || !body.result) {
+    throw new TelegramApiError(
+      body.description ?? 'getStickerSet returned not-ok',
+      body.error_code,
+    );
+  }
+
+  return body.result.stickers
+    .filter((s): s is { emoji: string; custom_emoji_id: string } =>
+      typeof s.emoji === 'string'           && s.emoji.length > 0 &&
+      typeof s.custom_emoji_id === 'string' && s.custom_emoji_id.length > 0
+    )
+    .map(s => ({ unicode: s.emoji, customEmojiId: s.custom_emoji_id }));
+}
+
 /**
  * Returns the membership/role info for a user in a chat.
  * chatId should be in the form "@username".

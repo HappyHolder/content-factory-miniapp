@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
 import { useApp } from '@/context/AppContext'
+import { getTelegramInitData } from '@/lib/telegram'
+import { API_BASE } from '@/lib/api'
 import type { VoiceProfile, EmojiPackConfig, EmojiPackEntry, Language, AddressStyle, AuthorRole, Tone, PostLength, EmojiDensity } from '@/types'
 
 interface TextVoiceFormProps {
@@ -12,10 +14,11 @@ interface TextVoiceFormProps {
 }
 
 export function TextVoiceForm({ channelId, initialVoice, initialEmoji }: TextVoiceFormProps) {
-  const { updateBrandKit, t } = useApp()
+  const { updateBrandKit, showToast, authStatus, t } = useApp()
   const [voice, setVoice] = useState<VoiceProfile>(initialVoice)
   const [emoji, setEmoji] = useState<EmojiPackConfig>(initialEmoji)
   const [emojiInput, setEmojiInput] = useState('')
+  const [isResolving, setIsResolving] = useState(false)
 
   const setV = <K extends keyof VoiceProfile>(key: K, val: VoiceProfile[K]) =>
     setVoice(prev => ({ ...prev, [key]: val }))
@@ -54,6 +57,51 @@ export function TextVoiceForm({ channelId, initialVoice, initialEmoji }: TextVoi
       void _dropped
       return (rest.key) ? rest as EmojiPackEntry : unicode
     }))
+  }
+
+  /** Calls backend to resolve packLink → customEmojiId values, then merges into allowedEmojis. */
+  const handleResolvePack = async () => {
+    if (authStatus !== 'authenticated') {
+      showToast(t('channelStyle.textVoice.resolvePackFailed'), 'error')
+      return
+    }
+    const initData = getTelegramInitData()
+    if (!initData) {
+      showToast(t('channelStyle.textVoice.resolvePackFailed'), 'error')
+      return
+    }
+    setIsResolving(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/brandkits/resolve-emoji-pack`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, packLink: emoji.packLink }),
+      })
+      const data = await res.json() as { items?: { unicode: string; customEmojiId: string }[]; error?: string }
+      if (!res.ok || !data.items) {
+        showToast(data.error ?? t('channelStyle.textVoice.resolvePackFailed'), 'error')
+        return
+      }
+      if (data.items.length === 0) {
+        showToast(t('channelStyle.textVoice.resolvePackFailed'), 'error')
+        return
+      }
+      // Build a lookup map: unicode → customEmojiId
+      const idMap = new Map(data.items.map(i => [i.unicode, i.customEmojiId]))
+      // Merge IDs into existing allowedEmojis — only update entries that match
+      setE('allowedEmojis', emoji.allowedEmojis.map(x => {
+        const unicode = entryUnicode(x)
+        const customEmojiId = idMap.get(unicode)
+        if (!customEmojiId) return x  // no match in pack — leave unchanged
+        const base: EmojiPackEntry = typeof x === 'object' ? { ...x } : { unicode }
+        return { ...base, customEmojiId }
+      }))
+      showToast(t('channelStyle.textVoice.resolvePackSuccess'))
+    } catch {
+      showToast(t('channelStyle.textVoice.resolvePackFailed'), 'error')
+    } finally {
+      setIsResolving(false)
+    }
   }
 
   const handleSave = () => {
@@ -147,12 +195,22 @@ export function TextVoiceForm({ channelId, initialVoice, initialEmoji }: TextVoi
             <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-1.5">
               {t('channelStyle.textVoice.packLink')}
             </p>
-            <input
-              value={emoji.packLink}
-              onChange={e => setE('packLink', e.target.value)}
-              placeholder={t('channelStyle.textVoice.packLinkPlaceholder')}
-              className="glass-input w-full px-3 py-2.5 text-sm"
-            />
+            <div className="flex gap-2">
+              <input
+                value={emoji.packLink}
+                onChange={e => setE('packLink', e.target.value)}
+                placeholder={t('channelStyle.textVoice.packLinkPlaceholder')}
+                className="glass-input flex-1 px-3 py-2.5 text-sm"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleResolvePack}
+                disabled={!emoji.packLink.trim() || isResolving}
+              >
+                {isResolving ? '…' : t('channelStyle.textVoice.resolvePack')}
+              </Button>
+            </div>
             <p className="text-[11px] text-[#66666E] mt-1.5">
               {t('channelStyle.textVoice.packLinkHint')}
             </p>
