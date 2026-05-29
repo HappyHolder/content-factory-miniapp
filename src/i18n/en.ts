@@ -213,8 +213,8 @@ export const en = {
     sections: {
       about:         'About channel',
       aboutDesc:     'Topic, audience, goal',
-      textVoice:     'Text & voice',
-      textVoiceDesc: 'Tone, language, emoji',
+      textVoice:     'Text style',
+      textVoiceDesc: 'Language, tone, length',
       postFormat:    'Post format',
       postFormatDesc:'Structure and style rules',
       words:         'Words & restrictions',

@@ -213,8 +213,8 @@ export const ru: Dict = {
     sections: {
       about:         'О канале',
       aboutDesc:     'Тема, аудитория, цель',
-      textVoice:     'Текст и голос',
-      textVoiceDesc: 'Тон, язык, эмодзи',
+      textVoice:     'Стиль текста',
+      textVoiceDesc: 'Язык, тон, длина',
       postFormat:    'Формат постов',
       postFormatDesc:'Структура и стиль',
       words:         'Слова и ограничения',
