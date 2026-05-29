@@ -8,8 +8,8 @@
  *   - Synchronous: output URL is in the initial POST response.
  *   - Asynchronous: response contains a prediction id that must be polled.
  *
- * Polling strategy: up to 25 s total, ~2 s between polls.
- * This keeps the response well inside Render's 30 s request timeout.
+ * Polling strategy: up to IMAGE_GENERATION_POLL_TIMEOUT_MS total (default 120 s),
+ * ~3 s between polls. Timeout is configurable via env without code changes.
  *
  * No external dependencies — uses Node's built-in fetch (Node 18+).
  */
@@ -55,7 +55,7 @@ async function pollPrediction(
   timeoutMs: number,
 ): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
-  const pollIntervalMs = 2_000;
+  const pollIntervalMs = 3_000;   // 3 s between polls
 
   while (Date.now() < deadline) {
     await sleep(pollIntervalMs);
@@ -84,7 +84,7 @@ async function pollPrediction(
     // status is 'starting' or 'processing' — keep polling
   }
 
-  console.warn('[imageGenerator] Polling timed out after 25 s');
+  console.warn(`[imageGenerator] Polling timed out after ${timeoutMs / 1000} s — prediction ${predictionId} did not finish in time`);
   return null;
 }
 
@@ -158,13 +158,13 @@ export async function generateImageForPost(
       return null;
     }
 
-    // ── Asynchronous: poll until done, max 25 s ───────────────────────────
+    // ── Asynchronous: poll until done, up to IMAGE_GENERATION_POLL_TIMEOUT_MS ─
     if (!prediction.id) {
       console.warn('[imageGenerator] No prediction id in response — cannot poll');
       return null;
     }
 
-    return await pollPrediction(prediction.id, env.REPLICATE_API_TOKEN, 25_000);
+    return await pollPrediction(prediction.id, env.REPLICATE_API_TOKEN, env.IMAGE_GENERATION_POLL_TIMEOUT_MS);
 
   } catch (err) {
     console.warn('[imageGenerator] Unexpected error:', (err as Error).message);
