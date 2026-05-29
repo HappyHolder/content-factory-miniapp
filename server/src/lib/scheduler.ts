@@ -18,7 +18,7 @@
 
 import { prisma } from '../db';
 import { env } from '../env';
-import { sendBotMessage, TelegramInlineKeyboard } from './telegramBot';
+import { sendBotMessage, sendBotPhoto, TelegramInlineKeyboard } from './telegramBot';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ async function publishDuePosts(): Promise<void> {
     selectedVariantId: string | null;
     linkButtons:       unknown;
     channel:           { handle: string | null };
-    variants:          { id: string; text: string }[];
+    variants:          { id: string; text: string; bannerUrl: string | null }[];
   }[];
 
   try {
@@ -70,7 +70,7 @@ async function publishDuePosts(): Promise<void> {
         },
         variants: {
           orderBy: { variantIndex: 'asc' },
-          select:  { id: true, text: true },
+          select:  { id: true, text: true, bannerUrl: true },
         },
       },
     });
@@ -123,14 +123,24 @@ async function publishDuePosts(): Promise<void> {
       }
     }
 
-    // Send to Telegram
+    // Send to Telegram — photo if bannerUrl present, otherwise plain text
     try {
-      await sendBotMessage(
-        `@${post.channel.handle}`,
-        selectedVariant.text,
-        env.TELEGRAM_BOT_TOKEN,
-        replyMarkup,
-      );
+      if (selectedVariant.bannerUrl) {
+        await sendBotPhoto(
+          `@${post.channel.handle}`,
+          selectedVariant.bannerUrl,
+          selectedVariant.text,
+          env.TELEGRAM_BOT_TOKEN,
+          replyMarkup,
+        );
+      } else {
+        await sendBotMessage(
+          `@${post.channel.handle}`,
+          selectedVariant.text,
+          env.TELEGRAM_BOT_TOKEN,
+          replyMarkup,
+        );
+      }
     } catch (err) {
       console.error(`[scheduler] Post ${post.id}: Telegram send failed — will retry next poll:`, (err as Error).message);
       // Leave status=SCHEDULED so the next sweep retries.

@@ -123,6 +123,65 @@ export async function sendBotMessage(
   }
 }
 
+// ─── Photo caption limit ──────────────────────────────────────────────────────
+// Telegram enforces a 1 024-character limit on sendPhoto captions.
+// Posts longer than this are truncated to 1 021 chars + "…" rather than
+// failing the publish. The full text is not sent in a follow-up message
+// (multi-message threading is out of scope for Phase 2 MVP).
+
+const TELEGRAM_CAPTION_LIMIT = 1_024;
+
+/**
+ * Truncates post text to fit the Telegram photo caption limit.
+ * If the text is within the limit it is returned unchanged.
+ */
+export function buildPhotoCaption(text: string): string {
+  if (text.length <= TELEGRAM_CAPTION_LIMIT) return text;
+  return text.slice(0, TELEGRAM_CAPTION_LIMIT - 1) + '…';
+}
+
+/**
+ * Sends a photo to a Telegram chat via sendPhoto, with an optional caption
+ * (truncated to the 1 024-char Telegram limit) and optional inline keyboard.
+ * chatId may be a numeric ID or a public username string ("@channelname").
+ * Throws TelegramApiError on a non-ok response or network failure.
+ * Never logs the token or full caption text.
+ */
+export async function sendBotPhoto(
+  chatId: number | string,
+  photoUrl: string,
+  caption: string,
+  token: string,
+  replyMarkup?: TelegramInlineKeyboard,
+): Promise<void> {
+  const url = `${TG_API}/bot${token}/sendPhoto`;
+  const safeCaption = buildPhotoCaption(caption);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id:  chatId,
+        photo:    photoUrl,
+        caption:  safeCaption,
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      }),
+    });
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling sendPhoto: ${(err as Error).message}`);
+  }
+
+  const body = (await res.json()) as TgApiResponse<unknown>;
+  if (!body.ok) {
+    throw new TelegramApiError(
+      body.description ?? 'sendPhoto returned not-ok',
+      body.error_code,
+    );
+  }
+}
+
 /**
  * Returns the membership/role info for a user in a chat.
  * chatId should be in the form "@username".

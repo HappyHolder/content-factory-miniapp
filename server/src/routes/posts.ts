@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { sendBotMessage, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
+import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 
 const router = Router();
@@ -333,7 +333,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       handle: string | null;
       name:   string;
     };
-    variants: { id: string; text: string }[];
+    variants: { id: string; text: string; bannerUrl: string | null }[];
   } | null = null;
 
   try {
@@ -349,7 +349,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
         },
         variants: {
           orderBy: { variantIndex: 'asc' },
-          select:  { id: true, text: true },
+          select:  { id: true, text: true, bannerUrl: true },
         },
       },
     });
@@ -413,18 +413,30 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   // ── 10. Send to Telegram channel ─────────────────────────────────────────
   // DB is only updated AFTER a successful Telegram delivery so status never
   // shows PUBLISHED for a message that was never actually sent.
+  // If the selected variant has a generated image URL, use sendPhoto (with the
+  // post text as caption); otherwise fall back to plain sendMessage.
   try {
-    await sendBotMessage(
-      `@${post.channel.handle}`,
-      selectedVariant.text,
-      env.TELEGRAM_BOT_TOKEN,
-      replyMarkup,
-    );
+    if (selectedVariant.bannerUrl) {
+      await sendBotPhoto(
+        `@${post.channel.handle}`,
+        selectedVariant.bannerUrl,
+        selectedVariant.text,
+        env.TELEGRAM_BOT_TOKEN,
+        replyMarkup,
+      );
+    } else {
+      await sendBotMessage(
+        `@${post.channel.handle}`,
+        selectedVariant.text,
+        env.TELEGRAM_BOT_TOKEN,
+        replyMarkup,
+      );
+    }
   } catch (err) {
     const msg = err instanceof TelegramApiError
       ? err.message
       : (err as Error).message ?? 'Telegram API error';
-    console.error('[posts/publish] sendMessage failed:', msg);
+    console.error('[posts/publish] Telegram send failed:', msg);
     res.status(502).json({ error: `Telegram rejected the publish request: ${msg}` });
     return;
   }
