@@ -161,8 +161,11 @@ export const ru: Dict = {
     save:               'Сохранить',
     copy:               'Скопировать',
 
-    regenerateText:     'Перегенерировать текст',
-    regenerateVisual:   'Перегенерировать визуал',
+    regenerateText:       'Перегенерировать текст',
+    regenerateVisual:     'Перегенерировать визуал',
+    regeneratingVisual:   'Генерируем…',
+    visualRegenerated:    'Визуал обновлён',
+    visualRegenerateFailed: 'Ошибка регенерации визуала. Попробуйте снова.',
     template:           'Шаблон',
     postText:           'Текст поста…',
     chars:              'симв.',

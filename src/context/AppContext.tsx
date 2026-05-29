@@ -92,6 +92,7 @@ interface AppContextValue {
   cancelSchedule: (id: string) => void
   selectVariant: (postId: string, variantId: string) => void
   updateVariantText: (postId: string, variantId: string, text: string) => void
+  updateVariantBannerUrl: (postId: string, variantId: string, bannerUrl: string) => void
   setActiveChannel: (id: string) => void
   connectChannel: (channel: Channel) => void
   updateBrandKit: (channelId: string, kit: Partial<BrandKit>) => void
@@ -407,6 +408,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshPosts()
   }, [refreshPosts])
 
+  const updateVariantBannerUrl = useCallback((postId: string, variantId: string, bannerUrl: string) => {
+    setState(prev => ({
+      ...prev,
+      posts: prev.posts.map(p =>
+        p.id !== postId ? p : {
+          ...p,
+          variants: p.variants.map(v =>
+            v.id !== variantId ? v : { ...v, bannerUrl }
+          ),
+        }
+      ),
+    }))
+  }, [])
+
   const setActiveChannel = useCallback((id: string) => {
     setState(prev => ({ ...prev, activeChannelId: id }))
   }, [])
@@ -487,6 +502,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cancelSchedule,
       selectVariant,
       updateVariantText,
+      updateVariantBannerUrl,
       setActiveChannel,
       connectChannel,
       updateBrandKit,

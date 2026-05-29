@@ -778,4 +778,188 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
   });
 });
 
+// ─── POST /api/posts/regenerate-visual ───────────────────────────────────────
+//
+// Regenerates the cover image for a specific PostVariant using Replicate.
+// The original imagePrompt is not stored, so a new prompt is synthesised
+// from the variant text and (optionally) the channel BrandKit visualKit.
+//
+// Request body: { initData, postId, variantId }
+// Response 200: { bannerUrl: string }
+// Response 400: missing / invalid fields
+// Response 401: invalid initData / user not found
+// Response 403: variant belongs to another user
+// Response 404: variant not found / does not belong to post
+// Response 502: image generation failed or returned no URL
+// Response 500: DB error
+
+/**
+ * Builds a Replicate image prompt from the variant text and optional visualKit.
+ * Constraints that match the Telegram image gen use-case:
+ *   - Square aspect ratio (1:1) post cover
+ *   - No logos, no fake small Cyrillic text, at most one short English headline
+ *   - Visual style from BrandKit where available
+ */
+function buildVisualPromptFromVariant(params: {
+  variantText:   string;
+  postTitle?:    string | null;
+  sourceSummary?: string | null;
+  visualKit?:    unknown;
+}): string {
+  const { variantText, postTitle, sourceSummary, visualKit } = params;
+
+  // Use the first ~120 chars of text as the thematic anchor
+  const anchor = (postTitle || sourceSummary || variantText).slice(0, 120).trim();
+
+  // Extract style hints from visualKit if present
+  let styleHint = '';
+  if (visualKit && typeof visualKit === 'object') {
+    const vk = visualKit as Record<string, unknown>;
+    const primaryColor  = typeof vk['primaryColor']  === 'string' ? vk['primaryColor']  : '';
+    const bannerTemplate = typeof vk['bannerTemplate'] === 'string' ? vk['bannerTemplate'] : '';
+    if (primaryColor)   styleHint += ` Accent color: ${primaryColor}.`;
+    if (bannerTemplate) styleHint += ` Visual style: ${bannerTemplate.replace('_', ' ')}.`;
+  }
+
+  return (
+    `Create a square 1:1 Telegram post cover image. ` +
+    `Topic: "${anchor}". ` +
+    `Style: modern, clean, editorial, dark background, high contrast.` +
+    styleHint +
+    ` No logos. No watermarks. No small unreadable text. ` +
+    `Do not include fake Cyrillic or Latin characters as filler. ` +
+    `If text is necessary, use at most one short English headline in large legible type.`
+  );
+}
+
+router.post('/regenerate-visual', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId, variantId } = req.body as {
+    initData?:  unknown;
+    postId?:    unknown;
+    variantId?: unknown;
+  };
+
+  // ── 1. Input validation ───────────────────────────────────────────────────
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof postId !== 'string' || !postId.trim()) {
+    res.status(400).json({ error: 'postId is required' }); return;
+  }
+  if (typeof variantId !== 'string' || !variantId.trim()) {
+    res.status(400).json({ error: 'variantId is required' }); return;
+  }
+
+  // ── 2. Validate Telegram initData ────────────────────────────────────────
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  // ── 3. Resolve authenticated user ────────────────────────────────────────
+  const telegramId = String(parsed.user.id);
+  let dbUser: { id: string } | null = null;
+  try {
+    dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+  } catch (err) {
+    console.error('[posts/regenerate-visual] User lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!dbUser) {
+    res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
+  }
+
+  // ── 4. Load variant with ownership and style context ─────────────────────
+  let variant: {
+    id:              string;
+    generatedPostId: string;
+    text:            string;
+    bannerUrl:       string | null;
+    generatedPost: {
+      title:         string;
+      sourceSummary: string | null;
+      channel: {
+        userId:   string;
+        brandKit: { visualKit: unknown } | null;
+      };
+    };
+  } | null = null;
+
+  try {
+    variant = await prisma.postVariant.findUnique({
+      where:  { id: variantId },
+      select: {
+        id:              true,
+        generatedPostId: true,
+        text:            true,
+        bannerUrl:       true,
+        generatedPost: {
+          select: {
+            title:         true,
+            sourceSummary: true,
+            channel: {
+              select: {
+                userId:   true,
+                brandKit: { select: { visualKit: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[posts/regenerate-visual] Variant lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  if (!variant) {
+    res.status(404).json({ error: 'Variant not found.' }); return;
+  }
+  if (variant.generatedPostId !== postId) {
+    res.status(404).json({ error: 'Variant does not belong to this post.' }); return;
+  }
+  if (variant.generatedPost.channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+
+  // ── 5. Build image prompt from variant content + BrandKit visualKit ───────
+  const prompt = buildVisualPromptFromVariant({
+    variantText:   variant.text,
+    postTitle:     variant.generatedPost.title,
+    sourceSummary: variant.generatedPost.sourceSummary,
+    visualKit:     variant.generatedPost.channel.brandKit?.visualKit ?? undefined,
+  });
+
+  // ── 6. Generate new image via Replicate ───────────────────────────────────
+  // Import inline to keep the route file self-contained with existing imports.
+  const { generateImageForPost } = await import('../lib/imageGenerator');
+  let imageUrl: string | null = null;
+  try {
+    imageUrl = await generateImageForPost({ prompt });
+  } catch (err) {
+    console.warn('[posts/regenerate-visual] generateImageForPost threw:', (err as Error).message);
+  }
+
+  if (!imageUrl) {
+    res.status(502).json({ error: 'Image generation failed or returned no result. Try again.' });
+    return;
+  }
+
+  // ── 7. Persist new bannerUrl to PostVariant ───────────────────────────────
+  // Old bannerUrl is replaced only after a successful generation.
+  try {
+    await prisma.postVariant.update({
+      where: { id: variantId },
+      data:  { bannerUrl: imageUrl },
+    });
+  } catch (err) {
+    console.error('[posts/regenerate-visual] DB update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({ bannerUrl: imageUrl });
+});
+
 export default router;

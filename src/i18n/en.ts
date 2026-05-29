@@ -161,8 +161,11 @@ export const en = {
     save:               'Save',
     copy:               'Copy',
 
-    regenerateText:     'Regenerate text',
-    regenerateVisual:   'Regenerate visual',
+    regenerateText:       'Regenerate text',
+    regenerateVisual:     'Regenerate visual',
+    regeneratingVisual:   'Generating…',
+    visualRegenerated:    'Visual updated',
+    visualRegenerateFailed: 'Failed to regenerate visual. Try again.',
     template:           'Template',
     postText:           'Post text…',
     chars:              'chars',

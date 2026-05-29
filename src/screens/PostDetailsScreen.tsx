@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatusChip, SourceChip } from '@/components/ui/StatusChip'
@@ -23,10 +23,11 @@ interface PostDetailsScreenProps {
 type Section = 'variants' | 'editor' | 'banner' | 'buttons'
 
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
-  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost } = useApp()
+  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost, updateVariantBannerUrl } = useApp()
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
+  const [isRegeneratingVisual, setIsRegeneratingVisual] = useState(false)
 
   const post = state.posts.find(p => p.id === postId)
   if (!post) return null
@@ -103,6 +104,32 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
 
   const handleRegenerate = () => {
     showToast(t('postDetails.regenerateVariants') + '…')
+  }
+
+  const handleRegenerateVisual = async () => {
+    if (isRegeneratingVisual || !selectedVariant) return
+    const initData = getTelegramInitData()
+    if (!initData) return
+
+    setIsRegeneratingVisual(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/regenerate-visual`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, postId: post.id, variantId: selectedVariant.id }),
+      })
+      if (!res.ok) {
+        showToast(t('postDetails.visualRegenerateFailed'), 'error')
+        return
+      }
+      const data = await res.json() as { bannerUrl: string }
+      updateVariantBannerUrl(post.id, selectedVariant.id, data.bannerUrl)
+      showToast(t('postDetails.visualRegenerated'))
+    } catch {
+      showToast(t('postDetails.visualRegenerateFailed'), 'error')
+    } finally {
+      setIsRegeneratingVisual(false)
+    }
   }
 
   const sectionLabel = (id: Section, icon: React.ReactNode, label: string, badge?: string) => (
@@ -204,12 +231,26 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                   className="px-3 pb-3 overflow-hidden"
                 >
                   {selectedVariant?.bannerUrl ? (
-                    <img
-                      src={selectedVariant.bannerUrl}
-                      alt={post.title}
-                      className="w-full rounded-[14px] object-cover"
-                      style={{ aspectRatio: '1 / 1' }}
-                    />
+                    <div className="space-y-2">
+                      <img
+                        src={selectedVariant.bannerUrl}
+                        alt={post.title}
+                        className="w-full rounded-[14px] object-cover"
+                        style={{ aspectRatio: '1 / 1' }}
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleRegenerateVisual}
+                        disabled={isRegeneratingVisual}
+                        fullWidth
+                      >
+                        {isRegeneratingVisual
+                          ? <><Loader2 size={13} className="animate-spin" />{t('postDetails.regeneratingVisual')}</>
+                          : <><RefreshCw size={13} />{t('postDetails.regenerateVisual')}</>
+                        }
+                      </Button>
+                    </div>
                   ) : post.banner ? (
                     <BannerPreview
                       banner={post.banner}
