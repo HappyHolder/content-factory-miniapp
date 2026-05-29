@@ -425,6 +425,25 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   }
   const { entities: emojiEntities } = buildCustomEmojiEntities(selectedVariant.text, emojiPack);
 
+  // ── DEBUG (temporary — remove after custom emoji diagnosis) ──────────────
+  {
+    const pack  = emojiPack as Record<string, unknown> | null;
+    const raw   = Array.isArray(pack?.['allowedEmojis']) ? pack!['allowedEmojis'] as unknown[] : [];
+    const withId = raw.filter(e => e && typeof e === 'object' && typeof (e as Record<string,unknown>)['customEmojiId'] === 'string').length;
+    console.log(
+      `[debug/publish] Post ${postId}: emojiPack loaded=${emojiPack !== null}, ` +
+      `allowedEmojis=${raw.length}, withCustomId=${withId}, entities=${emojiEntities.length}`
+    );
+    if (emojiEntities.length > 0) {
+      const e0 = emojiEntities[0]!;
+      console.log(
+        `[debug/publish] First entity: type=${e0.type}, offset=${e0.offset}, ` +
+        `length=${e0.length}, id_prefix=${e0.custom_emoji_id?.slice(0, 8)}`
+      );
+    }
+  }
+  // ── END DEBUG ─────────────────────────────────────────────────────────────
+
   // ── 11. Send to Telegram channel ─────────────────────────────────────────
   // DB is only updated AFTER a successful Telegram delivery so status never
   // shows PUBLISHED for a message that was never actually sent.

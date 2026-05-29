@@ -147,13 +147,23 @@ export async function sendBotMessage(
     throw new TelegramApiError(`Network error calling sendMessage: ${(err as Error).message}`);
   }
 
-  const body = (await res.json()) as TgApiResponse<unknown>;
+  const body = (await res.json()) as TgApiResponse<{ entities?: { type: string; custom_emoji_id?: string }[] }>;
   if (!body.ok) {
     throw new TelegramApiError(
       body.description ?? 'sendMessage returned not-ok',
       body.error_code,
     );
   }
+
+  // ── DEBUG (temporary — remove after custom emoji diagnosis) ──────────────
+  const echoedEntities = body.result?.entities ?? [];
+  const customEmojiCount = echoedEntities.filter(e => e.type === 'custom_emoji').length;
+  console.log(
+    `[debug/sendMessage] Telegram echoed entities: total=${echoedEntities.length}, ` +
+    `custom_emoji=${customEmojiCount}, ` +
+    `types=[${echoedEntities.map(e => e.type).join(',')}]`
+  );
+  // ── END DEBUG ─────────────────────────────────────────────────────────────
 }
 
 // ─── Sticker / custom emoji set ───────────────────────────────────────────────
