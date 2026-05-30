@@ -81,6 +81,12 @@ export interface LinkKit {
   links: LinkItem[]
 }
 
+export interface BrandColor {
+  name:   string
+  hex:    string
+  usage?: string
+}
+
 export interface VisualKit {
   logoUrl?: string
   primaryColor: string
@@ -95,6 +101,8 @@ export interface VisualKit {
   logoUsage?: LogoUsage
   references?: string[]
   avoidList?: string[]
+  // Named color tokens replacing primaryColor/secondaryColor swatch UI
+  brandColors?: BrandColor[]
 }
 
 export interface Signature {

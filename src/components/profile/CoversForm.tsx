@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
 import { useApp } from '@/context/AppContext'
-import type { VisualKit, BannerTemplate, CoverAspectRatio, LogoUsage } from '@/types'
+import type { VisualKit, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage } from '@/types'
 import { cn } from '@/lib/utils'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
@@ -13,9 +13,6 @@ interface CoversFormProps {
   channelId: string
   initialData: VisualKit
 }
-
-const PRIMARY_PRESETS = ['#FF6A00', '#FF4500', '#FF8C00', '#FFA500', '#E040FB', '#2196F3']
-const SECONDARY_PRESETS = ['#1A0A00', '#0D1117', '#111114', '#1A1A2E', '#0F0F23', '#181818']
 
 /** Returns true when a string looks like a direct image URL. */
 function isImageUrl(s: string): boolean {
@@ -27,9 +24,41 @@ function isImageUrl(s: string): boolean {
   }
 }
 
+/** Returns true for #ABC or #AABBCC hex strings. */
+function isValidHex(s: string): boolean {
+  return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(s)
+}
+
+/** Derives initial brand color tokens from legacy primaryColor / secondaryColor. */
+function deriveInitialBrandColors(vk: VisualKit, isRu: boolean): BrandColor[] {
+  const tokens: BrandColor[] = []
+  if (vk.primaryColor) {
+    tokens.push({
+      name:  isRu ? 'Акцент'    : 'Accent',
+      hex:   vk.primaryColor,
+      usage: isRu ? 'Основной акцентный цвет' : 'Main accent color',
+    })
+  }
+  if (vk.secondaryColor) {
+    tokens.push({
+      name:  isRu ? 'Вторичный' : 'Secondary',
+      hex:   vk.secondaryColor,
+      usage: isRu ? 'Вторичный цвет бренда' : 'Secondary brand color',
+    })
+  }
+  return tokens
+}
+
 export function CoversForm({ channelId, initialData }: CoversFormProps) {
-  const { updateBrandKit, showToast, authStatus, t } = useApp()
-  const [data, setData] = useState<VisualKit>(initialData)
+  const { updateBrandKit, showToast, authStatus, language, t } = useApp()
+
+  // On first render, if brandColors is absent, seed from legacy primaryColor/secondaryColor.
+  const [data, setData] = useState<VisualKit>(() => {
+    if (initialData.brandColors && initialData.brandColors.length > 0) return initialData
+    const derived = deriveInitialBrandColors(initialData, language === 'ru')
+    return derived.length > 0 ? { ...initialData, brandColors: derived } : initialData
+  })
+
   const [refInput,   setRefInput]   = useState('')
   const [avoidInput, setAvoidInput] = useState('')
   const [isUploadingLogo, setIsUploadingLogo]   = useState(false)
@@ -39,6 +68,25 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
 
   const set = <K extends keyof VisualKit>(key: K, val: VisualKit[K]) =>
     setData(prev => ({ ...prev, [key]: val }))
+
+  // ── Brand color token helpers ─────────────────────────────────────────────
+  const addColor = () =>
+    set('brandColors', [...(data.brandColors ?? []), { name: '', hex: '#FF6A00', usage: '' }])
+
+  const updateColor = (i: number, patch: Partial<BrandColor>) =>
+    set('brandColors', (data.brandColors ?? []).map((c, idx) => idx === i ? { ...c, ...patch } : c))
+
+  const removeColor = (i: number) =>
+    set('brandColors', (data.brandColors ?? []).filter((_, idx) => idx !== i))
+
+  // ── Save — syncs primaryColor/secondaryColor for backward compat ──────────
+  const handleSave = () => {
+    const saveData = { ...data }
+    const colors = saveData.brandColors ?? []
+    if (colors[0]?.hex && isValidHex(colors[0].hex)) saveData.primaryColor = colors[0].hex
+    if (colors[1]?.hex && isValidHex(colors[1].hex)) saveData.secondaryColor = colors[1].hex
+    updateBrandKit(channelId, { visualKit: saveData })
+  }
 
   const addRef = () => {
     const val = refInput.trim()
@@ -106,69 +154,100 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   return (
     <div className="space-y-5">
 
-      {/* Brand colors */}
+      {/* Color Tokens */}
       <div>
-        <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-3">
-          {t('channelStyle.covers.colors')}
-        </p>
-
-        <div className="space-y-3">
+        <div className="flex items-start justify-between gap-2 mb-1">
           <div>
-            <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">
-              {t('channelStyle.covers.primaryColor')}
+            <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider">
+              {t('channelStyle.covers.colorTokens')}
             </p>
-            <div className="flex items-center gap-2 flex-wrap">
-              {PRIMARY_PRESETS.map(c => (
-                <button
-                  key={c}
-                  onClick={() => set('primaryColor', c)}
-                  className={cn(
-                    'w-8 h-8 rounded-full border-2 transition-all duration-150',
-                    data.primaryColor === c ? 'border-white scale-110' : 'border-transparent'
-                  )}
-                  style={{ background: c }}
-                />
-              ))}
-              <div className="flex items-center gap-2 ml-1">
-                <input
-                  type="color"
-                  value={data.primaryColor}
-                  onChange={e => set('primaryColor', e.target.value)}
-                  className="w-8 h-8 rounded-full cursor-pointer bg-transparent border-0 p-0"
-                />
-                <span className="text-sm text-[#A1A1AA] font-mono">{data.primaryColor}</span>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">
-              {t('channelStyle.covers.secondaryColor')}
+            <p className="text-[11px] text-[#55555D] mt-0.5">
+              {t('channelStyle.covers.colorTokensDesc')}
             </p>
-            <div className="flex items-center gap-2 flex-wrap">
-              {SECONDARY_PRESETS.map(c => (
-                <button
-                  key={c}
-                  onClick={() => set('secondaryColor', c)}
-                  className={cn(
-                    'w-8 h-8 rounded-full border-2 transition-all duration-150',
-                    data.secondaryColor === c ? 'border-white scale-110' : 'border-transparent'
-                  )}
-                  style={{ background: c }}
-                />
-              ))}
-              <div className="flex items-center gap-2 ml-1">
-                <input
-                  type="color"
-                  value={data.secondaryColor ?? '#111114'}
-                  onChange={e => set('secondaryColor', e.target.value)}
-                  className="w-8 h-8 rounded-full cursor-pointer bg-transparent border-0 p-0"
-                />
-                <span className="text-sm text-[#A1A1AA] font-mono">{data.secondaryColor ?? '#111114'}</span>
-              </div>
-            </div>
           </div>
+          <button
+            onClick={addColor}
+            className="text-[12px] font-medium text-[#FF6A00] hover:text-[#ff8c3a] transition-colors shrink-0 pt-0.5"
+          >
+            {t('channelStyle.covers.addColor')}
+          </button>
         </div>
+
+        {(data.brandColors ?? []).length === 0 ? (
+          <div className="mt-3 flex flex-col items-center gap-2 py-5 rounded-[14px] bg-white/[0.02] border border-white/[0.06] border-dashed">
+            <p className="text-[12px] text-[#44444C]">{t('channelStyle.covers.noColors')}</p>
+            <button
+              onClick={addColor}
+              className="text-[12px] font-medium text-[#FF6A00] hover:text-[#ff8c3a] transition-colors"
+            >
+              {t('channelStyle.covers.addColor')}
+            </button>
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {(data.brandColors ?? []).map((token, i) => {
+              const preview = isValidHex(token.hex) ? token.hex : null
+              return (
+                <div
+                  key={i}
+                  className="flex gap-2.5 p-3 rounded-[14px] bg-white/[0.03] border border-white/[0.06]"
+                >
+                  {/* Color preview + native picker */}
+                  <div className="shrink-0 flex flex-col items-center gap-1 pt-0.5">
+                    <div
+                      className={cn(
+                        'w-9 h-9 rounded-[10px] border border-white/10 overflow-hidden',
+                        !preview && 'bg-white/[0.06]'
+                      )}
+                      style={preview ? { background: preview } : undefined}
+                    />
+                    <input
+                      type="color"
+                      value={preview ?? '#FF6A00'}
+                      onChange={e => updateColor(i, { hex: e.target.value })}
+                      title={t('channelStyle.covers.colorHex')}
+                      className="w-7 h-5 cursor-pointer bg-transparent border-0 p-0 opacity-60 hover:opacity-100 transition-opacity"
+                    />
+                  </div>
+
+                  {/* Fields */}
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <input
+                      value={token.name}
+                      onChange={e => updateColor(i, { name: e.target.value })}
+                      placeholder={t('channelStyle.covers.colorNamePlaceholder')}
+                      className="glass-input w-full px-2.5 py-1.5 text-[13px] font-medium"
+                    />
+                    <input
+                      value={token.hex}
+                      onChange={e => updateColor(i, { hex: e.target.value })}
+                      placeholder="#48945E"
+                      className={cn(
+                        'glass-input w-full px-2.5 py-1.5 text-[12px] font-mono',
+                        token.hex && !isValidHex(token.hex) && 'border-red-500/30'
+                      )}
+                    />
+                    <input
+                      value={token.usage ?? ''}
+                      onChange={e => updateColor(i, { usage: e.target.value })}
+                      placeholder={t('channelStyle.covers.colorUsagePlaceholder')}
+                      className="glass-input w-full px-2.5 py-1.5 text-[11px] text-[#A1A1AA]"
+                    />
+                  </div>
+
+                  {/* Remove */}
+                  <button
+                    onClick={() => removeColor(i)}
+                    title={t('channelStyle.covers.removeColor')}
+                    className="shrink-0 text-[#44444C] hover:text-red-400 transition-colors mt-0.5"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Logo */}
@@ -388,7 +467,7 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         </div>
       </div>
 
-      <Button variant="primary" size="md" onClick={() => updateBrandKit(channelId, { visualKit: data })} fullWidth>
+      <Button variant="primary" size="md" onClick={handleSave} fullWidth>
         {t('channelStyle.save.covers')}
       </Button>
     </div>
