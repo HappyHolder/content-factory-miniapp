@@ -47,12 +47,13 @@ function normalizeTelegramUrl(raw: unknown): string | null {
 // Response 500: DB error
 
 router.post('/generate', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, input, sourceType, imagePrompt } = req.body as {
+  const { initData, channelId, input, sourceType, imagePrompt, useBrandKit } = req.body as {
     initData?:    unknown;
     channelId?:   unknown;
     input?:       unknown;
     sourceType?:  unknown;
     imagePrompt?: unknown;
+    useBrandKit?: unknown;
   };
 
   // ── 1. Input validation ───────────────────────────────────────────────────
@@ -139,6 +140,8 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
       sourceType:  sourceType as string,
       sourceUrl:   null,
       imagePrompt: typeof imagePrompt === 'string' ? imagePrompt : undefined,
+      // Default true for backward compatibility (bot auto-draft, older clients).
+      useBrandKit: useBrandKit === false ? false : true,
     });
     res.json({ post: draft });
   } catch (err) {

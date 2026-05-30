@@ -116,6 +116,8 @@ export const ru: Dict = {
     imagePromptLabel:      'Промпт для изображения',
     imagePromptPlaceholder:'Опишите обложку или картинку для поста…',
     generatePost:          'Сгенерировать пост',
+    useBrandKit:           'Использовать BrandKit',
+    useBrandKitDesc:       'Стиль, тон и правила канала',
     generating:            'Генерируем…',
     postsReady:            'Посты готовы — открываем…',
     generationFailed:      'Ошибка генерации. Попробуйте снова.',

@@ -4,6 +4,7 @@ import { Sparkles, Check, Loader2, Radio } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { ChannelSwitcherHeader } from '@/components/layout/ChannelSwitcherHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
+import { Switch } from '@/components/ui/Switch'
 import { generationService } from '@/services/generationService'
 import { brandKitService } from '@/services/brandKitService'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -26,6 +27,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
   const { state, activeChannel, addPost, showToast, t, authStatus } = useApp()
   const [textPrompt, setTextPrompt] = useState('')
   const [imagePrompt, setImagePrompt] = useState('')
+  const [useBrandKit, setUseBrandKit] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [done, setDone] = useState(false)
 
@@ -52,6 +54,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
             channelId:   state.activeChannelId,
             input:       textPrompt.trim(),
             sourceType:  'prompt',
+            useBrandKit,
             ...(imagePrompt.trim() ? { imagePrompt: imagePrompt.trim() } : {}),
           }),
         })
@@ -137,6 +140,14 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
                   style={{ background: 'rgba(255,255,255,0.03)' }}
                 />
               </div>
+
+              {/* BrandKit toggle */}
+              <Switch
+                label={t('create.useBrandKit')}
+                description={t('create.useBrandKitDesc')}
+                value={useBrandKit}
+                onChange={setUseBrandKit}
+              />
             </div>
 
             <div className="px-4 pb-4">

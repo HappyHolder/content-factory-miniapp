@@ -116,6 +116,8 @@ export const en = {
     imagePromptLabel:      'Image prompt',
     imagePromptPlaceholder:'Describe the image or cover for the post…',
     generatePost:          'Generate post',
+    useBrandKit:           'Use BrandKit',
+    useBrandKitDesc:       'Channel style, tone and rules',
     generating:            'Generating…',
     postsReady:            'Posts ready — opening…',
     generationFailed:      'Generation failed. Try again.',

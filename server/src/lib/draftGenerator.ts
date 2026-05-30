@@ -18,11 +18,12 @@ import { generateImageForPost } from './imageGenerator';
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export interface CreateDraftParams {
-  channelId:   string;
-  input:       string;
-  sourceType:  string;
-  sourceUrl:   string | null;
-  imagePrompt?: string;   // optional; if provided, Replicate image generation is attempted
+  channelId:    string;
+  input:        string;
+  sourceType:   string;
+  sourceUrl:    string | null;
+  imagePrompt?: string;    // optional; if provided, Replicate image generation is attempted
+  useBrandKit?: boolean;   // default true; false = ignore channel style for this generation
 }
 
 /** Frontend-compatible post shape — identical to what /api/posts/generate returns. */
@@ -99,7 +100,7 @@ function extractButtonLinks(brandKit: unknown): {
 export async function createDraftPostForChannel(
   params: CreateDraftParams,
 ): Promise<DraftPost> {
-  const { channelId, input, sourceType, sourceUrl, imagePrompt } = params;
+  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true } = params;
 
   // ── Load channel ──────────────────────────────────────────────────────────
   const channel = await prisma.channel.findUniqueOrThrow({
@@ -107,26 +108,31 @@ export async function createDraftPostForChannel(
     select: { id: true, handle: true, name: true },
   });
 
-  // ── Load BrandKit (non-fatal — generation continues without style if absent) ─
+  // ── Load BrandKit (skipped when useBrandKit === false) ───────────────────
+  // When useBrandKit is false the user has explicitly asked the model to follow
+  // their prompt directly, ignoring channel style. BrandKit is not loaded so
+  // the AI receives no style context, and no link buttons are injected.
   let brandKit: unknown | null = null;
-  try {
-    const bk = await prisma.brandKit.findUnique({
-      where:  { channelId },
-      select: {
-        channelAbout: true,
-        voiceProfile: true,
-        postRules:    true,
-        linkKit:      true,
-        signature:    true,
-        visualKit:    true,   // needed for image generation style hints
-      },
-    });
-    brandKit = bk ?? null;
-  } catch (err) {
-    console.error('[draftGenerator] BrandKit lookup failed:', (err as Error).message);
+  if (useBrandKit) {
+    try {
+      const bk = await prisma.brandKit.findUnique({
+        where:  { channelId },
+        select: {
+          channelAbout: true,
+          voiceProfile: true,
+          postRules:    true,
+          linkKit:      true,
+          signature:    true,
+          visualKit:    true,
+        },
+      });
+      brandKit = bk ?? null;
+    } catch (err) {
+      console.error('[draftGenerator] BrandKit lookup failed:', (err as Error).message);
+    }
   }
 
-  // ── Extract button links from BrandKit (non-fatal — empty array if absent) ─
+  // ── Extract button links from BrandKit (empty when useBrandKit === false) ─
   const buttonLinks = extractButtonLinks(brandKit);
 
   // ── Generate variant drafts (AI or placeholder fallback) ──────────────────
@@ -185,7 +191,9 @@ export async function createDraftPostForChannel(
   const trimmedImagePrompt = imagePrompt?.trim();
   if (trimmedImagePrompt) {
     try {
-      const visualKit = brandKit && typeof brandKit === 'object'
+      // Pass visualKit only when BrandKit is active — when useBrandKit is false
+      // the image should follow the user's prompt without any brand style hints.
+      const visualKit = (useBrandKit && brandKit && typeof brandKit === 'object')
         ? (brandKit as Record<string, unknown>)['visualKit'] ?? undefined
         : undefined;
 
