@@ -51,6 +51,8 @@ export const env = {
   // Set higher than your HTTP gateway timeout if you want to see the result;
   // keep lower if you prefer a fast explicit failure over a gateway 502.
   // Default: 120 000 ms (2 min). Override via IMAGE_GENERATION_POLL_TIMEOUT_MS.
+  // Vercel Blob — optional; upload endpoint returns 503 if absent
+  BLOB_READ_WRITE_TOKEN: process.env['BLOB_READ_WRITE_TOKEN'] ?? '',
   IMAGE_GENERATION_POLL_TIMEOUT_MS:
     parseInt(process.env['IMAGE_GENERATION_POLL_TIMEOUT_MS'] ?? '120000', 10),
 } as const;
