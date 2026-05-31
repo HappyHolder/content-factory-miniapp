@@ -14,6 +14,8 @@
  * No external dependencies — uses Node's built-in fetch (Node 18+).
  */
 
+import sharp from 'sharp';
+import { put } from '@vercel/blob';
 import { env } from '../env';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -195,32 +197,20 @@ export async function generateImageForPost(
     : null;
   const coverStyle  = typeof vkObj?.['visualCoverStyle'] === 'string' ? vkObj['visualCoverStyle'].trim() : '';
   const brandTokens = buildVisualKitPromptHints(input.visualKit);
-  const logoUrl     = typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
+  const logoUrl = typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
     ? vkObj['logoUrl'] as string
     : null;
 
-  // If logo exists, include placement instruction in prompt
-  const logoInstruction = logoUrl
-    ? ' The attached image is the brand logo — use it exactly as provided, do not redraw or stylize it. Place it in the top-right corner of the cover.'
-    : '';
-
+  // Logo is composited via sharp AFTER generation — never passed to the model
   const prompt = coverStyle
-    ? `${coverStyle}. ${userPrompt}${logoInstruction}${brandTokens}${NEGATIVE_SUFFIX}`
-    : `${userPrompt}${logoInstruction}${brandTokens}${NEGATIVE_SUFFIX}`;
+    ? `${coverStyle}. ${userPrompt}${brandTokens}${NEGATIVE_SUFFIX}`
+    : `${userPrompt}${brandTokens}${NEGATIVE_SUFFIX}`;
 
   // ── Build model input ─────────────────────────────────────────────────────
   const isGptImage = model.includes('gpt-image');
   const modelInput: Record<string, unknown> = isGptImage
-    ? {
-        prompt,
-        size:    '1024x1024',
-        quality: 'high',
-        ...(logoUrl ? { image: logoUrl } : {}),
-      }
-    : {
-        prompt,
-        aspect_ratio: '1:1',
-      };
+    ? { prompt, size: '1024x1024', quality: 'high' }
+    : { prompt, aspect_ratio: '1:1' };
 
   console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} coverStyle=${coverStyle ? 'yes' : 'no'}`);
 
@@ -246,7 +236,8 @@ export async function generateImageForPost(
 
     // ── Synchronous response: output already present ──────────────────────
     if (prediction.status === 'succeeded' && prediction.output) {
-      return extractUrl(prediction.output);
+      const url = extractUrl(prediction.output);
+      return url ? compositeLogoIfNeeded(url, logoUrl) : null;
     }
 
     // ── Failed immediately ────────────────────────────────────────────────
@@ -255,16 +246,81 @@ export async function generateImageForPost(
       return null;
     }
 
-    // ── Asynchronous: poll until done, up to IMAGE_GENERATION_POLL_TIMEOUT_MS ─
+    // ── Asynchronous: poll until done ─────────────────────────────────────
     if (!prediction.id) {
       console.warn('[imageGenerator] No prediction id in response — cannot poll');
       return null;
     }
 
-    return await pollPrediction(prediction.id, env.REPLICATE_API_TOKEN, env.IMAGE_GENERATION_POLL_TIMEOUT_MS);
+    const polledUrl = await pollPrediction(prediction.id, env.REPLICATE_API_TOKEN, env.IMAGE_GENERATION_POLL_TIMEOUT_MS);
+    return polledUrl ? compositeLogoIfNeeded(polledUrl, logoUrl) : null;
 
   } catch (err) {
     console.warn('[imageGenerator] Unexpected error:', (err as Error).message);
     return null;
+  }
+}
+
+// ─── Sharp logo compositing ───────────────────────────────────────────────────
+
+/**
+ * Downloads the generated cover and overlays the brand logo in the top-right
+ * corner using sharp. Falls back to the original URL on any error so image
+ * generation always returns something.
+ */
+async function compositeLogoIfNeeded(
+  coverUrl: string,
+  logoUrl:  string | null,
+): Promise<string> {
+  if (!logoUrl || !env.BLOB_READ_WRITE_TOKEN) return coverUrl;
+
+  try {
+    // Download cover and logo in parallel
+    const [coverBuf, logoBuf] = await Promise.all([
+      fetch(coverUrl).then(r => r.arrayBuffer()).then(b => Buffer.from(b)),
+      fetch(logoUrl).then(r => r.arrayBuffer()).then(b => Buffer.from(b)),
+    ]);
+
+    // Get cover dimensions
+    const coverMeta = await sharp(coverBuf).metadata();
+    const coverSize = coverMeta.width ?? 1024;
+
+    // Resize logo to ~18% of cover width, preserve aspect ratio
+    const logoSize  = Math.round(coverSize * 0.18);
+    const logoPng   = await sharp(logoBuf)
+      .resize(logoSize, logoSize, { fit: 'inside', withoutEnlargement: false })
+      .png()
+      .toBuffer();
+
+    const logoMeta  = await sharp(logoPng).metadata();
+    const logoW     = logoMeta.width  ?? logoSize;
+    const logoH     = logoMeta.height ?? logoSize;
+    const margin    = Math.round(coverSize * 0.04);
+
+    // Composite: top-right corner
+    const composited = await sharp(coverBuf)
+      .composite([{
+        input:     logoPng,
+        top:       margin,
+        left:      coverSize - logoW - margin,
+        blend:     'over',
+      }])
+      .jpeg({ quality: 92 })
+      .toBuffer();
+
+    // Upload to Vercel Blob
+    const filename  = `covers/cover-${Date.now()}.jpg`;
+    const blob      = await put(filename, composited, {
+      access: 'public',
+      token:  env.BLOB_READ_WRITE_TOKEN,
+      contentType: 'image/jpeg',
+    });
+
+    console.log(`[imageGenerator] Logo composited → ${blob.url}`);
+    return blob.url;
+
+  } catch (err) {
+    console.warn('[imageGenerator] Logo composite failed (returning original):', (err as Error).message);
+    return coverUrl;
   }
 }
