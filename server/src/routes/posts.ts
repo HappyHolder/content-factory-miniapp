@@ -902,7 +902,8 @@ function buildVisualPromptFromVariant(params: {
 }): string {
   const { variantText, postTitle, sourceSummary } = params;
   const anchor = (postTitle || sourceSummary || variantText).slice(0, 120).trim();
-  return `Telegram post cover image. Topic: "${anchor}". Style: modern, clean, editorial.`;
+  // "Concept:" phrasing makes clear the anchor is a visual idea, not text to render.
+  return `Telegram post cover image. Visual concept: "${anchor}". Style: modern, clean, editorial. No visible text.`;
 }
 
 router.post('/regenerate-visual', async (req: Request, res: Response): Promise<void> => {

@@ -98,69 +98,117 @@ interface RawBrandColor {
 
 /**
  * Hard output constraints prepended to every image prompt.
- * These ensure the model produces one finished Telegram post cover
- * rather than a design board, concept sheet, or UI mockup.
+ *
+ * Key lessons from bad outputs:
+ *  - Model was rendering HEX codes, token names, and font rules as visible text.
+ *  - Model was producing infographic/spec-sheet layouts instead of clean covers.
+ *  - "Brand color palette for this cover: Name: #HEX" read as content, not style.
+ * These constraints lock the output to one clean visual cover with no visible
+ * technical labels.
  */
 const FINAL_OUTPUT_CONSTRAINTS =
-  'OUTPUT RULES: Generate exactly ONE finished, print-ready Telegram post cover image. ' +
-  'Do NOT produce a design board, mood board, concept sheet, or grid of options. ' +
+  'CRITICAL OUTPUT RULES — read before generating anything. ' +
+
+  // Single finished cover
+  'Generate exactly ONE finished Telegram post cover image. ' +
+  'Do NOT produce a design board, mood board, concept sheet, grid of options, or annotated layout. ' +
   'Do NOT show multiple variants or versions side by side. ' +
   'Do NOT add UI chrome, mockup frames, device screens, or browser windows. ' +
-  'Do NOT include labels such as "#DALL-E", "option", "concept", "mockup", "version", "draft", or any similar meta-text. ' +
+
+  // No visible technical labels (the main bug)
+  'Do NOT render any technical prompt instructions as visible text in the image. ' +
+  'Do NOT write HEX color codes, color names, or color token names anywhere in the image. ' +
+  'Do NOT write font names, typography rules, layout coordinates, or style guide annotations in the image. ' +
+  'Do NOT write words like "Type", "Font", "HEX", "RGB", "Palette", "Color", "Style", "Position", ' +
+    '"Montserrat", "gradient", "option", "concept", "mockup", "version", "draft", "#DALL-E", or any similar technical label. ' +
+  'Do NOT create diagrams, UI specs, infographics, brand boards, or annotated mockups. ' +
+
+  // Text policy
+  'By default generate a TEXT-FREE visual cover — no words, no letters, no numbers on the image. ' +
+  'Only add text to the image if the user prompt explicitly states an exact headline or caption to display. ' +
+  'If text is requested, render only that exact phrase in large, clean, legible type. ' +
+  'Do NOT invent, add, or interpret any other words. ' +
+
+  // Other safeguards
   'Do NOT invent logos, watermarks, or brand marks unless explicitly described in the prompt. ' +
-  'Do NOT fill space with tiny unreadable filler text or random characters. ' +
-  'If the prompt requests text on the cover, use at most one short headline rendered in large, legible type. ' +
-  'The user image prompt below is the highest priority — follow it precisely.';
+  'Do NOT create charts, graphs, roadmap diagrams, or maps unless the user prompt explicitly requests one. ' +
+
+  // Priority
+  'The user image prompt below is the single highest priority — follow its visual concept precisely.';
 
 /**
- * Builds BrandKit visual direction to append after the user image prompt.
- * Framed as final-cover direction, not loose inspiration.
- * Safely handles unknown/missing fields — never throws.
- * Returns an empty string when there is nothing to add.
+ * Builds BrandKit style guidance to append after the user image prompt.
  *
- * Note: logoUrl and references are stored in visualKit but are NOT passed here
- * because the current model accepts prompt-only input. Logo compositing and
- * reference image inputs are not yet implemented.
+ * WORDING RULES — prevents the model from rendering technical values as
+ * visible text on the image:
+ *  - Color tokens are described as invisible palette/atmosphere guidance.
+ *    HEX values are included for color accuracy but the block explicitly
+ *    forbids writing them in the image.
+ *  - Font preset/rules are phrased as visual mood, not spec-sheet items.
+ *    Font names are never mentioned — only mood descriptors are used.
+ *
+ * Note: logoUrl and references are stored in visualKit but are NOT passed
+ * here because the current model accepts prompt-only input. Logo compositing
+ * and reference image inputs are not yet implemented.
+ *
+ * Never throws — returns '' when there is nothing to add.
  */
 export function buildVisualKitPromptHints(visualKit: unknown): string {
   if (!visualKit || typeof visualKit !== 'object') return '';
   const vk = visualKit as Record<string, unknown>;
 
-  const lines: string[] = [];
+  const parts: string[] = [];
 
-  // ── Brand colors ────────────────────────────────────────────────────────────
+  // ── Brand colors — invisible palette/atmosphere guidance ─────────────────
+  // Only HEX values are passed (no token names) so the model gets accurate
+  // color information without producing visible label text.
   const rawColors = vk['brandColors'];
   if (Array.isArray(rawColors) && rawColors.length > 0) {
-    const colorLines: string[] = [];
+    const hexes: string[] = [];
     for (const c of (rawColors as RawBrandColor[]).slice(0, 8)) {
       if (typeof c.hex !== 'string' || !/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(c.hex)) continue;
-      const name  = typeof c.name  === 'string' && c.name.trim()  ? c.name.trim()  : c.hex;
-      const usage = typeof c.usage === 'string' && c.usage.trim() ? ` (${c.usage.trim()})` : '';
-      colorLines.push(`${name}: ${c.hex}${usage}`);
+      hexes.push(c.hex);
     }
-    if (colorLines.length > 0) {
-      lines.push('Brand color palette for this cover: ' + colorLines.join(', ') + '.');
-      lines.push('Apply these colors to backgrounds, typography, and graphic elements on the final cover.');
+    if (hexes.length > 0) {
+      parts.push(
+        'Invisible palette guidance — do NOT write these as text: ' +
+        'use ' + hexes.join(', ') + ' as the dominant color atmosphere. ' +
+        'Apply to background tones, lighting, glows, accents, and shapes only. ' +
+        'Never render hex codes, color names, or color labels anywhere in the image.'
+      );
     }
   }
 
-  // ── Typography ───────────────────────────────────────────────────────────────
-  const presetMap: Record<string, string> = {
-    serif:       'serif / newspaper-style',
-    sans:        'clean sans-serif / modern',
-    mono:        'monospace / terminal',
-    display:     'bold display / headline',
-    handwritten: 'handwritten / script',
+  // ── Typography — visual mood only, no font names ─────────────────────────
+  // Described as mood/atmosphere to avoid the model writing spec labels.
+  const presetMoodMap: Record<string, string> = {
+    serif:       'classic, editorial, print-inspired visual mood',
+    sans:        'clean, modern, minimal visual mood',
+    mono:        'technical, terminal, code-aesthetic visual mood',
+    display:     'bold, high-impact, graphic visual mood',
+    handwritten: 'organic, handcrafted, personal visual mood',
   };
   const preset = typeof vk['visualFontPreset'] === 'string' ? vk['visualFontPreset'] : 'default';
-  if (preset !== 'default' && presetMap[preset]) {
-    lines.push(`Any text on the cover must use ${presetMap[preset]} typography.`);
+  if (preset !== 'default' && presetMoodMap[preset]) {
+    parts.push(
+      `Overall visual mood: ${presetMoodMap[preset]}. ` +
+      'Do not write font names, type rules, or style annotations in the image.'
+    );
   }
   const fontRules = typeof vk['visualFontRules'] === 'string' ? vk['visualFontRules'].trim() : '';
-  if (fontRules) lines.push(`Additional typography direction: ${fontRules}`);
+  if (fontRules) {
+    parts.push(
+      `Visual style note (invisible guidance — do not render as text): ${fontRules}`
+    );
+  }
 
-  if (lines.length === 0) return '';
-  return '\n\nBrand direction for this cover:\n' + lines.join('\n');
+  if (parts.length === 0) return '';
+  return (
+    '\n\nInvisible brand style guidance' +
+    ' (influences color atmosphere and visual mood only —' +
+    ' none of this should appear as visible text in the image):\n' +
+    parts.join('\n')
+  );
 }
 
 export interface GenerateImageInput {
