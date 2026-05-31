@@ -885,29 +885,24 @@ router.post('/delete', async (req: Request, res: Response): Promise<void> => {
 // Response 500: DB error
 
 /**
- * Builds a Replicate image prompt from the variant text and optional visualKit.
- * BrandKit color tokens and font settings are appended via buildVisualKitPromptHints.
+ * Builds the user-facing image prompt for the regenerate-visual path.
+ * Hard output constraints (no design boards, no mockups, etc.) are
+ * prepended by generateImageForPost via FINAL_OUTPUT_CONSTRAINTS —
+ * no need to repeat them here. This function focuses on the topic and
+ * any BrandKit color/typography direction.
+ *
+ * Note: visualKit is passed directly to generateImageForPost so that
+ * FINAL_OUTPUT_CONSTRAINTS + topic + brand hints are assembled in the
+ * correct order inside generateImageForPost.
  */
 function buildVisualPromptFromVariant(params: {
   variantText:    string;
   postTitle?:     string | null;
   sourceSummary?: string | null;
-  visualKit?:     unknown;
 }): string {
-  const { variantText, postTitle, sourceSummary, visualKit } = params;
-
+  const { variantText, postTitle, sourceSummary } = params;
   const anchor = (postTitle || sourceSummary || variantText).slice(0, 120).trim();
-  const brandHints = buildVisualKitPromptHints(visualKit);
-
-  return (
-    `Create a square 1:1 Telegram post cover image. ` +
-    `Topic: "${anchor}". ` +
-    `Style: modern, clean, editorial, high contrast. ` +
-    `No logos. No watermarks. No small unreadable text. ` +
-    `Do not include fake Cyrillic or Latin characters as filler. ` +
-    `If text is necessary, use at most one short English headline in large legible type.` +
-    brandHints
-  );
+  return `Telegram post cover image. Topic: "${anchor}". Style: modern, clean, editorial.`;
 }
 
 router.post('/regenerate-visual', async (req: Request, res: Response): Promise<void> => {
@@ -1002,19 +997,21 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
     res.status(403).json({ error: 'This post does not belong to your account.' }); return;
   }
 
-  // ── 5. Build image prompt from variant content + BrandKit visualKit ───────
+  // ── 5. Build image prompt from variant content ───────────────────────────
+  // FINAL_OUTPUT_CONSTRAINTS and BrandKit hints are assembled inside
+  // generateImageForPost — pass visualKit separately so the order is correct:
+  //   FINAL_OUTPUT_CONSTRAINTS → topic prompt → brand direction
   const prompt = buildVisualPromptFromVariant({
     variantText:   variant.text,
     postTitle:     variant.generatedPost.title,
     sourceSummary: variant.generatedPost.sourceSummary,
-    visualKit:     variant.generatedPost.channel.brandKit?.visualKit ?? undefined,
   });
+  const visualKit = variant.generatedPost.channel.brandKit?.visualKit ?? undefined;
 
   // ── 6. Generate new image via Replicate ───────────────────────────────────
   let imageUrl: string | null = null;
   try {
-    // Brand hints are already embedded in `prompt` via buildVisualPromptFromVariant.
-    imageUrl = await generateImageForPost({ prompt });
+    imageUrl = await generateImageForPost({ prompt, visualKit });
   } catch (err) {
     console.warn('[posts/regenerate-visual] generateImageForPost threw:', (err as Error).message);
   }

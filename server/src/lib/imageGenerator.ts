@@ -97,9 +97,30 @@ interface RawBrandColor {
 }
 
 /**
- * Builds a soft BrandKit visual guidance block to append to an image prompt.
+ * Hard output constraints prepended to every image prompt.
+ * These ensure the model produces one finished Telegram post cover
+ * rather than a design board, concept sheet, or UI mockup.
+ */
+const FINAL_OUTPUT_CONSTRAINTS =
+  'OUTPUT RULES: Generate exactly ONE finished, print-ready Telegram post cover image. ' +
+  'Do NOT produce a design board, mood board, concept sheet, or grid of options. ' +
+  'Do NOT show multiple variants or versions side by side. ' +
+  'Do NOT add UI chrome, mockup frames, device screens, or browser windows. ' +
+  'Do NOT include labels such as "#DALL-E", "option", "concept", "mockup", "version", "draft", or any similar meta-text. ' +
+  'Do NOT invent logos, watermarks, or brand marks unless explicitly described in the prompt. ' +
+  'Do NOT fill space with tiny unreadable filler text or random characters. ' +
+  'If the prompt requests text on the cover, use at most one short headline rendered in large, legible type. ' +
+  'The user image prompt below is the highest priority — follow it precisely.';
+
+/**
+ * Builds BrandKit visual direction to append after the user image prompt.
+ * Framed as final-cover direction, not loose inspiration.
  * Safely handles unknown/missing fields — never throws.
  * Returns an empty string when there is nothing to add.
+ *
+ * Note: logoUrl and references are stored in visualKit but are NOT passed here
+ * because the current model accepts prompt-only input. Logo compositing and
+ * reference image inputs are not yet implemented.
  */
 export function buildVisualKitPromptHints(visualKit: unknown): string {
   if (!visualKit || typeof visualKit !== 'object') return '';
@@ -114,32 +135,32 @@ export function buildVisualKitPromptHints(visualKit: unknown): string {
     for (const c of (rawColors as RawBrandColor[]).slice(0, 8)) {
       if (typeof c.hex !== 'string' || !/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(c.hex)) continue;
       const name  = typeof c.name  === 'string' && c.name.trim()  ? c.name.trim()  : c.hex;
-      const usage = typeof c.usage === 'string' && c.usage.trim() ? ` — ${c.usage.trim()}` : '';
-      colorLines.push(`- ${name}: ${c.hex}${usage}`);
+      const usage = typeof c.usage === 'string' && c.usage.trim() ? ` (${c.usage.trim()})` : '';
+      colorLines.push(`${name}: ${c.hex}${usage}`);
     }
     if (colorLines.length > 0) {
-      lines.push('Brand color palette (use as inspiration when relevant):');
-      lines.push(...colorLines);
+      lines.push('Brand color palette for this cover: ' + colorLines.join(', ') + '.');
+      lines.push('Apply these colors to backgrounds, typography, and graphic elements on the final cover.');
     }
   }
 
   // ── Typography ───────────────────────────────────────────────────────────────
   const presetMap: Record<string, string> = {
-    serif:       'serif / newspaper-style typography',
-    sans:        'clean sans-serif modern typography',
-    mono:        'monospace / terminal-style typography',
-    display:     'bold display / headline typography',
-    handwritten: 'handwritten / script typography',
+    serif:       'serif / newspaper-style',
+    sans:        'clean sans-serif / modern',
+    mono:        'monospace / terminal',
+    display:     'bold display / headline',
+    handwritten: 'handwritten / script',
   };
   const preset = typeof vk['visualFontPreset'] === 'string' ? vk['visualFontPreset'] : 'default';
   if (preset !== 'default' && presetMap[preset]) {
-    lines.push(`Preferred typography style: ${presetMap[preset]}.`);
+    lines.push(`Any text on the cover must use ${presetMap[preset]} typography.`);
   }
   const fontRules = typeof vk['visualFontRules'] === 'string' ? vk['visualFontRules'].trim() : '';
-  if (fontRules) lines.push(`Typography guidance: ${fontRules}`);
+  if (fontRules) lines.push(`Additional typography direction: ${fontRules}`);
 
   if (lines.length === 0) return '';
-  return '\n\nBrand visual guidance:\n' + lines.join('\n') + '\nApply these brand hints where they naturally fit. Do not ignore the main topic.';
+  return '\n\nBrand direction for this cover:\n' + lines.join('\n');
 }
 
 export interface GenerateImageInput {
@@ -167,9 +188,14 @@ export async function generateImageForPost(
 
   const model = env.IMAGE_MODEL;  // e.g. 'google/imagen-4'
 
-  const hints  = buildVisualKitPromptHints(input.visualKit);
-  const prompt = (input.prompt.trim() + hints).trim();
-  if (!prompt) return null;
+  // Prompt assembly order:
+  //   1. Hard output constraints (always) — prevent design boards / mockups
+  //   2. User image prompt (highest content priority)
+  //   3. BrandKit color + typography direction (when BrandKit is ON)
+  const userPrompt = input.prompt.trim();
+  if (!userPrompt) return null;
+  const brandHints = buildVisualKitPromptHints(input.visualKit);
+  const prompt = `${FINAL_OUTPUT_CONSTRAINTS}\n\nUser prompt: ${userPrompt}${brandHints}`;
 
   console.log(`[imageGenerator] Requesting image from model ${model}`);
 
