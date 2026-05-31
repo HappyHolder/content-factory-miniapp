@@ -902,8 +902,8 @@ function buildVisualPromptFromVariant(params: {
 }): string {
   const { variantText, postTitle, sourceSummary } = params;
   const anchor = (postTitle || sourceSummary || variantText).slice(0, 120).trim();
-  // "Concept:" phrasing makes clear the anchor is a visual idea, not text to render.
-  return `Telegram post cover image. Visual concept: "${anchor}". Style: modern, clean, editorial. No visible text.`;
+  // Pure visual description — NEGATIVE_SUFFIX is appended by generateImageForPost.
+  return `abstract Telegram post cover art, ${anchor}, modern editorial style, dark premium background`;
 }
 
 router.post('/regenerate-visual', async (req: Request, res: Response): Promise<void> => {

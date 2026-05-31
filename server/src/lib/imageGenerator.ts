@@ -97,123 +97,73 @@ interface RawBrandColor {
 }
 
 /**
- * Hard output constraints prepended to every image prompt.
+ * Short negative suffix appended to every image prompt.
  *
- * Key lessons from bad outputs:
- *  - Model was rendering HEX codes, token names, and font rules as visible text.
- *  - Model was producing infographic/spec-sheet layouts instead of clean covers.
- *  - "Brand color palette for this cover: Name: #HEX" read as content, not style.
- *  - "print-ready" wording encouraged white print margins / framed poster look.
- *  - Output sometimes had a white border/frame placing the image on a background.
- * These constraints lock the output to one clean full-bleed visual cover.
+ * Image generation models render everything as visual content — long
+ * instruction blocks get drawn on the image. Only minimal, well-known
+ * negative tokens are safe to append.
  */
-const FINAL_OUTPUT_CONSTRAINTS =
-  'CRITICAL OUTPUT RULES — read before generating anything. ' +
-
-  // Single finished full-bleed cover
-  'Generate exactly ONE finished full-bleed Telegram post cover image. ' +
-  'The image must fill the entire square canvas edge-to-edge — full-bleed, no borders, no margins. ' +
-  'Do NOT add a white border, outer frame, margin, padding, or any edge gap around the image. ' +
-  'Do NOT place the cover on a white background, paper sheet, card, or any outer container. ' +
-  'Do NOT create a poster-on-card, framed print, or image-inside-another-image layout. ' +
-  'Do NOT produce a design board, mood board, concept sheet, grid of options, or annotated layout. ' +
-  'Do NOT show multiple variants or versions side by side. ' +
-  'Do NOT add UI chrome, mockup frames, device screens, or browser windows. ' +
-
-  // No visible technical labels
-  'Do NOT render any technical prompt instructions as visible text in the image. ' +
-  'Do NOT write HEX color codes, color names, or color token names anywhere in the image. ' +
-  'Do NOT write font names, typography rules, layout coordinates, or style guide annotations in the image. ' +
-  'Do NOT write words like "Type", "Font", "HEX", "RGB", "Palette", "Color", "Style", "Position", ' +
-    '"Montserrat", "gradient", "option", "concept", "mockup", "version", "draft", "#DALL-E", or any similar technical label. ' +
-  'Do NOT create diagrams, UI specs, infographics, brand boards, or annotated mockups. ' +
-
-  // Text policy
-  'By default generate a TEXT-FREE visual cover — no words, no letters, no numbers on the image. ' +
-  'Only add text to the image if the user prompt explicitly states an exact headline or caption to display. ' +
-  'If text is requested, render only that exact phrase in large, clean, legible type. ' +
-  'Do NOT invent, add, or interpret any other words. ' +
-
-  // Other safeguards
-  'Do NOT invent logos, watermarks, or brand marks unless explicitly described in the prompt. ' +
-  'Do NOT create charts, graphs, roadmap diagrams, or maps unless the user prompt explicitly requests one. ' +
-
-  // Priority
-  'The user image prompt below is the single highest priority — follow its visual concept precisely.';
+const NEGATIVE_SUFFIX = ', no text, no typography, no letters, no words, no watermark, no border, no frame, no margin, full-bleed';
 
 /**
- * Builds BrandKit style guidance to append after the user image prompt.
+ * Builds BrandKit style tokens to embed naturally in the image prompt.
  *
- * WORDING RULES — prevents the model from rendering technical values as
- * visible text on the image:
- *  - Color tokens are described as invisible palette/atmosphere guidance.
- *    HEX values are included for color accuracy but the block explicitly
- *    forbids writing them in the image.
- *  - Font preset/rules are phrased as visual mood, not spec-sheet items.
- *    Font names are never mentioned — only mood descriptors are used.
+ * Image generation models are visual — they respond to descriptive adjectives
+ * and color values, not instruction blocks. Everything here is phrased as
+ * natural visual description that gets woven into the prompt string.
  *
- * Note: logoUrl and references are stored in visualKit but are NOT passed
- * here because the current model accepts prompt-only input. Logo compositing
- * and reference image inputs are not yet implemented.
+ * - Colors: passed as hex values described as "color palette: ..." so the
+ *   model uses them for lighting/atmosphere. Token names are dropped to avoid
+ *   any chance of rendering them as labels.
+ * - Font preset: mapped to short mood adjectives (e.g. "editorial aesthetic",
+ *   "tech minimal aesthetic"). No font names — model can't render what it
+ *   doesn't know.
+ * - fontRules: stripped of any technical jargon and appended as visual mood.
  *
- * Never throws — returns '' when there is nothing to add.
+ * logoUrl and references are stored but NOT used — current model is
+ * prompt-only. Logo compositing and reference image inputs not yet implemented.
+ *
+ * Never throws. Returns '' when nothing to add.
  */
 export function buildVisualKitPromptHints(visualKit: unknown): string {
   if (!visualKit || typeof visualKit !== 'object') return '';
   const vk = visualKit as Record<string, unknown>;
 
-  const parts: string[] = [];
+  const tokens: string[] = [];
 
-  // ── Brand colors — invisible palette/atmosphere guidance ─────────────────
-  // Only HEX values are passed (no token names) so the model gets accurate
-  // color information without producing visible label text.
+  // ── Brand colors → color palette descriptor ──────────────────────────────
   const rawColors = vk['brandColors'];
   if (Array.isArray(rawColors) && rawColors.length > 0) {
     const hexes: string[] = [];
-    for (const c of (rawColors as RawBrandColor[]).slice(0, 8)) {
+    for (const c of (rawColors as RawBrandColor[]).slice(0, 5)) {
       if (typeof c.hex !== 'string' || !/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(c.hex)) continue;
       hexes.push(c.hex);
     }
     if (hexes.length > 0) {
-      parts.push(
-        'Invisible palette guidance — do NOT write these as text: ' +
-        'use ' + hexes.join(', ') + ' as the dominant color atmosphere. ' +
-        'Apply to background tones, lighting, glows, accents, and shapes only. ' +
-        'Never render hex codes, color names, or color labels anywhere in the image.'
-      );
+      tokens.push(`color palette ${hexes.join(' ')}`);
     }
   }
 
-  // ── Typography — visual mood only, no font names ─────────────────────────
-  // Described as mood/atmosphere to avoid the model writing spec labels.
+  // ── Font preset → mood adjectives ────────────────────────────────────────
   const presetMoodMap: Record<string, string> = {
-    serif:       'classic, editorial, print-inspired visual mood',
-    sans:        'clean, modern, minimal visual mood',
-    mono:        'technical, terminal, code-aesthetic visual mood',
-    display:     'bold, high-impact, graphic visual mood',
-    handwritten: 'organic, handcrafted, personal visual mood',
+    serif:       'editorial aesthetic',
+    sans:        'clean modern aesthetic',
+    mono:        'tech minimal aesthetic',
+    display:     'bold graphic aesthetic',
+    handwritten: 'organic handcrafted aesthetic',
   };
   const preset = typeof vk['visualFontPreset'] === 'string' ? vk['visualFontPreset'] : 'default';
   if (preset !== 'default' && presetMoodMap[preset]) {
-    parts.push(
-      `Overall visual mood: ${presetMoodMap[preset]}. ` +
-      'Do not write font names, type rules, or style annotations in the image.'
-    );
-  }
-  const fontRules = typeof vk['visualFontRules'] === 'string' ? vk['visualFontRules'].trim() : '';
-  if (fontRules) {
-    parts.push(
-      `Visual style note (invisible guidance — do not render as text): ${fontRules}`
-    );
+    tokens.push(presetMoodMap[preset]);
   }
 
-  if (parts.length === 0) return '';
-  return (
-    '\n\nInvisible brand style guidance' +
-    ' (influences color atmosphere and visual mood only —' +
-    ' none of this should appear as visible text in the image):\n' +
-    parts.join('\n')
-  );
+  // ── fontRules → short visual style note (stripped of tech jargon) ─────────
+  const fontRules = typeof vk['visualFontRules'] === 'string' ? vk['visualFontRules'].trim() : '';
+  if (fontRules) {
+    tokens.push(fontRules);
+  }
+
+  return tokens.length > 0 ? ', ' + tokens.join(', ') : '';
 }
 
 export interface GenerateImageInput {
@@ -241,14 +191,13 @@ export async function generateImageForPost(
 
   const model = env.IMAGE_MODEL;  // e.g. 'google/imagen-4'
 
-  // Prompt assembly order:
-  //   1. Hard output constraints (always) — prevent design boards / mockups
-  //   2. User image prompt (highest content priority)
-  //   3. BrandKit color + typography direction (when BrandKit is ON)
+  // Prompt assembly: [user visual concept] + [brand style tokens] + [negative suffix]
+  // Image models render everything as visual content — no instruction blocks,
+  // just natural visual descriptors followed by minimal negative tokens.
   const userPrompt = input.prompt.trim();
   if (!userPrompt) return null;
-  const brandHints = buildVisualKitPromptHints(input.visualKit);
-  const prompt = `${FINAL_OUTPUT_CONSTRAINTS}\n\nUser prompt: ${userPrompt}${brandHints}`;
+  const brandTokens = buildVisualKitPromptHints(input.visualKit);
+  const prompt = userPrompt + brandTokens + NEGATIVE_SUFFIX;
 
   console.log(`[imageGenerator] Requesting image from model ${model}`);
 
