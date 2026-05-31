@@ -90,9 +90,56 @@ async function pollPrediction(
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-interface VisualKitHints {
-  visualFontPreset?: string;
-  visualFontRules?:  string;
+interface RawBrandColor {
+  name?:  unknown;
+  hex?:   unknown;
+  usage?: unknown;
+}
+
+/**
+ * Builds a soft BrandKit visual guidance block to append to an image prompt.
+ * Safely handles unknown/missing fields — never throws.
+ * Returns an empty string when there is nothing to add.
+ */
+export function buildVisualKitPromptHints(visualKit: unknown): string {
+  if (!visualKit || typeof visualKit !== 'object') return '';
+  const vk = visualKit as Record<string, unknown>;
+
+  const lines: string[] = [];
+
+  // ── Brand colors ────────────────────────────────────────────────────────────
+  const rawColors = vk['brandColors'];
+  if (Array.isArray(rawColors) && rawColors.length > 0) {
+    const colorLines: string[] = [];
+    for (const c of (rawColors as RawBrandColor[]).slice(0, 8)) {
+      if (typeof c.hex !== 'string' || !/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(c.hex)) continue;
+      const name  = typeof c.name  === 'string' && c.name.trim()  ? c.name.trim()  : c.hex;
+      const usage = typeof c.usage === 'string' && c.usage.trim() ? ` — ${c.usage.trim()}` : '';
+      colorLines.push(`- ${name}: ${c.hex}${usage}`);
+    }
+    if (colorLines.length > 0) {
+      lines.push('Brand color palette (use as inspiration when relevant):');
+      lines.push(...colorLines);
+    }
+  }
+
+  // ── Typography ───────────────────────────────────────────────────────────────
+  const presetMap: Record<string, string> = {
+    serif:       'serif / newspaper-style typography',
+    sans:        'clean sans-serif modern typography',
+    mono:        'monospace / terminal-style typography',
+    display:     'bold display / headline typography',
+    handwritten: 'handwritten / script typography',
+  };
+  const preset = typeof vk['visualFontPreset'] === 'string' ? vk['visualFontPreset'] : 'default';
+  if (preset !== 'default' && presetMap[preset]) {
+    lines.push(`Preferred typography style: ${presetMap[preset]}.`);
+  }
+  const fontRules = typeof vk['visualFontRules'] === 'string' ? vk['visualFontRules'].trim() : '';
+  if (fontRules) lines.push(`Typography guidance: ${fontRules}`);
+
+  if (lines.length === 0) return '';
+  return '\n\nBrand visual guidance:\n' + lines.join('\n') + '\nApply these brand hints where they naturally fit. Do not ignore the main topic.';
 }
 
 export interface GenerateImageInput {
@@ -120,25 +167,8 @@ export async function generateImageForPost(
 
   const model = env.IMAGE_MODEL;  // e.g. 'google/imagen-4'
 
-  // Append soft typography hints when BrandKit provides font guidance.
-  const vk = input.visualKit as VisualKitHints | undefined;
-  const fontHints: string[] = [];
-  if (vk?.visualFontPreset && vk.visualFontPreset !== 'default') {
-    const presetMap: Record<string, string> = {
-      serif:       'serif / newspaper-style typography',
-      sans:        'clean sans-serif modern typography',
-      mono:        'monospace / terminal-style typography',
-      display:     'bold display / headline typography',
-      handwritten: 'handwritten / script typography',
-    };
-    const hint = presetMap[vk.visualFontPreset];
-    if (hint) fontHints.push(`Typography style: ${hint}.`);
-  }
-  if (vk?.visualFontRules?.trim()) {
-    fontHints.push(vk.visualFontRules.trim());
-  }
-
-  const prompt = [input.prompt.trim(), ...fontHints].filter(Boolean).join(' ');
+  const hints  = buildVisualKitPromptHints(input.visualKit);
+  const prompt = (input.prompt.trim() + hints).trim();
   if (!prompt) return null;
 
   console.log(`[imageGenerator] Requesting image from model ${model}`);

@@ -4,6 +4,7 @@ import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
+import { generateImageForPost, buildVisualKitPromptHints } from '../lib/imageGenerator';
 
 const router = Router();
 
@@ -885,40 +886,27 @@ router.post('/delete', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * Builds a Replicate image prompt from the variant text and optional visualKit.
- * Constraints that match the Telegram image gen use-case:
- *   - Square aspect ratio (1:1) post cover
- *   - No logos, no fake small Cyrillic text, at most one short English headline
- *   - Visual style from BrandKit where available
+ * BrandKit color tokens and font settings are appended via buildVisualKitPromptHints.
  */
 function buildVisualPromptFromVariant(params: {
-  variantText:   string;
-  postTitle?:    string | null;
+  variantText:    string;
+  postTitle?:     string | null;
   sourceSummary?: string | null;
-  visualKit?:    unknown;
+  visualKit?:     unknown;
 }): string {
   const { variantText, postTitle, sourceSummary, visualKit } = params;
 
-  // Use the first ~120 chars of text as the thematic anchor
   const anchor = (postTitle || sourceSummary || variantText).slice(0, 120).trim();
-
-  // Extract style hints from visualKit if present
-  let styleHint = '';
-  if (visualKit && typeof visualKit === 'object') {
-    const vk = visualKit as Record<string, unknown>;
-    const primaryColor  = typeof vk['primaryColor']  === 'string' ? vk['primaryColor']  : '';
-    const bannerTemplate = typeof vk['bannerTemplate'] === 'string' ? vk['bannerTemplate'] : '';
-    if (primaryColor)   styleHint += ` Accent color: ${primaryColor}.`;
-    if (bannerTemplate) styleHint += ` Visual style: ${bannerTemplate.replace('_', ' ')}.`;
-  }
+  const brandHints = buildVisualKitPromptHints(visualKit);
 
   return (
     `Create a square 1:1 Telegram post cover image. ` +
     `Topic: "${anchor}". ` +
-    `Style: modern, clean, editorial, dark background, high contrast.` +
-    styleHint +
-    ` No logos. No watermarks. No small unreadable text. ` +
+    `Style: modern, clean, editorial, high contrast. ` +
+    `No logos. No watermarks. No small unreadable text. ` +
     `Do not include fake Cyrillic or Latin characters as filler. ` +
-    `If text is necessary, use at most one short English headline in large legible type.`
+    `If text is necessary, use at most one short English headline in large legible type.` +
+    brandHints
   );
 }
 
@@ -1023,10 +1011,9 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   });
 
   // ── 6. Generate new image via Replicate ───────────────────────────────────
-  // Import inline to keep the route file self-contained with existing imports.
-  const { generateImageForPost } = await import('../lib/imageGenerator');
   let imageUrl: string | null = null;
   try {
+    // Brand hints are already embedded in `prompt` via buildVisualPromptFromVariant.
     imageUrl = await generateImageForPost({ prompt });
   } catch (err) {
     console.warn('[posts/regenerate-visual] generateImageForPost threw:', (err as Error).message);
