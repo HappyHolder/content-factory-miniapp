@@ -191,10 +191,11 @@ export async function generateImageForPost(
   const brandTokens = buildVisualKitPromptHints(input.visualKit);
   const prompt = userPrompt + brandTokens + NEGATIVE_SUFFIX;
 
-  // Extract first reference image from BrandKit for style guidance (gpt-image-2 supports image input)
   const referenceImageUrl = extractReferenceImage(input.visualKit);
 
-  console.log(`[imageGenerator] Requesting image from model ${model}`);
+  console.log(`[imageGenerator] model=${model}`);
+  console.log(`[imageGenerator] prompt="${prompt}"`);
+  console.log(`[imageGenerator] referenceImage=${referenceImageUrl ?? 'none'}`);
 
   // ── Build model input — gpt-image-2 uses size/quality, Imagen uses aspect_ratio ──
   const isGptImage = model.includes('gpt-image');
