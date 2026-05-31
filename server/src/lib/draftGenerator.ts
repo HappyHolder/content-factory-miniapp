@@ -155,8 +155,9 @@ export async function createDraftPostForChannel(
         channelId,
         sourceType,
         sourceSummary,
-        sourceUrl:   sourceUrl ?? null,
-        status:      'NEW',
+        sourceUrl:    sourceUrl ?? null,
+        imagePrompt:  imagePrompt?.trim() || null,
+        status:       'NEW',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         linkButtons: buttonLinks as any,
         variants: {

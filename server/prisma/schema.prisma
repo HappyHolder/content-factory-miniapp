@@ -161,6 +161,7 @@ model GeneratedPost {
   sourceType        String? // mirrors SourceType enum values as string for flexibility
   sourceUrl         String?
   sourceSummary     String?
+  imagePrompt       String? // original image generation prompt — reused on regenerate-visual
   linkButtons       Json? // LinkItem[]
   selectedVariantId String?
 
