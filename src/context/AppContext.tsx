@@ -341,9 +341,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .then(r => r.ok ? (r.json() as Promise<{ posts: ListApiPost[] }>) : null)
         .then(data => {
           if (!data?.posts) return
-          const mapped = (Array.isArray(data.posts) ? data.posts : []).map(mapListPost)
-          postService.init(mapped)
-          setState(prev => ({ ...prev, posts: mapped }))
+          const incoming = (Array.isArray(data.posts) ? data.posts : []).map(mapListPost)
+          // Preserve any bannerUrl already held in memory for a variant that
+          // the DB hasn't caught up with yet (narrow race: post created, image
+          // generation in-flight, visibility-change fires before DB write).
+          const existing = postService.getAll()
+          const merged = incoming.map(p => {
+            const prev = existing.find(e => e.id === p.id)
+            if (!prev) return p
+            return {
+              ...p,
+              variants: p.variants.map(v => {
+                const prevV = prev.variants.find(ev => ev.id === v.id)
+                return v.bannerUrl ? v : { ...v, bannerUrl: prevV?.bannerUrl ?? null }
+              }),
+            }
+          })
+          postService.init(merged)
+          setState(prev => ({ ...prev, posts: merged }))
         })
         .catch(() => {})
     }

@@ -187,34 +187,50 @@ export async function createDraftPostForChannel(
   // ── Optional image generation (non-fatal) ────────────────────────────────
   // Only attempted when imagePrompt is provided. Errors are swallowed so that
   // the text draft is always returned regardless of Replicate status.
+  //
+  // IMPORTANT: image generation and DB persistence are in separate try/catch
+  // blocks. If the DB write fails, firstVariantBannerUrl is cleared so the
+  // generate response is consistent with what /list will return from DB.
+  // Keeping them in one block caused a silent bug: DB write failed → response
+  // had bannerUrl in memory → image appeared initially → disappeared on any
+  // subsequent /list fetch (app reload or visibility-change refetch).
   let firstVariantBannerUrl: string | null = null;
   const trimmedImagePrompt = imagePrompt?.trim();
   if (trimmedImagePrompt) {
+    // Step 1: generate the image (non-fatal)
+    let generatedImageUrl: string | null = null;
     try {
-      // Pass visualKit only when BrandKit is active — when useBrandKit is false
-      // the image should follow the user's prompt without any brand style hints.
       const visualKit = (useBrandKit && brandKit && typeof brandKit === 'object')
         ? (brandKit as Record<string, unknown>)['visualKit'] ?? undefined
         : undefined;
 
-      const imageUrl = await generateImageForPost({
+      generatedImageUrl = await generateImageForPost({
         prompt:    trimmedImagePrompt,
         visualKit,
       });
+    } catch (err) {
+      console.warn('[draftGenerator] Image generation failed (non-fatal):', (err as Error).message);
+    }
 
-      if (imageUrl) {
-        firstVariantBannerUrl = imageUrl;
-        const firstVariantId = dbPost.variants[0]?.id;
-        if (firstVariantId) {
+    // Step 2: persist bannerUrl to DB (separate catch so a DB failure
+    // doesn't silently leave the response inconsistent with DB state)
+    if (generatedImageUrl) {
+      const firstVariantId = dbPost.variants[0]?.id;
+      if (firstVariantId) {
+        try {
           await prisma.postVariant.update({
             where: { id: firstVariantId },
-            data:  { bannerUrl: imageUrl },
+            data:  { bannerUrl: generatedImageUrl },
           });
+          // Only expose bannerUrl in the response once DB write is confirmed.
+          firstVariantBannerUrl = generatedImageUrl;
+        } catch (err) {
+          // DB write failed — do NOT set firstVariantBannerUrl so the response
+          // matches what /list will return (null). Image will not appear rather
+          // than appearing once and then vanishing after a reload.
+          console.error('[draftGenerator] Failed to persist bannerUrl to DB — clearing from response:', (err as Error).message);
         }
       }
-    } catch (err) {
-      // Non-fatal — text draft is unaffected
-      console.warn('[draftGenerator] Image generation failed:', (err as Error).message);
     }
   }
 
