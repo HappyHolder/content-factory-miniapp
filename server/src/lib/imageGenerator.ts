@@ -90,9 +90,14 @@ async function pollPrediction(
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+interface VisualKitHints {
+  visualFontPreset?: string;
+  visualFontRules?:  string;
+}
+
 export interface GenerateImageInput {
   prompt:     string;
-  visualKit?: unknown;  // BrandKit visualKit — reserved for future style hints
+  visualKit?: unknown;
 }
 
 /**
@@ -114,7 +119,26 @@ export async function generateImageForPost(
   }
 
   const model = env.IMAGE_MODEL;  // e.g. 'google/imagen-4'
-  const prompt = input.prompt.trim();
+
+  // Append soft typography hints when BrandKit provides font guidance.
+  const vk = input.visualKit as VisualKitHints | undefined;
+  const fontHints: string[] = [];
+  if (vk?.visualFontPreset && vk.visualFontPreset !== 'default') {
+    const presetMap: Record<string, string> = {
+      serif:       'serif / newspaper-style typography',
+      sans:        'clean sans-serif modern typography',
+      mono:        'monospace / terminal-style typography',
+      display:     'bold display / headline typography',
+      handwritten: 'handwritten / script typography',
+    };
+    const hint = presetMap[vk.visualFontPreset];
+    if (hint) fontHints.push(`Typography style: ${hint}.`);
+  }
+  if (vk?.visualFontRules?.trim()) {
+    fontHints.push(vk.visualFontRules.trim());
+  }
+
+  const prompt = [input.prompt.trim(), ...fontHints].filter(Boolean).join(' ');
   if (!prompt) return null;
 
   console.log(`[imageGenerator] Requesting image from model ${model}`);

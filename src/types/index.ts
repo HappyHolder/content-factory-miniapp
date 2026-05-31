@@ -103,6 +103,9 @@ export interface VisualKit {
   avoidList?: string[]
   // Named color tokens replacing primaryColor/secondaryColor swatch UI
   brandColors?: BrandColor[]
+  // Visual font guidance for image generation (not app UI)
+  visualFontPreset?: 'default' | 'serif' | 'sans' | 'mono' | 'display' | 'handwritten'
+  visualFontRules?: string
 }
 
 export interface Signature {

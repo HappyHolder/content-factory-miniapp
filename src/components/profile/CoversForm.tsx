@@ -364,6 +364,56 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         onChange={v => set('textOnCover', v)}
       />
 
+      {/* Visual font */}
+      <div>
+        <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-0.5">
+          {t('channelStyle.covers.visualFont')}
+        </p>
+        <p className="text-[11px] text-[#55555D] mb-3">
+          {t('channelStyle.covers.visualFontDesc')}
+        </p>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {(
+            [
+              ['default',     t('channelStyle.covers.visualFontPresetDefault')],
+              ['serif',       t('channelStyle.covers.visualFontPresetSerif')],
+              ['sans',        t('channelStyle.covers.visualFontPresetSans')],
+              ['mono',        t('channelStyle.covers.visualFontPresetMono')],
+              ['display',     t('channelStyle.covers.visualFontPresetDisplay')],
+              ['handwritten', t('channelStyle.covers.visualFontPresetHandwritten')],
+            ] as [VisualKit['visualFontPreset'], string][]
+          ).map(([value, label]) => {
+            const active = (data.visualFontPreset ?? 'default') === value
+            return (
+              <button
+                key={value}
+                onClick={() => set('visualFontPreset', value)}
+                className={cn(
+                  'px-3 py-1 rounded-full text-[12px] font-medium border transition-colors',
+                  active
+                    ? 'bg-[#FF6A00] border-[#FF6A00] text-white'
+                    : 'bg-white/[0.04] border-white/[0.08] text-[#A1A1AA] hover:border-white/20'
+                )}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+        <textarea
+          value={data.visualFontRules ?? ''}
+          onChange={e => set('visualFontRules', e.target.value || undefined)}
+          placeholder={t('channelStyle.covers.visualFontRulesPlaceholder')}
+          rows={2}
+          className="glass-input w-full px-3 py-2 text-sm resize-none"
+        />
+        {(data.visualFontRules ?? '').length > 0 && (
+          <p className="text-[10px] text-[#44444C] mt-1">
+            {t('channelStyle.covers.visualFontRules')}
+          </p>
+        )}
+      </div>
+
       {/* Style references */}
       <div>
         <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-1">
