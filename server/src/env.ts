@@ -54,5 +54,5 @@ export const env = {
   // Vercel Blob — optional; upload endpoint returns 503 if absent
   BLOB_READ_WRITE_TOKEN: process.env['BLOB_READ_WRITE_TOKEN'] ?? '',
   IMAGE_GENERATION_POLL_TIMEOUT_MS:
-    parseInt(process.env['IMAGE_GENERATION_POLL_TIMEOUT_MS'] ?? '120000', 10),
+    parseInt(process.env['IMAGE_GENERATION_POLL_TIMEOUT_MS'] ?? '300000', 10),
 } as const;
