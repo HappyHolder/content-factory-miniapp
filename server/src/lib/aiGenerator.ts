@@ -400,6 +400,155 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
   return drafts;
 }
 
+// ─── Image prompt generation ─────────────────────────────────────────────────
+
+/**
+ * Extracts a natural-language color description from visualKit brandColors.
+ * Maps hex values to approximate human-readable color names so the image
+ * model receives "electric blue, black, white" instead of "#0098EA #000000".
+ */
+function hexToColorName(hex: string): string {
+  const h = hex.replace('#', '').toLowerCase();
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+
+  if (brightness < 30)  return 'deep black';
+  if (brightness > 240) return 'bright white';
+  if (max - min < 20)   return brightness < 128 ? 'dark gray' : 'light gray';
+
+  // dominant hue
+  if (r > g && r > b) {
+    if (g > b * 1.5) return 'golden orange';
+    return r > 200 ? 'vivid red' : 'deep red';
+  }
+  if (g > r && g > b) return g > 200 ? 'bright green' : 'forest green';
+  if (b > r && b > g) {
+    if (r > 100) return 'purple';
+    return b > 180 ? 'electric blue' : 'deep blue';
+  }
+  if (r > 180 && g > 100 && b < 80) return 'orange';
+  return 'accent color';
+}
+
+function buildVisualStyleDescription(visualKit: unknown): string {
+  if (!visualKit || typeof visualKit !== 'object') return '';
+  const vk = visualKit as Record<string, unknown>;
+  const parts: string[] = [];
+
+  // Colors as natural names
+  const rawColors = vk['brandColors'];
+  if (Array.isArray(rawColors) && rawColors.length > 0) {
+    const names: string[] = [];
+    for (const c of (rawColors as { hex?: unknown }[]).slice(0, 5)) {
+      if (typeof c.hex !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(c.hex)) continue;
+      names.push(hexToColorName(c.hex));
+    }
+    if (names.length > 0) parts.push(`brand color palette: ${names.join(', ')}`);
+  }
+
+  // Font preset as mood word
+  const moodMap: Record<string, string> = {
+    serif:       'editorial, print-inspired',
+    sans:        'clean, modern, minimal',
+    mono:        'tech, terminal, code-aesthetic',
+    display:     'bold, graphic, high-impact',
+    handwritten: 'organic, handcrafted',
+  };
+  const preset = typeof vk['visualFontPreset'] === 'string' ? vk['visualFontPreset'] : '';
+  if (preset && moodMap[preset]) parts.push(`visual mood: ${moodMap[preset]}`);
+
+  // avoidList
+  const avoidList = vk['avoidList'];
+  if (Array.isArray(avoidList) && avoidList.length > 0) {
+    const items = avoidList.filter((i): i is string => typeof i === 'string').join(', ');
+    if (items) parts.push(`avoid in visuals: ${items}`);
+  }
+
+  return parts.join('; ');
+}
+
+export interface GenerateImagePromptParams {
+  title:     string;
+  excerpt:   string;
+  visualKit: unknown;
+}
+
+/**
+ * Uses DeepSeek to auto-generate a clean English image prompt for Replicate.
+ *
+ * The AI translates post topic + BrandKit visual style into a natural visual
+ * description — no hex codes, no design specs, just artistic language that
+ * image generation models understand.
+ *
+ * Returns null on any failure so callers can skip image generation gracefully.
+ */
+export async function generateImagePromptWithAI(
+  params: GenerateImagePromptParams,
+): Promise<string | null> {
+  if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
+
+  const { title, excerpt, visualKit } = params;
+  const styleDesc = buildVisualStyleDescription(visualKit);
+
+  const systemPrompt =
+    'You are a visual art director writing prompts for AI image generation models. ' +
+    'Given a post topic and brand style, write a short visual description (40-70 words) ' +
+    'for a square Telegram post cover image. ' +
+    'Write ONLY what should be visually present in the image: scene, atmosphere, colors, lighting, mood. ' +
+    'Do NOT include any instructions, rules, or "do not" phrases. ' +
+    'Do NOT mention text, typography, labels, or design specs. ' +
+    'Write in English. Output ONLY the visual description, nothing else.';
+
+  const userPrompt =
+    `Post topic: ${title}\n` +
+    `Brief: ${excerpt.slice(0, 200)}\n` +
+    (styleDesc ? `Brand style: ${styleDesc}\n` : '') +
+    'Image prompt:';
+
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 20_000);
+
+  try {
+    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
+      method:  'POST',
+      signal:  controller.signal,
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model:       env.DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: userPrompt   },
+        ],
+        max_tokens:  150,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[aiGenerator] Image prompt generation failed: HTTP ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json() as {
+      choices?: { message?: { content?: string } }[];
+    };
+    const result = data.choices?.[0]?.message?.content?.trim() ?? '';
+    return result || null;
+  } catch (err) {
+    console.warn('[aiGenerator] Image prompt generation error:', (err as Error).message);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 /**

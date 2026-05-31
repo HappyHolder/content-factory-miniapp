@@ -5,6 +5,7 @@ import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { generateImageForPost, buildVisualKitPromptHints } from '../lib/imageGenerator';
+import { generateImagePromptWithAI } from '../lib/aiGenerator';
 
 const router = Router();
 
@@ -1006,14 +1007,28 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   }
 
   // ── 5. Build image prompt ────────────────────────────────────────────────
-  // Use the saved imagePrompt if available — this is what the user originally
-  // typed. Fall back to post title only (never variantText — that is post body
-  // prose and causes models to render the full text content on the image).
-  const prompt = buildVisualPromptFromVariant({
+  // Priority: saved imagePrompt → AI-generated → simple title fallback.
+  // Never uses variantText (post body prose renders as visible text on image).
+  const visualKit = variant.generatedPost.channel.brandKit?.visualKit ?? undefined;
+
+  let prompt = buildVisualPromptFromVariant({
     savedImagePrompt: variant.generatedPost.imagePrompt,
     postTitle:        variant.generatedPost.title,
   });
-  const visualKit = variant.generatedPost.channel.brandKit?.visualKit ?? undefined;
+
+  // If no saved prompt, ask AI to generate one from title + brand style
+  if (!variant.generatedPost.imagePrompt?.trim()) {
+    try {
+      const aiPrompt = await generateImagePromptWithAI({
+        title:     variant.generatedPost.title,
+        excerpt:   variant.generatedPost.sourceSummary ?? variant.generatedPost.title,
+        visualKit,
+      });
+      if (aiPrompt) prompt = aiPrompt;
+    } catch {
+      // non-fatal — use the simple fallback prompt
+    }
+  }
 
   // ── 6. Generate new image via Replicate ───────────────────────────────────
   let imageUrl: string | null = null;

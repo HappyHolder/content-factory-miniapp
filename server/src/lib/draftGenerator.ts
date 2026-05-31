@@ -12,7 +12,7 @@
  */
 
 import { prisma } from '../db';
-import { generatePostVariants } from './aiGenerator';
+import { generatePostVariants, generateImagePromptWithAI } from './aiGenerator';
 import { generateImageForPost } from './imageGenerator';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -185,36 +185,53 @@ export async function createDraftPostForChannel(
     return { ...created, selectedVariantId: firstVariantId };
   });
 
-  // ── Optional image generation (non-fatal) ────────────────────────────────
-  // Only attempted when imagePrompt is provided. Errors are swallowed so that
-  // the text draft is always returned regardless of Replicate status.
+  // ── Image generation (non-fatal) ─────────────────────────────────────────
+  // Image prompt priority:
+  //   1. User-provided imagePrompt (explicit override — use as-is)
+  //   2. AI-generated prompt from post title + BrandKit visual style (auto)
+  //   3. Skip image generation (AI_PROVIDER=placeholder, no DeepSeek configured)
   //
-  // IMPORTANT: image generation and DB persistence are in separate try/catch
-  // blocks. If the DB write fails, firstVariantBannerUrl is cleared so the
-  // generate response is consistent with what /list will return from DB.
-  // Keeping them in one block caused a silent bug: DB write failed → response
-  // had bannerUrl in memory → image appeared initially → disappeared on any
-  // subsequent /list fetch (app reload or visibility-change refetch).
+  // The AI translates post topic + brand colors/mood into natural visual English
+  // so the image model receives "electric blue neon road, dark space atmosphere"
+  // instead of raw hex tokens that get rendered as visible text on the image.
+  //
+  // DB persistence is in a separate try/catch so a write failure doesn't leave
+  // the response inconsistent with what /list will return from DB.
   let firstVariantBannerUrl: string | null = null;
-  const trimmedImagePrompt = imagePrompt?.trim();
-  if (trimmedImagePrompt) {
-    // Step 1: generate the image (non-fatal)
+
+  const visualKit = (useBrandKit && brandKit && typeof brandKit === 'object')
+    ? (brandKit as Record<string, unknown>)['visualKit'] ?? undefined
+    : undefined;
+
+  // Resolve final image prompt
+  let resolvedImagePrompt: string | null = imagePrompt?.trim() || null;
+
+  if (!resolvedImagePrompt && useBrandKit) {
+    // Auto-generate a clean visual prompt using DeepSeek
+    try {
+      resolvedImagePrompt = await generateImagePromptWithAI({
+        title,
+        excerpt: sourceSummary,
+        visualKit,
+      });
+    } catch (err) {
+      console.warn('[draftGenerator] Auto image prompt generation failed:', (err as Error).message);
+    }
+  }
+
+  if (resolvedImagePrompt) {
+    // Step 1: generate image (non-fatal)
     let generatedImageUrl: string | null = null;
     try {
-      const visualKit = (useBrandKit && brandKit && typeof brandKit === 'object')
-        ? (brandKit as Record<string, unknown>)['visualKit'] ?? undefined
-        : undefined;
-
       generatedImageUrl = await generateImageForPost({
-        prompt:    trimmedImagePrompt,
-        visualKit,
+        prompt:    resolvedImagePrompt,
+        visualKit, // brand style tokens (color names, mood) appended as suffix
       });
     } catch (err) {
       console.warn('[draftGenerator] Image generation failed (non-fatal):', (err as Error).message);
     }
 
-    // Step 2: persist bannerUrl to DB (separate catch so a DB failure
-    // doesn't silently leave the response inconsistent with DB state)
+    // Step 2: persist bannerUrl — separate catch keeps response consistent with DB
     if (generatedImageUrl) {
       const firstVariantId = dbPost.variants[0]?.id;
       if (firstVariantId) {
@@ -223,12 +240,8 @@ export async function createDraftPostForChannel(
             where: { id: firstVariantId },
             data:  { bannerUrl: generatedImageUrl },
           });
-          // Only expose bannerUrl in the response once DB write is confirmed.
           firstVariantBannerUrl = generatedImageUrl;
         } catch (err) {
-          // DB write failed — do NOT set firstVariantBannerUrl so the response
-          // matches what /list will return (null). Image will not appear rather
-          // than appearing once and then vanishing after a reload.
           console.error('[draftGenerator] Failed to persist bannerUrl to DB — clearing from response:', (err as Error).message);
         }
       }

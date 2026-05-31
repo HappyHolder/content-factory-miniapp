@@ -106,22 +106,13 @@ interface RawBrandColor {
 const NEGATIVE_SUFFIX = ', no text, no typography, no letters, no words, no watermark, no border, no frame, no margin, full-bleed';
 
 /**
- * Builds BrandKit style tokens to embed naturally in the image prompt.
+ * Appends a minimal BrandKit mood suffix to the image prompt.
  *
- * Image generation models are visual — they respond to descriptive adjectives
- * and color values, not instruction blocks. Everything here is phrased as
- * natural visual description that gets woven into the prompt string.
- *
- * - Colors: passed as hex values described as "color palette: ..." so the
- *   model uses them for lighting/atmosphere. Token names are dropped to avoid
- *   any chance of rendering them as labels.
- * - Font preset: mapped to short mood adjectives (e.g. "editorial aesthetic",
- *   "tech minimal aesthetic"). No font names — model can't render what it
- *   doesn't know.
- * - fontRules: stripped of any technical jargon and appended as visual mood.
- *
- * logoUrl and references are stored but NOT used — current model is
- * prompt-only. Logo compositing and reference image inputs not yet implemented.
+ * When the AI (generateImagePromptWithAI) is available it already describes
+ * colors and style in natural language — no hex tokens needed here.
+ * This function adds only a short mood adjective from the font preset as
+ * extra style reinforcement. Colors are intentionally NOT added here to
+ * prevent hex codes from appearing in the final prompt.
  *
  * Never throws. Returns '' when nothing to add.
  */
@@ -131,20 +122,7 @@ export function buildVisualKitPromptHints(visualKit: unknown): string {
 
   const tokens: string[] = [];
 
-  // ── Brand colors → color palette descriptor ──────────────────────────────
-  const rawColors = vk['brandColors'];
-  if (Array.isArray(rawColors) && rawColors.length > 0) {
-    const hexes: string[] = [];
-    for (const c of (rawColors as RawBrandColor[]).slice(0, 5)) {
-      if (typeof c.hex !== 'string' || !/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(c.hex)) continue;
-      hexes.push(c.hex);
-    }
-    if (hexes.length > 0) {
-      tokens.push(`color palette ${hexes.join(' ')}`);
-    }
-  }
-
-  // ── Font preset → mood adjectives ────────────────────────────────────────
+  // Font preset → short mood adjective only (no color tokens, no hex)
   const presetMoodMap: Record<string, string> = {
     serif:       'editorial aesthetic',
     sans:        'clean modern aesthetic',
@@ -155,12 +133,6 @@ export function buildVisualKitPromptHints(visualKit: unknown): string {
   const preset = typeof vk['visualFontPreset'] === 'string' ? vk['visualFontPreset'] : 'default';
   if (preset !== 'default' && presetMoodMap[preset]) {
     tokens.push(presetMoodMap[preset]);
-  }
-
-  // ── fontRules → short visual style note (stripped of tech jargon) ─────────
-  const fontRules = typeof vk['visualFontRules'] === 'string' ? vk['visualFontRules'].trim() : '';
-  if (fontRules) {
-    tokens.push(fontRules);
   }
 
   return tokens.length > 0 ? ', ' + tokens.join(', ') : '';
