@@ -375,6 +375,11 @@ export const ru: Dict = {
       visualFontPresetHandwritten: 'Рукописный',
       visualFontRules:             'Правила шрифта',
       visualFontRulesPlaceholder:  'Например: Используй старую газетную serif-типографику для заголовков.',
+      visualCoverStyle:            'Визуальный стиль обложек',
+      visualCoverStyleDesc:        'Базовый стиль для всех обложек. AI использует это при каждой генерации.',
+      visualCoverStylePlaceholder: 'Напр.: Тёмный премиальный фон, синие #0098EA светящиеся элементы, оранжевые #FF6A00 акценты, абстрактная tech-эстетика, без людей',
+      visualCoverStyleGenerate:    'Сгенерировать из BrandKit',
+      visualCoverStyleGenerating:  'Генерируем…',
     },
   },
 }

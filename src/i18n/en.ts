@@ -375,6 +375,11 @@ export const en = {
       visualFontPresetHandwritten: 'Handwritten',
       visualFontRules:             'Font rules',
       visualFontRulesPlaceholder:  'Example: Use old newspaper serif typography for headlines.',
+      visualCoverStyle:            'Cover visual style',
+      visualCoverStyleDesc:        'Base style for all generated covers. AI uses this for every post.',
+      visualCoverStylePlaceholder: 'E.g.: Dark premium background, electric blue #0098EA glowing elements, orange #FF6A00 accents, abstract tech aesthetic, no people',
+      visualCoverStyleGenerate:    'Generate from BrandKit',
+      visualCoverStyleGenerating:  'Generating…',
     },
   },
 }

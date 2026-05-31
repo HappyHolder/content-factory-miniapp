@@ -61,8 +61,9 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
 
   const [refInput,   setRefInput]   = useState('')
   const [avoidInput, setAvoidInput] = useState('')
-  const [isUploadingLogo, setIsUploadingLogo]   = useState(false)
-  const [isUploadingRef,  setIsUploadingRef]    = useState(false)
+  const [isUploadingLogo, setIsUploadingLogo]     = useState(false)
+  const [isUploadingRef,  setIsUploadingRef]      = useState(false)
+  const [isGeneratingStyle, setIsGeneratingStyle] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
   const refInputRef  = useRef<HTMLInputElement>(null)
 
@@ -78,6 +79,27 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
 
   const removeColor = (i: number) =>
     set('brandColors', (data.brandColors ?? []).filter((_, idx) => idx !== i))
+
+  // ── Generate cover style via AI ──────────────────────────────────────────
+  const handleGenerateCoverStyle = async () => {
+    const initData = getTelegramInitData()
+    if (!initData || isGeneratingStyle) return
+    setIsGeneratingStyle(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/brandkits/generate-cover-style`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, channelId, visualKit: data }),
+      })
+      if (!res.ok) { showToast(t('channelStyle.covers.visualCoverStyleGenerating'), 'error'); return }
+      const { style } = await res.json() as { style: string }
+      if (style) set('visualCoverStyle', style)
+    } catch {
+      showToast('Failed to generate style', 'error')
+    } finally {
+      setIsGeneratingStyle(false)
+    }
+  }
 
   // ── Save — syncs primaryColor/secondaryColor for backward compat ──────────
   const handleSave = () => {
@@ -515,6 +537,37 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           />
           <Button variant="secondary" size="sm" onClick={addAvoid}>+</Button>
         </div>
+      </div>
+
+      {/* Visual Cover Style */}
+      <div>
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <div>
+            <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider">
+              {t('channelStyle.covers.visualCoverStyle')}
+            </p>
+            <p className="text-[11px] text-[#55555D] mt-0.5">
+              {t('channelStyle.covers.visualCoverStyleDesc')}
+            </p>
+          </div>
+          <button
+            onClick={handleGenerateCoverStyle}
+            disabled={isGeneratingStyle || authStatus !== 'authenticated'}
+            className="text-[12px] font-medium text-[#FF6A00] hover:text-[#ff8c3a] transition-colors shrink-0 pt-0.5 disabled:opacity-40"
+          >
+            {isGeneratingStyle
+              ? <><Loader2 size={11} className="inline animate-spin mr-1" />{t('channelStyle.covers.visualCoverStyleGenerating')}</>
+              : t('channelStyle.covers.visualCoverStyleGenerate')
+            }
+          </button>
+        </div>
+        <textarea
+          value={data.visualCoverStyle ?? ''}
+          onChange={e => set('visualCoverStyle', e.target.value || undefined)}
+          placeholder={t('channelStyle.covers.visualCoverStylePlaceholder')}
+          rows={4}
+          className="glass-input w-full px-3 py-2 text-sm resize-none mt-2"
+        />
       </div>
 
       <Button variant="primary" size="md" onClick={handleSave} fullWidth>

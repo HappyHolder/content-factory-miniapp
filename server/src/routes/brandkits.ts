@@ -270,4 +270,89 @@ router.patch('/:channelId', async (req: Request, res: Response): Promise<void> =
   res.json({ ok: true });
 });
 
+// ─── POST /api/brandkits/generate-cover-style ────────────────────────────────
+// Uses DeepSeek to generate a visualCoverStyle string from the channel's
+// current BrandKit settings (colors, topic, mood).
+router.post('/generate-cover-style', async (req: Request, res: Response): Promise<void> => {
+  const { initData, channelId, visualKit } = req.body as {
+    initData?:  unknown;
+    channelId?: unknown;
+    visualKit?: unknown;
+  };
+
+  if (typeof initData  !== 'string' || !initData.trim())  { res.status(400).json({ error: 'initData required' });  return; }
+  if (typeof channelId !== 'string' || !channelId.trim()) { res.status(400).json({ error: 'channelId required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const telegramId = String(parsed.user.id);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found' }); return; }
+
+  // Load BrandKit for context
+  const bk = await prisma.brandKit.findUnique({
+    where:  { channelId: channelId as string },
+    select: { channelAbout: true, visualKit: true },
+  }).catch(() => null);
+
+  if (!env.DEEPSEEK_API_KEY) { res.status(503).json({ error: 'AI not configured' }); return; }
+
+  // Build context from BrandKit
+  const vk = (visualKit ?? bk?.visualKit ?? {}) as Record<string, unknown>;
+  const about = (bk?.channelAbout ?? {}) as Record<string, unknown>;
+
+  const contextParts: string[] = [];
+  if (typeof about['topic'] === 'string' && about['topic'])
+    contextParts.push(`Channel topic: ${about['topic']}`);
+  if (typeof about['targetAudience'] === 'string' && about['targetAudience'])
+    contextParts.push(`Audience: ${about['targetAudience']}`);
+
+  const rawColors = vk['brandColors'];
+  if (Array.isArray(rawColors) && rawColors.length > 0) {
+    const colorParts: string[] = [];
+    for (const c of rawColors.slice(0, 5) as { name?: unknown; hex?: unknown }[]) {
+      if (typeof c.hex === 'string' && /^#[0-9A-Fa-f]{6}$/.test(c.hex)) {
+        const name = typeof c.name === 'string' && c.name ? c.name : c.hex;
+        colorParts.push(`${name} ${c.hex}`);
+      }
+    }
+    if (colorParts.length > 0) contextParts.push(`Brand colors: ${colorParts.join(', ')}`);
+  }
+
+  const avoidList = vk['avoidList'];
+  if (Array.isArray(avoidList) && avoidList.length > 0)
+    contextParts.push(`Avoid in visuals: ${(avoidList as string[]).join(', ')}`);
+
+  const hasLogo = typeof vk['logoUrl'] === 'string' && (vk['logoUrl'] as string).startsWith('http');
+  if (hasLogo) contextParts.push('Brand has a logo that will be placed in the top-right corner of covers.');
+
+  const systemPrompt =
+    'You are a visual art director. Given a brand\'s style profile, write a concise cover style description (50-80 words) ' +
+    'that will be used as the base prompt for all AI-generated post covers. ' +
+    'Include: background style, dominant colors with exact hex codes, visual mood, key visual elements. ' +
+    'Write in English. Output ONLY the style description, nothing else.';
+
+  const userPrompt = contextParts.join('\n') + '\n\nWrite the cover style description:';
+
+  try {
+    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
+      body: JSON.stringify({
+        model:    env.DEEPSEEK_MODEL,
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        max_tokens: 200, temperature: 0.7,
+      }),
+    });
+    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const style = data.choices?.[0]?.message?.content?.trim() ?? '';
+    res.json({ style });
+  } catch (err) {
+    console.error('[brandkits/generate-cover-style] Error:', (err as Error).message);
+    res.status(500).json({ error: 'Generation failed' });
+  }
+});
+
 export default router;

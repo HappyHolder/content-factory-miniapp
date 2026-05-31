@@ -185,31 +185,42 @@ export async function generateImageForPost(
 
   const model = env.IMAGE_MODEL;  // e.g. 'openai/gpt-image-2'
 
-  // Prompt assembly: [user visual concept] + [brand mood token] + [negative suffix]
   const userPrompt = input.prompt.trim();
   if (!userPrompt) return null;
+
+  // ── Prompt assembly ───────────────────────────────────────────────────────
+  // Priority: visualCoverStyle (master brand style) → user prompt → mood token → negatives
+  const vkObj = (input.visualKit && typeof input.visualKit === 'object')
+    ? input.visualKit as Record<string, unknown>
+    : null;
+  const coverStyle  = typeof vkObj?.['visualCoverStyle'] === 'string' ? vkObj['visualCoverStyle'].trim() : '';
   const brandTokens = buildVisualKitPromptHints(input.visualKit);
-  const prompt = userPrompt + brandTokens + NEGATIVE_SUFFIX;
+  const logoUrl     = typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
+    ? vkObj['logoUrl'] as string
+    : null;
 
-  const referenceImageUrl = extractReferenceImage(input.visualKit);
+  // If logo exists, include placement instruction in prompt
+  const logoInstruction = logoUrl ? ' Place the brand logo in the top-right corner.' : '';
 
-  console.log(`[imageGenerator] model=${model}`);
-  console.log(`[imageGenerator] prompt="${prompt}"`);
-  console.log(`[imageGenerator] referenceImage=${referenceImageUrl ?? 'none'}`);
+  const prompt = coverStyle
+    ? `${coverStyle}. ${userPrompt}${logoInstruction}${brandTokens}${NEGATIVE_SUFFIX}`
+    : `${userPrompt}${logoInstruction}${brandTokens}${NEGATIVE_SUFFIX}`;
 
-  // ── Build model input — gpt-image-2 uses size/quality, Imagen uses aspect_ratio ──
+  // ── Build model input ─────────────────────────────────────────────────────
   const isGptImage = model.includes('gpt-image');
   const modelInput: Record<string, unknown> = isGptImage
     ? {
         prompt,
         size:    '1024x1024',
         quality: 'high',
-        ...(referenceImageUrl ? { image: referenceImageUrl } : {}),
+        ...(logoUrl ? { image: logoUrl } : {}),
       }
     : {
         prompt,
         aspect_ratio: '1:1',
       };
+
+  console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} coverStyle=${coverStyle ? 'yes' : 'no'}`);
 
   try {
     const createRes = await fetch(

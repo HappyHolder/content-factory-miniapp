@@ -106,6 +106,8 @@ export interface VisualKit {
   // Visual font guidance for image generation (not app UI)
   visualFontPreset?: 'default' | 'serif' | 'sans' | 'mono' | 'display' | 'handwritten'
   visualFontRules?: string
+  // Master visual style for all covers — used as base of every image prompt
+  visualCoverStyle?: string
 }
 
 export interface Signature {
