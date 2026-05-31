@@ -200,7 +200,9 @@ export async function generateImageForPost(
     : null;
 
   // If logo exists, include placement instruction in prompt
-  const logoInstruction = logoUrl ? ' Place the brand logo in the top-right corner.' : '';
+  const logoInstruction = logoUrl
+    ? ' The attached image is the brand logo — use it exactly as provided, do not redraw or stylize it. Place it in the top-right corner of the cover.'
+    : '';
 
   const prompt = coverStyle
     ? `${coverStyle}. ${userPrompt}${logoInstruction}${brandTokens}${NEGATIVE_SUFFIX}`
