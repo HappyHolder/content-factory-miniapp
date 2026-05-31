@@ -103,19 +103,24 @@ interface RawBrandColor {
  *  - Model was rendering HEX codes, token names, and font rules as visible text.
  *  - Model was producing infographic/spec-sheet layouts instead of clean covers.
  *  - "Brand color palette for this cover: Name: #HEX" read as content, not style.
- * These constraints lock the output to one clean visual cover with no visible
- * technical labels.
+ *  - "print-ready" wording encouraged white print margins / framed poster look.
+ *  - Output sometimes had a white border/frame placing the image on a background.
+ * These constraints lock the output to one clean full-bleed visual cover.
  */
 const FINAL_OUTPUT_CONSTRAINTS =
   'CRITICAL OUTPUT RULES — read before generating anything. ' +
 
-  // Single finished cover
-  'Generate exactly ONE finished Telegram post cover image. ' +
+  // Single finished full-bleed cover
+  'Generate exactly ONE finished full-bleed Telegram post cover image. ' +
+  'The image must fill the entire square canvas edge-to-edge — full-bleed, no borders, no margins. ' +
+  'Do NOT add a white border, outer frame, margin, padding, or any edge gap around the image. ' +
+  'Do NOT place the cover on a white background, paper sheet, card, or any outer container. ' +
+  'Do NOT create a poster-on-card, framed print, or image-inside-another-image layout. ' +
   'Do NOT produce a design board, mood board, concept sheet, grid of options, or annotated layout. ' +
   'Do NOT show multiple variants or versions side by side. ' +
   'Do NOT add UI chrome, mockup frames, device screens, or browser windows. ' +
 
-  // No visible technical labels (the main bug)
+  // No visible technical labels
   'Do NOT render any technical prompt instructions as visible text in the image. ' +
   'Do NOT write HEX color codes, color names, or color token names anywhere in the image. ' +
   'Do NOT write font names, typography rules, layout coordinates, or style guide annotations in the image. ' +
