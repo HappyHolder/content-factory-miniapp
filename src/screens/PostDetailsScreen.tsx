@@ -34,6 +34,8 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   if (!post) return null
 
   const selectedVariant = post.variants.find(v => v.id === post.selectedVariantId) || post.variants[0]
+  // Cover is a post-level asset — show it regardless of which text variant is selected
+  const displayBannerUrl = selectedVariant?.bannerUrl || post.variants.find(v => v.bannerUrl)?.bannerUrl || null
   const brandKit = brandKitService.getByChannelId(post.channelId)
   const allLinkButtons = brandKit?.linkKit.links.filter(l =>
     l.usage === 'button' || l.usage === 'always'
@@ -254,7 +256,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
 
           {/* Visual (formerly Banner) */}
           {/* Visual section — real generated image (bannerUrl) or legacy mock banner */}
-          {(selectedVariant?.bannerUrl || post.banner) && (
+          {(displayBannerUrl || post.banner) && (
             <div>
               {sectionLabel('banner', <ImageIcon size={15} />, t('postDetails.visual'))}
               {openSection === 'banner' && (
@@ -264,10 +266,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                   transition={{ duration: 0.22 }}
                   className="px-3 pb-3 overflow-hidden"
                 >
-                  {selectedVariant?.bannerUrl ? (
+                  {displayBannerUrl ? (
                     <div className="space-y-2">
                       <img
-                        src={selectedVariant.bannerUrl}
+                        src={displayBannerUrl}
                         alt={post.title}
                         className="w-full rounded-[14px] object-cover"
                         style={{ aspectRatio: '1 / 1' }}

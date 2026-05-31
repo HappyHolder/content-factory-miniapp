@@ -231,13 +231,14 @@ export async function createDraftPostForChannel(
       console.warn('[draftGenerator] Image generation failed (non-fatal):', (err as Error).message);
     }
 
-    // Step 2: persist bannerUrl — separate catch keeps response consistent with DB
+    // Step 2: persist bannerUrl to ALL variants — cover is a post-level asset,
+    // not tied to a specific text variant. This way switching variants keeps the visual.
     if (generatedImageUrl) {
-      const firstVariantId = dbPost.variants[0]?.id;
-      if (firstVariantId) {
+      const variantIds = dbPost.variants.map(v => v.id);
+      if (variantIds.length > 0) {
         try {
-          await prisma.postVariant.update({
-            where: { id: firstVariantId },
+          await prisma.postVariant.updateMany({
+            where: { id: { in: variantIds } },
             data:  { bannerUrl: generatedImageUrl },
           });
           firstVariantBannerUrl = generatedImageUrl;
