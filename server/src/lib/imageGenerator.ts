@@ -106,6 +106,28 @@ interface RawBrandColor {
 const NEGATIVE_SUFFIX = ', no text, no typography, no letters, no words, no watermark, no border, no frame, no margin, full-bleed';
 
 /**
+ * Returns the first usable reference image URL from visualKit.
+ * Priority: references[] first, then logoUrl.
+ * Used as image input for models that support it (e.g. gpt-image-2).
+ */
+function extractReferenceImage(visualKit: unknown): string | null {
+  if (!visualKit || typeof visualKit !== 'object') return null;
+  const vk = visualKit as Record<string, unknown>;
+
+  const refs = vk['references'];
+  if (Array.isArray(refs)) {
+    for (const r of refs) {
+      if (typeof r === 'string' && r.startsWith('http')) return r;
+    }
+  }
+
+  const logo = vk['logoUrl'];
+  if (typeof logo === 'string' && logo.startsWith('http')) return logo;
+
+  return null;
+}
+
+/**
  * Appends a minimal BrandKit mood suffix to the image prompt.
  *
  * When the AI (generateImagePromptWithAI) is available it already describes
@@ -161,22 +183,34 @@ export async function generateImageForPost(
     return null;
   }
 
-  const model = env.IMAGE_MODEL;  // e.g. 'google/imagen-4'
+  const model = env.IMAGE_MODEL;  // e.g. 'openai/gpt-image-2'
 
-  // Prompt assembly: [user visual concept] + [brand style tokens] + [negative suffix]
-  // Image models render everything as visual content — no instruction blocks,
-  // just natural visual descriptors followed by minimal negative tokens.
+  // Prompt assembly: [user visual concept] + [brand mood token] + [negative suffix]
   const userPrompt = input.prompt.trim();
   if (!userPrompt) return null;
   const brandTokens = buildVisualKitPromptHints(input.visualKit);
   const prompt = userPrompt + brandTokens + NEGATIVE_SUFFIX;
 
+  // Extract first reference image from BrandKit for style guidance (gpt-image-2 supports image input)
+  const referenceImageUrl = extractReferenceImage(input.visualKit);
+
   console.log(`[imageGenerator] Requesting image from model ${model}`);
 
+  // ── Build model input — gpt-image-2 uses size/quality, Imagen uses aspect_ratio ──
+  const isGptImage = model.includes('gpt-image');
+  const modelInput: Record<string, unknown> = isGptImage
+    ? {
+        prompt,
+        size:    '1024x1024',
+        quality: 'high',
+        ...(referenceImageUrl ? { image: referenceImageUrl } : {}),
+      }
+    : {
+        prompt,
+        aspect_ratio: '1:1',
+      };
+
   try {
-    // ── POST /v1/models/{model}/predictions ──────────────────────────────
-    // Replicate model IDs use owner/name format; the predictions endpoint
-    // under /v1/models/ is the standard path for versioned public models.
     const createRes = await fetch(
       `https://api.replicate.com/v1/models/${model}/predictions`,
       {
@@ -185,12 +219,7 @@ export async function generateImageForPost(
           'Authorization': `Token ${env.REPLICATE_API_TOKEN}`,
           'Content-Type':  'application/json',
         },
-        body: JSON.stringify({
-          input: {
-            prompt,
-            aspect_ratio: '1:1',
-          },
-        }),
+        body: JSON.stringify({ input: modelInput }),
       },
     );
 
