@@ -3,6 +3,7 @@ import { Send, Bot, Loader2, Sparkles } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
+import { API_BASE } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface Message {
@@ -44,7 +45,7 @@ export function ChatScreen() {
 
     try {
       const initData = getTelegramInitData() ?? 'mock'
-      const res = await fetch('/api/chat', {
+      const res = await fetch(`${API_BASE}/api/chat`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
