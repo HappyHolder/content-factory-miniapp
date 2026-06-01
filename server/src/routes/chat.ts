@@ -28,53 +28,79 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
 
   const telegramId = String(parsed.user.id);
-  const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+  const dbUser = await prisma.user.findUnique({
+    where:  { telegramId },
+    select: { id: true, name: true },
+  }).catch(() => null);
   if (!dbUser) { res.status(401).json({ error: 'User not found' }); return; }
 
   if (!env.DEEPSEEK_API_KEY) { res.status(503).json({ error: 'AI not configured' }); return; }
 
-  // Load channel + BrandKit
-  const channel = await prisma.channel.findUnique({
-    where:  { id: channelId },
-    select: { handle: true, name: true, userId: true,
-              brandKit: { select: { channelAbout: true, voiceProfile: true, postRules: true, visualKit: true } } },
-  }).catch(() => null);
+  // Load active channel (must belong to user) + all user channels with BrandKits
+  const [activeChannel, allChannels] = await Promise.all([
+    prisma.channel.findUnique({
+      where:  { id: channelId },
+      select: { id: true, handle: true, name: true, userId: true },
+    }).catch(() => null),
+    prisma.channel.findMany({
+      where:   { userId: dbUser.id },
+      orderBy: { createdAt: 'asc' },
+      select:  {
+        id: true, handle: true, name: true,
+        brandKit: { select: { channelAbout: true, voiceProfile: true, postRules: true } },
+      },
+    }).catch(() => []),
+  ]);
 
-  if (!channel || channel.userId !== dbUser.id) {
+  if (!activeChannel || activeChannel.userId !== dbUser.id) {
     res.status(403).json({ error: 'Channel not found or access denied' }); return;
   }
 
-  // Build system prompt with BrandKit context
-  const bk = channel.brandKit;
-  const channelLabel = channel.handle ? `@${channel.handle}` : channel.name;
-  const contextLines: string[] = [];
+  // ── Build system prompt ───────────────────────────────────────────────────
+  const userName    = dbUser.name?.trim() || null;
+  const activeLabel = activeChannel.handle ? `@${activeChannel.handle}` : activeChannel.name;
 
-  if (bk?.channelAbout && typeof bk.channelAbout === 'object') {
-    const a = bk.channelAbout as Record<string, unknown>;
-    if (typeof a['topic']          === 'string' && a['topic'])          contextLines.push(`Channel topic: ${a['topic']}`);
-    if (typeof a['targetAudience'] === 'string' && a['targetAudience']) contextLines.push(`Target audience: ${a['targetAudience']}`);
-    if (typeof a['contentGoal']    === 'string' && a['contentGoal'])    contextLines.push(`Content goal: ${a['contentGoal']}`);
+  function brandKitLines(bk: typeof allChannels[number]['brandKit']): string[] {
+    const lines: string[] = [];
+    if (bk?.channelAbout && typeof bk.channelAbout === 'object') {
+      const a = bk.channelAbout as Record<string, unknown>;
+      if (typeof a['topic']          === 'string' && a['topic'])          lines.push(`  Topic: ${a['topic']}`);
+      if (typeof a['targetAudience'] === 'string' && a['targetAudience']) lines.push(`  Audience: ${a['targetAudience']}`);
+      if (typeof a['contentGoal']    === 'string' && a['contentGoal'])    lines.push(`  Goal: ${a['contentGoal']}`);
+    }
+    if (bk?.voiceProfile && typeof bk.voiceProfile === 'object') {
+      const vp = bk.voiceProfile as Record<string, unknown>;
+      if (typeof vp['tone']       === 'string' && vp['tone'])       lines.push(`  Tone: ${vp['tone']}`);
+      if (typeof vp['language']   === 'string' && vp['language'])   lines.push(`  Language: ${vp['language']}`);
+      if (typeof vp['authorRole'] === 'string' && vp['authorRole']) lines.push(`  Author role: ${vp['authorRole']}`);
+      if (typeof vp['postLength'] === 'string' && vp['postLength']) lines.push(`  Post length: ${vp['postLength']}`);
+    }
+    if (bk?.postRules && typeof bk.postRules === 'object') {
+      const pr = bk.postRules as Record<string, unknown>;
+      if (typeof pr['defaultStructure'] === 'string' && pr['defaultStructure'])
+        lines.push(`  Structure: ${pr['defaultStructure']}`);
+    }
+    return lines;
   }
 
-  if (bk?.voiceProfile && typeof bk.voiceProfile === 'object') {
-    const vp = bk.voiceProfile as Record<string, unknown>;
-    if (typeof vp['tone']        === 'string' && vp['tone'])        contextLines.push(`Tone: ${vp['tone']}`);
-    if (typeof vp['language']    === 'string' && vp['language'])    contextLines.push(`Language: ${vp['language']}`);
-    if (typeof vp['authorRole']  === 'string' && vp['authorRole'])  contextLines.push(`Author role: ${vp['authorRole']}`);
-    if (typeof vp['postLength']  === 'string' && vp['postLength'])  contextLines.push(`Post length: ${vp['postLength']}`);
-  }
-
-  if (bk?.postRules && typeof bk.postRules === 'object') {
-    const pr = bk.postRules as Record<string, unknown>;
-    if (typeof pr['defaultStructure'] === 'string' && pr['defaultStructure'])
-      contextLines.push(`Post structure: ${pr['defaultStructure']}`);
-  }
+  // All channels section
+  const channelsSummary = allChannels.map(ch => {
+    const label = ch.handle ? `@${ch.handle}` : ch.name;
+    const isActive = ch.id === channelId;
+    const lines = brandKitLines(ch.brandKit);
+    return `${isActive ? '▶ ' : '  '}${label}${isActive ? ' (currently active)' : ''}\n` +
+           (lines.length > 0 ? lines.join('\n') : '  (no BrandKit configured)');
+  }).join('\n\n');
 
   const systemPrompt =
-    `You are a personal content and community manager assistant for the Telegram channel ${channelLabel}.\n` +
-    `You help the channel owner with: content ideas, post drafts, image prompts, content strategy, audience engagement.\n` +
-    (contextLines.length > 0 ? `\nChannel BrandKit:\n${contextLines.join('\n')}\n` : '') +
-    `\nAlways respond in the same language the user writes in.\n` +
+    `You are a personal AI content assistant inside the "Content Factory" Telegram Mini App.\n` +
+    (userName ? `You are talking with ${userName}.\n` : '') +
+    `\nThe user manages ${allChannels.length} Telegram channel(s). Currently active: ${activeLabel}.\n` +
+    `\nAll connected channels and their styles:\n${channelsSummary}\n` +
+    `\nYou help with: content ideas, post drafts, image prompts, content strategy, audience engagement, post editing.\n` +
+    `Tailor all advice to the active channel's BrandKit style and audience.\n` +
+    `If the user asks about a different channel, switch context accordingly.\n` +
+    `Always respond in the same language the user writes in.\n` +
     `Be concise, practical, and creative. Give actionable advice.`;
 
   // Call DeepSeek
