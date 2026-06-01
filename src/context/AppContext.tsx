@@ -316,7 +316,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         channels:        realChannels,
         brandKits:       realBrandKits,
         posts:           loadedPosts,
-        activeChannelId: realChannels[0]?.id ?? '',
+        activeChannelId: (() => {
+          try {
+            const saved = localStorage.getItem('activeChannelId')
+            if (saved && realChannels.some(c => c.id === saved)) return saved
+          } catch {}
+          return realChannels[0]?.id ?? ''
+        })(),
       }))
       setAuthStatus('authenticated')
     })()
@@ -447,6 +453,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveChannel = useCallback((id: string) => {
     setState(prev => ({ ...prev, activeChannelId: id }))
+    try { localStorage.setItem('activeChannelId', id) } catch {}
   }, [])
 
   const connectChannel = useCallback((channel: Channel) => {
