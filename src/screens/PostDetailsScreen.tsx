@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2 } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatusChip, SourceChip } from '@/components/ui/StatusChip'
@@ -28,7 +28,9 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
   const [isRegeneratingVisual, setIsRegeneratingVisual] = useState(false)
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const post = state.posts.find(p => p.id === postId)
   if (!post) return null
@@ -168,6 +170,35 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     }
   }
 
+  const handleUploadImage = async (file: File) => {
+    if (!selectedVariant || isUploadingImage) return
+    const initData = getTelegramInitData()
+    if (!initData) {
+      showToast('Доступно только в Telegram', 'error')
+      return
+    }
+    setIsUploadingImage(true)
+    try {
+      const form = new FormData()
+      form.append('initData', initData)
+      form.append('variantId', selectedVariant.id)
+      form.append('image', file)
+      const res = await fetch(`${API_BASE}/api/posts/upload-image`, { method: 'POST', body: form })
+      if (!res.ok) {
+        showToast('Не удалось загрузить картинку', 'error')
+        return
+      }
+      const data = await res.json() as { bannerUrl: string }
+      updateVariantBannerUrl(post.id, selectedVariant.id, data.bannerUrl)
+      showToast('Картинка прикреплена!')
+      setOpenSection('banner')
+    } catch {
+      showToast('Ошибка загрузки', 'error')
+    } finally {
+      setIsUploadingImage(false)
+    }
+  }
+
   const sectionLabel = (id: Section, icon: React.ReactNode, label: string, badge?: string) => (
     <button
       onClick={() => setOpenSection(openSection === id ? 'variants' : id)}
@@ -254,51 +285,89 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
             )}
           </div>
 
-          {/* Visual (formerly Banner) */}
-          {/* Visual section — real generated image (bannerUrl) or legacy mock banner */}
-          {(displayBannerUrl || post.banner) && (
-            <div>
-              {sectionLabel('banner', <ImageIcon size={15} />, t('postDetails.visual'))}
-              {openSection === 'banner' && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  transition={{ duration: 0.22 }}
-                  className="px-3 pb-3 overflow-hidden"
-                >
-                  {displayBannerUrl ? (
-                    <div className="space-y-2">
-                      <img
-                        src={displayBannerUrl}
-                        alt={post.title}
-                        className="w-full rounded-[14px] object-cover"
-                        style={{ aspectRatio: '1 / 1' }}
-                      />
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleRegenerateVisual}
-                        disabled={isRegeneratingVisual}
-                        fullWidth
-                      >
-                        {isRegeneratingVisual
-                          ? <><Loader2 size={13} className="animate-spin" />{t('postDetails.regeneratingVisual')}</>
-                          : <><RefreshCw size={13} />{t('postDetails.regenerateVisual')}</>
-                        }
-                      </Button>
-                    </div>
-                  ) : post.banner ? (
-                    <BannerPreview
-                      banner={post.banner}
-                      onRegenerate={() => showToast(t('postDetails.regenerateVisual') + '…')}
-                      onChangeTemplate={() => showToast(t('postDetails.template') + '…')}
-                      onRemove={() => showToast(t('postDetails.visual') + '…')}
+          {/* Visual — always shown; upload from files if no image yet */}
+          <div>
+            {/* hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) handleUploadImage(file)
+                e.target.value = ''
+              }}
+            />
+            {sectionLabel('banner', <ImageIcon size={15} />, t('postDetails.visual'))}
+            {openSection === 'banner' && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                transition={{ duration: 0.22 }}
+                className="px-3 pb-3 overflow-hidden"
+              >
+                {displayBannerUrl ? (
+                  <div className="space-y-2">
+                    <img
+                      src={displayBannerUrl}
+                      alt={post.title}
+                      className="w-full rounded-[14px] object-cover"
+                      style={{ aspectRatio: '1 / 1' }}
                     />
-                  ) : null}
-                </motion.div>
-              )}
-            </div>
-          )}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploadingImage}
+                      fullWidth
+                    >
+                      {isUploadingImage
+                        ? <><Loader2 size={13} className="animate-spin" />Загружаем…</>
+                        : <><Upload size={13} />Заменить картинку</>
+                      }
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleRegenerateVisual}
+                      disabled={isRegeneratingVisual}
+                      fullWidth
+                    >
+                      {isRegeneratingVisual
+                        ? <><Loader2 size={13} className="animate-spin" />{t('postDetails.regeneratingVisual')}</>
+                        : <><RefreshCw size={13} />{t('postDetails.regenerateVisual')}</>
+                      }
+                    </Button>
+                  </div>
+                ) : post.banner ? (
+                  <BannerPreview
+                    banner={post.banner}
+                    onRegenerate={() => showToast(t('postDetails.regenerateVisual') + '…')}
+                    onChangeTemplate={() => showToast(t('postDetails.template') + '…')}
+                    onRemove={() => showToast(t('postDetails.visual') + '…')}
+                  />
+                ) : (
+                  // No image yet — offer upload from files
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingImage}
+                    className="w-full flex flex-col items-center justify-center gap-2 py-8 rounded-[14px] border-2 border-dashed border-white/[0.10] text-[#55555D] hover:border-[#FF6A00]/40 hover:text-[#FF6A00] transition-colors duration-200 disabled:opacity-50"
+                  >
+                    {isUploadingImage ? (
+                      <Loader2 size={22} className="animate-spin text-[#FF6A00]" />
+                    ) : (
+                      <Upload size={22} />
+                    )}
+                    <span className="text-[12px] font-medium">
+                      {isUploadingImage ? 'Загружаем…' : 'Прикрепить картинку из файлов'}
+                    </span>
+                    <span className="text-[10px] text-[#3A3A42]">JPEG, PNG, WebP, GIF · до 10 МБ</span>
+                  </button>
+                )}
+              </motion.div>
+            )}
+          </div>
 
           {/* Link buttons */}
           <div>

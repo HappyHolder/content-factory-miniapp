@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
+import { put } from '@vercel/blob';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -6,6 +8,16 @@ import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard 
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { generateImageForPost, buildVisualKitPromptHints } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
+
+// ─── Multer for image uploads ─────────────────────────────────────────────────
+const uploadMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error('Unsupported file type'));
+  },
+});
 
 const router = Router();
 
@@ -1057,5 +1069,65 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
 
   res.json({ bannerUrl: imageUrl });
 });
+
+// ─── POST /api/posts/upload-image ────────────────────────────────────────────
+// Uploads a user-provided image and sets it as bannerUrl for a PostVariant.
+// Multipart form: fields { initData, variantId } + file field "image".
+// Response 200: { bannerUrl: string }
+
+router.post(
+  '/upload-image',
+  uploadMiddleware.single('image'),
+  async (req: Request, res: Response): Promise<void> => {
+    const { initData, variantId } = req.body as { initData?: string; variantId?: string };
+
+    if (!initData?.trim())  { res.status(400).json({ error: 'initData required' });  return; }
+    if (!variantId?.trim()) { res.status(400).json({ error: 'variantId required' }); return; }
+
+    const file = req.file;
+    if (!file) { res.status(400).json({ error: 'image file required' }); return; }
+
+    // Auth
+    let parsed;
+    try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+    catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+    const telegramId = String(parsed.user.id);
+    const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+    if (!dbUser) { res.status(401).json({ error: 'User not found' }); return; }
+
+    // Check variant belongs to user's post
+    const variant = await prisma.postVariant.findUnique({
+      where:  { id: variantId },
+      select: { id: true, generatedPost: { select: { channel: { select: { userId: true } } } } },
+    }).catch(() => null);
+
+    if (!variant || variant.generatedPost.channel.userId !== dbUser.id) {
+      res.status(403).json({ error: 'Variant not found or access denied' }); return;
+    }
+
+    // Upload to Vercel Blob
+    const ext      = file.originalname.split('.').pop() ?? 'jpg';
+    const filename = `posts/${dbUser.id}/${variantId}-${Date.now()}.${ext}`;
+    let bannerUrl: string;
+    try {
+      const blob = await put(filename, file.buffer, { access: 'public', contentType: file.mimetype });
+      bannerUrl  = blob.url;
+    } catch (err) {
+      console.error('[posts/upload-image] Blob upload failed:', (err as Error).message);
+      res.status(502).json({ error: 'Image upload failed' }); return;
+    }
+
+    // Save to DB
+    try {
+      await prisma.postVariant.update({ where: { id: variantId }, data: { bannerUrl } });
+    } catch (err) {
+      console.error('[posts/upload-image] DB update failed:', (err as Error).message);
+      res.status(500).json({ error: 'Internal server error' }); return;
+    }
+
+    res.json({ bannerUrl });
+  }
+);
 
 export default router;
