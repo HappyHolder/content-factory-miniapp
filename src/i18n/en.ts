@@ -5,6 +5,7 @@ export const en = {
   nav: {
     posts:   'Posts',
     create:  'Create',
+    ai:      'AI',
     profile: 'Profile',
   },
   common: {

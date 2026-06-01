@@ -11,8 +11,9 @@ import { ProfileScreen } from '@/screens/ProfileScreen'
 import { PostDetailsScreen } from '@/screens/PostDetailsScreen'
 import { BrandKitScreen } from '@/screens/BrandKitScreen'
 import { PlansScreen } from '@/screens/PlansScreen'
+import { ChatScreen } from '@/screens/ChatScreen'
 
-type MainTab = 'posts' | 'create' | 'profile'
+type MainTab = 'posts' | 'create' | 'ai' | 'profile'
 
 type ModalScreen =
   | { type: 'none' }
@@ -99,6 +100,7 @@ function AppContent() {
           <AppShell key={activeTab} pageKey={activeTab}>
             {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
             {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} />}
+            {activeTab === 'ai' && <ChatScreen />}
             {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenPlans={handleOpenPlans} />}
           </AppShell>
         )}

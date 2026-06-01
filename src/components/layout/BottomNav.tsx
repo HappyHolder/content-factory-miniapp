@@ -1,9 +1,9 @@
 import { motion } from 'framer-motion'
-import { FileText, Sparkles, User } from 'lucide-react'
+import { FileText, Sparkles, User, Bot } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/context/AppContext'
 
-type Tab = 'posts' | 'create' | 'profile'
+type Tab = 'posts' | 'create' | 'ai' | 'profile'
 
 interface NavItem {
   id: Tab
@@ -20,9 +20,10 @@ export function BottomNav({ active, onChange }: BottomNavProps) {
   const { t } = useApp()
 
   const navItems: NavItem[] = [
-    { id: 'posts', label: t('nav.posts'), icon: FileText },
-    { id: 'create', label: t('nav.create'), icon: Sparkles },
-    { id: 'profile', label: t('nav.profile'), icon: User },
+    { id: 'posts',   label: t('nav.posts'),   icon: FileText  },
+    { id: 'create',  label: t('nav.create'),  icon: Sparkles  },
+    { id: 'ai',      label: t('nav.ai'),      icon: Bot       },
+    { id: 'profile', label: t('nav.profile'), icon: User      },
   ]
 
   return (

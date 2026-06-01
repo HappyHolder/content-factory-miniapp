@@ -5,6 +5,7 @@ export const ru: Dict = {
   nav: {
     posts:   'Посты',
     create:  'Создать',
+    ai:      'AI',
     profile: 'Профиль',
   },
   common: {
