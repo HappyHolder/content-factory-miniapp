@@ -11,7 +11,7 @@ import { ProfileScreen } from '@/screens/ProfileScreen'
 import { PostDetailsScreen } from '@/screens/PostDetailsScreen'
 import { BrandKitScreen } from '@/screens/BrandKitScreen'
 import { PlansScreen } from '@/screens/PlansScreen'
-import { ChatScreen } from '@/screens/ChatScreen'
+import { ChatScreen, type ChatMessage } from '@/screens/ChatScreen'
 
 type MainTab = 'posts' | 'create' | 'ai' | 'profile'
 
@@ -23,8 +23,9 @@ type ModalScreen =
 
 function AppContent() {
   const { toasts, authStatus } = useApp()
-  const [activeTab, setActiveTab] = useState<MainTab>('posts')
-  const [modal, setModal] = useState<ModalScreen>({ type: 'none' })
+  const [activeTab, setActiveTab]   = useState<MainTab>('posts')
+  const [modal, setModal]           = useState<ModalScreen>({ type: 'none' })
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
 
   const handleOpenPost = (id: string) => {
     setModal({ type: 'post_detail', postId: id })
@@ -97,12 +98,19 @@ function AppContent() {
             )}
           </div>
         ) : (
-          <AppShell key={activeTab} pageKey={activeTab}>
-            {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
-            {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} />}
-            {activeTab === 'ai' && <ChatScreen />}
-            {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenPlans={handleOpenPlans} />}
-          </AppShell>
+          <>
+            {/* AI tab rendered outside AppShell so it never unmounts and chat history persists */}
+            <div className={activeTab === 'ai' ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
+              <ChatScreen messages={chatMessages} setMessages={setChatMessages} />
+            </div>
+            {activeTab !== 'ai' && (
+              <AppShell key={activeTab} pageKey={activeTab}>
+                {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
+                {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} />}
+                {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenPlans={handleOpenPlans} />}
+              </AppShell>
+            )}
+          </>
         )}
       </AnimatePresence>
 

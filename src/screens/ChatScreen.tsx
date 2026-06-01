@@ -6,7 +6,7 @@ import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-interface Message {
+export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
 }
@@ -18,9 +18,13 @@ const SUGGESTIONS = [
   'Сделай контент-план на неделю',
 ]
 
-export function ChatScreen() {
+interface ChatScreenProps {
+  messages: ChatMessage[]
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
+}
+
+export function ChatScreen({ messages, setMessages }: ChatScreenProps) {
   const { activeChannel, t } = useApp()
-  const [messages, setMessages]   = useState<Message[]>([])
   const [input, setInput]         = useState('')
   const [loading, setLoading]     = useState(false)
   const bottomRef                 = useRef<HTMLDivElement>(null)
@@ -34,7 +38,7 @@ export function ChatScreen() {
     const trimmed = text.trim()
     if (!trimmed || loading) return
 
-    const newMessages: Message[] = [...messages, { role: 'user', content: trimmed }]
+    const newMessages: ChatMessage[] = [...messages, { role: 'user', content: trimmed }]
     setMessages(newMessages)
     setInput('')
     setLoading(true)
