@@ -57,6 +57,20 @@ model User {
   sourceInputs   SourceInput[]
   generationJobs GenerationJob[]
   subscription   Subscription?
+  chatMessages   ChatMessage[]
+}
+
+model ChatMessage {
+  id      String @id @default(cuid())
+  userId  String
+  role    String // 'user' | 'assistant'
+  content String
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model Channel {

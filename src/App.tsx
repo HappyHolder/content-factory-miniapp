@@ -25,7 +25,8 @@ function AppContent() {
   const { toasts, authStatus } = useApp()
   const [activeTab, setActiveTab]   = useState<MainTab>('posts')
   const [modal, setModal]           = useState<ModalScreen>({ type: 'none' })
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatMessages, setChatMessages]     = useState<ChatMessage[]>([])
+  const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false)
 
   const handleOpenPost = (id: string) => {
     setModal({ type: 'post_detail', postId: id })
@@ -101,7 +102,12 @@ function AppContent() {
           <>
             {/* AI tab rendered outside AppShell so it never unmounts and chat history persists */}
             <div className={activeTab === 'ai' ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
-              <ChatScreen messages={chatMessages} setMessages={setChatMessages} />
+              <ChatScreen
+                messages={chatMessages}
+                setMessages={setChatMessages}
+                historyLoaded={chatHistoryLoaded}
+                setHistoryLoaded={setChatHistoryLoaded}
+              />
             </div>
             {activeTab !== 'ai' && (
               <AppShell key={activeTab} pageKey={activeTab}>

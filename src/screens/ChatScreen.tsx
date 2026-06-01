@@ -21,14 +21,33 @@ const SUGGESTIONS = [
 interface ChatScreenProps {
   messages: ChatMessage[]
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
+  historyLoaded: boolean
+  setHistoryLoaded: React.Dispatch<React.SetStateAction<boolean>>
 }
 
-export function ChatScreen({ messages, setMessages }: ChatScreenProps) {
-  const { activeChannel, t } = useApp()
-  const [input, setInput]         = useState('')
-  const [loading, setLoading]     = useState(false)
-  const bottomRef                 = useRef<HTMLDivElement>(null)
-  const textareaRef               = useRef<HTMLTextAreaElement>(null)
+export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded }: ChatScreenProps) {
+  const { activeChannel, authStatus } = useApp()
+  const [input, setInput]     = useState('')
+  const [loading, setLoading] = useState(false)
+  const bottomRef             = useRef<HTMLDivElement>(null)
+  const textareaRef           = useRef<HTMLTextAreaElement>(null)
+
+  // Load history from DB once
+  useEffect(() => {
+    if (historyLoaded || authStatus === 'checking') return
+    const initData = getTelegramInitData()
+    if (!initData) { setHistoryLoaded(true); return } // mock/dev mode — skip
+
+    fetch(`${API_BASE}/api/chat/history?initData=${encodeURIComponent(initData)}`)
+      .then(r => r.json())
+      .then((data: { messages?: ChatMessage[] }) => {
+        if (Array.isArray(data.messages) && data.messages.length > 0) {
+          setMessages(data.messages)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setHistoryLoaded(true))
+  }, [authStatus, historyLoaded, setHistoryLoaded, setMessages])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -38,14 +57,11 @@ export function ChatScreen({ messages, setMessages }: ChatScreenProps) {
     const trimmed = text.trim()
     if (!trimmed || loading) return
 
-    const newMessages: ChatMessage[] = [...messages, { role: 'user', content: trimmed }]
-    setMessages(newMessages)
+    setMessages(prev => [...prev, { role: 'user', content: trimmed }])
     setInput('')
     setLoading(true)
 
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-    }
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
     try {
       const initData = getTelegramInitData() ?? 'mock'
@@ -55,7 +71,7 @@ export function ChatScreen({ messages, setMessages }: ChatScreenProps) {
         body:    JSON.stringify({
           initData,
           channelId: activeChannel?.id ?? '',
-          messages:  newMessages,
+          message:   trimmed,
         }),
       })
 
@@ -82,7 +98,7 @@ export function ChatScreen({ messages, setMessages }: ChatScreenProps) {
     e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
   }
 
-  const isEmpty = messages.length === 0
+  const isEmpty = messages.length === 0 && historyLoaded
 
   return (
     <div className="flex flex-col h-full">
@@ -103,6 +119,12 @@ export function ChatScreen({ messages, setMessages }: ChatScreenProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 no-scrollbar">
+        {!historyLoaded && (
+          <div className="flex justify-center pt-10">
+            <Loader2 size={16} className="text-[#FF6A00] animate-spin" />
+          </div>
+        )}
+
         {isEmpty && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}

@@ -5,24 +5,51 @@ import { validateAndParseTelegramInitData } from '../lib/telegram';
 
 const router = Router();
 
+const HISTORY_LIMIT = 100; // messages kept per user
+
+// ─── GET /api/chat/history ────────────────────────────────────────────────────
+// Returns the user's full chat history (oldest → newest).
+// Query: { initData }
+
+router.get('/history', async (req: Request, res: Response): Promise<void> => {
+  const { initData } = req.query as { initData?: string };
+  if (!initData?.trim()) { res.status(400).json({ error: 'initData required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch { res.status(401).json({ error: 'Invalid initData' }); return; }
+
+  const telegramId = String(parsed.user.id);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found' }); return; }
+
+  const history = await prisma.chatMessage.findMany({
+    where:   { userId: dbUser.id },
+    orderBy: { createdAt: 'asc' },
+    take:    HISTORY_LIMIT,
+    select:  { role: true, content: true },
+  });
+
+  res.json({ messages: history });
+});
+
 // ─── POST /api/chat ───────────────────────────────────────────────────────────
-//
-// Sends a message to DeepSeek with BrandKit context as the system prompt.
-// Request body: { initData, channelId, messages: [{role, content}] }
+// Sends the latest user message to DeepSeek using full DB history as context.
+// Saves both the user message and the AI reply to DB.
+// Request body: { initData, channelId, message: string }
 // Response 200: { reply: string }
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, messages } = req.body as {
+  const { initData, channelId, message } = req.body as {
     initData?:  unknown;
     channelId?: unknown;
-    messages?:  unknown;
+    message?:   unknown;
   };
 
   if (typeof initData  !== 'string' || !initData.trim())  { res.status(400).json({ error: 'initData required' });  return; }
   if (typeof channelId !== 'string' || !channelId.trim()) { res.status(400).json({ error: 'channelId required' }); return; }
-  if (!Array.isArray(messages) || messages.length === 0)  { res.status(400).json({ error: 'messages required' });  return; }
+  if (typeof message   !== 'string' || !message.trim())   { res.status(400).json({ error: 'message required' });   return; }
 
-  // Validate initData
   let parsed;
   try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
   catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
@@ -36,7 +63,6 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
   if (!env.DEEPSEEK_API_KEY) { res.status(503).json({ error: 'AI not configured' }); return; }
 
-  // Load active channel (must belong to user) + all user channels with BrandKits
   const [activeChannel, allChannels] = await Promise.all([
     prisma.channel.findUnique({
       where:  { id: channelId },
@@ -56,7 +82,15 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     res.status(403).json({ error: 'Channel not found or access denied' }); return;
   }
 
-  // ── Build system prompt ───────────────────────────────────────────────────
+  // Load existing history from DB
+  const history = await prisma.chatMessage.findMany({
+    where:   { userId: dbUser.id },
+    orderBy: { createdAt: 'asc' },
+    take:    HISTORY_LIMIT,
+    select:  { role: true, content: true },
+  });
+
+  // Build system prompt
   const userName    = dbUser.name?.trim() || null;
   const activeLabel = activeChannel.handle ? `@${activeChannel.handle}` : activeChannel.name;
 
@@ -83,7 +117,6 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     return lines;
   }
 
-  // All channels section
   const channelsSummary = allChannels.map(ch => {
     const label = ch.handle ? `@${ch.handle}` : ch.name;
     const isActive = ch.id === channelId;
@@ -103,7 +136,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     `Always respond in the same language the user writes in.\n` +
     `Be concise, practical, and creative. Give actionable advice.`;
 
-  // Call DeepSeek
+  // Call DeepSeek with full history + new message
+  const messagesForAI = [
+    { role: 'system', content: systemPrompt },
+    ...history,
+    { role: 'user', content: message },
+  ];
+
   try {
     const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
       method:  'POST',
@@ -113,7 +152,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       },
       body: JSON.stringify({
         model:       env.DEEPSEEK_MODEL,
-        messages:    [{ role: 'system', content: systemPrompt }, ...messages],
+        messages:    messagesForAI,
         max_tokens:  1024,
         temperature: 0.8,
       }),
@@ -126,6 +165,27 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     const data = await response.json() as { choices?: { message?: { content?: string } }[] };
     const reply = data.choices?.[0]?.message?.content?.trim() ?? '';
+
+    // Save both messages to DB (non-fatal)
+    prisma.chatMessage.createMany({
+      data: [
+        { userId: dbUser.id, role: 'user',      content: message },
+        { userId: dbUser.id, role: 'assistant', content: reply   },
+      ],
+    }).catch(err => console.error('[chat] DB save failed:', (err as Error).message));
+
+    // Trim old messages if over limit (keep newest HISTORY_LIMIT)
+    prisma.chatMessage.findMany({
+      where:   { userId: dbUser.id },
+      orderBy: { createdAt: 'asc' },
+      skip:    HISTORY_LIMIT,
+      select:  { id: true },
+    }).then(old => {
+      if (old.length > 0) {
+        prisma.chatMessage.deleteMany({ where: { id: { in: old.map(m => m.id) } } }).catch(() => {});
+      }
+    }).catch(() => {});
+
     res.json({ reply });
 
   } catch (err) {
