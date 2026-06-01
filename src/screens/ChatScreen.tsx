@@ -82,7 +82,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 no-scrollbar">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 no-scrollbar" style={{ paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}>
         {!historyLoaded && (
           <div className="flex justify-center pt-10">
             <Loader2 size={16} className="text-[#FF6A00] animate-spin" />
