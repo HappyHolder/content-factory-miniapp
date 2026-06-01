@@ -90,7 +90,7 @@ export function ChatScreen() {
           <p className="text-[13px] font-semibold text-white">AI Ассистент</p>
           {activeChannel && (
             <p className="text-[10px] text-[#55555D]">
-              {activeChannel.handle ? `@${activeChannel.handle}` : activeChannel.name}
+              {activeChannel.username ? `@${activeChannel.username}` : activeChannel.title}
             </p>
           )}
         </div>
