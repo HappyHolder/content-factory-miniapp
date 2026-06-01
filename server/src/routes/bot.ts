@@ -189,54 +189,73 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   const sourceIsUrl  = isUrlSource(sourceText, sourceEntities);
   const extractedUrl = sourceIsUrl ? extractFirstUrl(sourceText, sourceEntities) : null;
 
-  // ── 6. Persist SourceInput ───────────────────────────────────────────────
+  // ── 6. Persist SourceInput (idempotent via telegramMessageId) ───────────
+  // Check for duplicate before inserting to handle Telegram retries.
+  let alreadyProcessed = false;
   try {
-    await prisma.sourceInput.create({
-      data: {
-        userId:  dbUser.id,
-        type:    sourceIsUrl ? 'URL' : 'TEXT',
-        content: sourceText,
-        url:     extractedUrl ?? null,
-        metadata: {
-          telegramMessageId: message.message_id,
-          telegramChatId:    chatId,
-          source:            'telegram_bot',
-          channelId:         targetChannel.id,
-          hasCaption:        message.caption !== undefined,
-          isForwarded:       message.forward_date !== undefined,
-        },
+    const existing = await prisma.sourceInput.findFirst({
+      where: {
+        userId: dbUser.id,
+        metadata: { path: ['telegramMessageId'], equals: message.message_id },
       },
+      select: { id: true },
     });
+    if (existing) {
+      alreadyProcessed = true;
+    } else {
+      await prisma.sourceInput.create({
+        data: {
+          userId:  dbUser.id,
+          type:    sourceIsUrl ? 'URL' : 'TEXT',
+          content: sourceText,
+          url:     extractedUrl ?? null,
+          metadata: {
+            telegramMessageId: message.message_id,
+            telegramChatId:    chatId,
+            source:            'telegram_bot',
+            channelId:         targetChannel.id,
+            hasCaption:        message.caption !== undefined,
+            isForwarded:       message.forward_date !== undefined,
+          },
+        },
+      });
+    }
   } catch (err) {
     console.error('[bot/webhook] SourceInput create failed:', (err as Error).message);
-    // Non-fatal from Telegram's perspective — return 200, no user reply
     res.status(200).json({ ok: true });
     return;
   }
 
-  // ── 7. Auto-generate draft via DeepSeek + Channel Style ──────────────────
-  // Non-fatal: if generation fails the SourceInput is already saved and the
-  // user can generate manually from the Create screen in the Mini App.
-  let draftCreated = false;
-  try {
-    await createDraftPostForChannel({
-      channelId:  targetChannel.id,
-      input:      sourceText,
-      sourceType: extractedUrl ? 'link' : 'prompt',
-      sourceUrl:  extractedUrl ?? null,
-    });
-    draftCreated = true;
-  } catch (err) {
-    console.error('[bot/webhook] Draft generation failed:', (err as Error).message);
+  if (alreadyProcessed) {
+    res.status(200).json({ ok: true });
+    return;
   }
 
-  // ── 8. Reply to user and return ──────────────────────────────────────────
-  const reply = draftCreated
-    ? '✅ Draft created. Open the Mini App to review and publish.'
-    : '✅ Source saved, but draft generation failed. Open the Mini App to generate manually.';
-
-  await trySendReply(chatId, reply);
+  // ── 7. Return 200 immediately so Telegram doesn't retry ─────────────────
+  // Draft generation (DeepSeek call) runs in the background after the response.
   res.status(200).json({ ok: true });
+
+  // ── 8. Generate draft and notify user asynchronously ─────────────────────
+  (async () => {
+    let draftCreated = false;
+    try {
+      await createDraftPostForChannel({
+        channelId:  targetChannel.id,
+        input:      sourceText,
+        sourceType: extractedUrl ? 'link' : 'prompt',
+        sourceUrl:  extractedUrl ?? null,
+      });
+      draftCreated = true;
+    } catch (err) {
+      console.error('[bot/webhook] Draft generation failed:', (err as Error).message);
+    }
+
+    const reply = draftCreated
+      ? '✅ Draft created. Open the Mini App to review and publish.'
+      : '✅ Source saved, but draft generation failed. Open the Mini App to generate manually.';
+
+    await trySendReply(chatId, reply);
+  })();
 });
 
 export default router;
