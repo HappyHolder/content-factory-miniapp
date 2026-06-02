@@ -167,7 +167,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   try {
     channels = await prisma.channel.findMany({
       where:   { userId: dbUser.id },
-      orderBy: { createdAt: 'asc' },   // oldest first = default channel
+      orderBy: { createdAt: 'asc' },
       select:  { id: true, name: true, handle: true },
     });
   } catch (err) {
@@ -182,10 +182,29 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // Use the channel the user last selected in the Mini App, falling back to the oldest channel.
-  const targetChannel =
-    (dbUser.activeChannelId && channels.find(c => c.id === dbUser!.activeChannelId)) ||
-    channels[0]!;
+  // Priority: activeChannelId from DB → channel with most recent post → most recently created channel
+  let targetChannel = dbUser.activeChannelId
+    ? channels.find(c => c.id === dbUser!.activeChannelId)
+    : undefined;
+
+  if (!targetChannel) {
+    // Find channel with the most recently created post
+    try {
+      const recentPost = await prisma.generatedPost.findFirst({
+        where:   { channel: { userId: dbUser.id } },
+        orderBy: { createdAt: 'desc' },
+        select:  { channelId: true },
+      });
+      if (recentPost) {
+        targetChannel = channels.find(c => c.id === recentPost.channelId);
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  // Last resort: most recently created channel
+  if (!targetChannel) {
+    targetChannel = channels[channels.length - 1]!;
+  }
 
   console.log(`[bot/webhook] activeChannelId=${dbUser.activeChannelId ?? 'null'} allChannels=${channels.map(c => c.handle ?? c.name).join(',')} → using=${targetChannel.handle ?? targetChannel.name}`);
 
