@@ -17,9 +17,11 @@ interface BottomNavProps {
   onChange: (tab: Tab) => void
   onAISend: (text: string) => void
   aiLoading: boolean
+  showScrollBtn?: boolean
+  onScrollToBottom?: () => void
 }
 
-export function BottomNav({ active, onChange, onAISend, aiLoading }: BottomNavProps) {
+export function BottomNav({ active, onChange, onAISend, aiLoading, showScrollBtn, onScrollToBottom }: BottomNavProps) {
   const { t } = useApp()
   const isAI = active === 'ai'
   const [input, setInput] = useState('')
@@ -54,8 +56,6 @@ export function BottomNav({ active, onChange, onAISend, aiLoading }: BottomNavPr
   }
 
   return (
-    // Plain nav — no motion.nav with layout (conflicts with position:fixed, causes jank)
-    // Padding switches via CSS transition instead
     <nav
       className={cn(
         'bottom-nav flex items-center',
@@ -63,6 +63,22 @@ export function BottomNav({ active, onChange, onAISend, aiLoading }: BottomNavPr
       )}
       style={{ transition: 'padding 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
     >
+      {/* Scroll-to-bottom button — absolute inside fixed nav = perfectly centered above bar */}
+      <AnimatePresence>
+        {showScrollBtn && (
+          <motion.button
+            key="scroll-btn"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.18 }}
+            onClick={onScrollToBottom}
+            className="absolute left-1/2 -translate-x-1/2 -top-11 w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.15] shadow-xl flex items-center justify-center text-[#ABABAB]"
+          >
+            <ChevronDown size={16} />
+          </motion.button>
+        )}
+      </AnimatePresence>
       <AnimatePresence mode="wait" initial={false}>
         {isAI ? (
           /* ── AI input mode ── */

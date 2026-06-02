@@ -127,35 +127,13 @@ function AppContent() {
         )}
       </AnimatePresence>
 
-      {/* Scroll-to-bottom button — sibling of BottomNav, no transform parent, truly centered */}
-      <AnimatePresence>
-        {activeTab === 'ai' && showChatScrollBtn && (
-          <motion.button
-            key="scroll-btn"
-            initial={{ opacity: 0, scale: 0.8, y: 6 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 6 }}
-            transition={{ duration: 0.18 }}
-            onClick={() => chatScrollFn.current?.()}
-            style={{
-              position: 'fixed',
-              bottom: 'calc(78px + env(safe-area-inset-bottom, 0px))',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 200,
-            }}
-            className="w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.12] shadow-xl flex items-center justify-center text-[#ABABAB]"
-          >
-            <ChevronDown size={16} />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
       <BottomNav
         active={activeTab}
         onChange={tab => { setModal({ type: 'none' }); setActiveTab(tab) }}
         onAISend={sendChatMessage}
         aiLoading={chatLoading}
+        showScrollBtn={activeTab === 'ai' && showChatScrollBtn}
+        onScrollToBottom={() => chatScrollFn.current?.()}
       />
     </div>
   )
