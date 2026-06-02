@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react'
-import { Loader2 } from 'lucide-react'
-import { AnimatePresence } from 'framer-motion'
+import { useState, useCallback, useRef } from 'react'
+import { Loader2, ChevronDown } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { AppProvider, useApp } from '@/context/AppContext'
 import { AppShell } from '@/components/layout/AppShell'
 import { BottomNav } from '@/components/layout/BottomNav'
@@ -30,6 +30,8 @@ function AppContent() {
   const [chatMessages, setChatMessages]       = useState<ChatMessage[]>([])
   const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false)
   const [chatLoading, setChatLoading]         = useState(false)
+  const [showChatScrollBtn, setShowChatScrollBtn] = useState(false)
+  const chatScrollFn = useRef<(() => void) | null>(null)
 
   const sendChatMessage = useCallback(async (text: string) => {
     const trimmed = text.trim()
@@ -110,7 +112,8 @@ function AppContent() {
                 setHistoryLoaded={setChatHistoryLoaded}
                 onSend={sendChatMessage}
                 loading={chatLoading}
-                onBack={() => setActiveTab('posts')}
+                onBack={() => { setActiveTab('posts'); setShowChatScrollBtn(false) }}
+                onScrollBtnChange={(visible, fn) => { setShowChatScrollBtn(visible); chatScrollFn.current = fn }}
               />
             </div>
             {activeTab !== 'ai' && (
@@ -121,6 +124,30 @@ function AppContent() {
               </AppShell>
             )}
           </>
+        )}
+      </AnimatePresence>
+
+      {/* Scroll-to-bottom button — sibling of BottomNav, no transform parent, truly centered */}
+      <AnimatePresence>
+        {activeTab === 'ai' && showChatScrollBtn && (
+          <motion.button
+            key="scroll-btn"
+            initial={{ opacity: 0, scale: 0.8, y: 6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 6 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => chatScrollFn.current?.()}
+            style={{
+              position: 'fixed',
+              bottom: 'calc(78px + env(safe-area-inset-bottom, 0px))',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 200,
+            }}
+            className="w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.12] shadow-xl flex items-center justify-center text-[#ABABAB]"
+          >
+            <ChevronDown size={16} />
+          </motion.button>
         )}
       </AnimatePresence>
 

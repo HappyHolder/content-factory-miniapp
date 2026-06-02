@@ -26,9 +26,10 @@ interface ChatScreenProps {
   onSend: (text: string) => void
   loading: boolean
   onBack: () => void
+  onScrollBtnChange: (visible: boolean, scrollFn: () => void) => void
 }
 
-export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, loading, onBack }: ChatScreenProps) {
+export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, loading, onBack, onScrollBtnChange }: ChatScreenProps) {
   const { activeChannel, authStatus } = useApp()
   const bottomRef    = useRef<HTMLDivElement>(null)
   const scrollRef    = useRef<HTMLDivElement>(null)
@@ -43,8 +44,10 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
     const el = scrollRef.current
     if (!el) return
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    setShowScrollBtn(distanceFromBottom > 120)
-  }, [])
+    const visible = distanceFromBottom > 120
+    setShowScrollBtn(visible)
+    onScrollBtnChange(visible, () => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }))
+  }, [onScrollBtnChange])
 
   // Load history from DB once
   useEffect(() => {
@@ -188,23 +191,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
         </div> {/* end scrollable div */}
       </div> {/* end relative wrapper */}
 
-      {/* Scroll-to-bottom button — fixed, centered on screen above nav bar */}
-      <AnimatePresence>
-        {showScrollBtn && (
-          <motion.button
-            key="scroll-btn"
-            initial={{ opacity: 0, scale: 0.8, y: 6 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 6 }}
-            transition={{ duration: 0.18 }}
-            onClick={() => scrollToBottom()}
-            style={{ bottom: 'calc(78px + env(safe-area-inset-bottom, 0px))' }}
-            className="absolute left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.12] shadow-xl flex items-center justify-center text-[#ABABAB] hover:text-white hover:border-white/25 transition-colors"
-          >
-            <ChevronDown size={16} />
-          </motion.button>
-        )}
-      </AnimatePresence>
+      {/* Scroll button is rendered in App.tsx as sibling of BottomNav to avoid transform stacking context issues */}
     </div>
   )
 }
