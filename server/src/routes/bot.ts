@@ -143,11 +143,11 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   const telegramId = String(message.from.id);
 
   // ── 3. Resolve authenticated user ────────────────────────────────────────
-  let dbUser: { id: string } | null = null;
+  let dbUser: { id: string; activeChannelId: string | null } | null = null;
   try {
     dbUser = await prisma.user.findUnique({
       where:  { telegramId },
-      select: { id: true },
+      select: { id: true, activeChannelId: true },
     });
   } catch (err) {
     console.error('[bot/webhook] User lookup failed:', (err as Error).message);
@@ -182,8 +182,12 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // MVP: use first channel only. Multi-channel selection is Phase D.
-  const targetChannel = channels[0]!;
+  // Use the channel the user last selected in the Mini App, falling back to the oldest channel.
+  const targetChannel =
+    (dbUser.activeChannelId && channels.find(c => c.id === dbUser!.activeChannelId)) ||
+    channels[0]!;
+
+  console.log(`[bot/webhook] activeChannelId=${dbUser.activeChannelId ?? 'null'} allChannels=${channels.map(c => c.handle ?? c.name).join(',')} → using=${targetChannel.handle ?? targetChannel.name}`);
 
   // ── 5. Classify source and extract URL ───────────────────────────────────
   const sourceIsUrl  = isUrlSource(sourceText, sourceEntities);

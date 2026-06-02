@@ -212,7 +212,7 @@ export async function generateImageForPost(
     ? { prompt, size: '1024x1024', quality: 'high' }
     : { prompt, aspect_ratio: '1:1' };
 
-  console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} coverStyle=${coverStyle ? 'yes' : 'no'}`);
+  console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} coverStyle=${coverStyle ? 'yes' : 'no'} coverStyleLen=${coverStyle.length}`);
 
   try {
     const createRes = await fetch(

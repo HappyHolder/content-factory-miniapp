@@ -109,22 +109,57 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
   // ── Response ──────────────────────────────────────────────────────────────
   res.json({
     user: {
-      id:         dbUser.id,
-      name:       dbUser.name,
-      telegramId: dbUser.telegramId,
-      username:   tgUser.username ?? null,   // from initData; not yet persisted in DB
+      id:              dbUser.id,
+      name:            dbUser.name,
+      telegramId:      dbUser.telegramId,
+      username:        tgUser.username ?? null,
+      activeChannelId: dbUser.activeChannelId ?? null,
     },
     channels: dbChannels.map((ch, i) => ({
       id:               ch.id,
       username:         ch.handle ?? '',
       title:            ch.name,
-      subscribersCount: 0,       // not stored in DB — fetched live on connect only
+      subscribersCount: 0,
       isDefault:        i === 0,
       isConnected:      true,
     })),
-    brandKits:    dbBrandKits,   // null sections are fine; frontend merges over defaults
-    subscription: null,          // populated once Subscription model is wired up
+    brandKits:    dbBrandKits,
+    subscription: null,
   });
+});
+
+// ─── POST /api/auth/active-channel ───────────────────────────────────────────
+// Persists the user's active channel selection to the DB so the bot webhook
+// can use the same channel when generating drafts.
+//
+// Request body: { initData, channelId }
+// Response 200: { ok: true }
+
+router.post('/active-channel', async (req: Request, res: Response): Promise<void> => {
+  const { initData, channelId } = req.body as { initData?: unknown; channelId?: unknown };
+
+  if (typeof initData   !== 'string' || !initData.trim())   { res.status(400).json({ error: 'initData required' });   return; }
+  if (typeof channelId  !== 'string' || !channelId.trim())  { res.status(400).json({ error: 'channelId required' });  return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const telegramId = String(parsed.user.id);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found' }); return; }
+
+  // Verify the channel belongs to this user
+  const channel = await prisma.channel.findUnique({
+    where:  { id: channelId },
+    select: { userId: true },
+  }).catch(() => null);
+  if (!channel || channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'Channel not found or access denied' }); return;
+  }
+
+  await prisma.user.update({ where: { id: dbUser.id }, data: { activeChannelId: channelId } });
+  res.json({ ok: true });
 });
 
 export default router;

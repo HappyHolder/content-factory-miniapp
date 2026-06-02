@@ -212,10 +212,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     interface TelegramAuthResponse {
       user: {
-        id: string
-        name: string | null
-        telegramId: string
-        username: string | null
+        id:              string
+        name:            string | null
+        telegramId:      string
+        username:        string | null
+        activeChannelId: string | null
       }
       channels: Channel[]
       // brandKits is optional so older backend versions stay compatible
@@ -305,10 +306,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // ── Step 3: Commit state and mark authenticated ────────────────────
       postService.init(loadedPosts)
 
+      // Resolve active channel: DB → localStorage → first channel
+      const resolvedActiveChannelId = (() => {
+        const fromDb = authData!.user.activeChannelId
+        if (fromDb && realChannels.some(c => c.id === fromDb)) return fromDb
+        try {
+          const saved = localStorage.getItem('activeChannelId')
+          if (saved && realChannels.some(c => c.id === saved)) return saved
+        } catch {}
+        return realChannels[0]?.id ?? ''
+      })()
+
+      // Sync to DB if the resolved value differs from what DB has (e.g. first load,
+      // or user had a channel saved in localStorage but DB was null).
+      if (
+        resolvedActiveChannelId &&
+        resolvedActiveChannelId !== authData!.user.activeChannelId
+      ) {
+        fetch(`${API_BASE}/api/auth/active-channel`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData, channelId: resolvedActiveChannelId }),
+        }).catch(() => {})
+      }
+
       setState(prev => ({
         ...prev,
         user: {
-          ...prev.user,            // preserve subscription + avatarUrl (not in auth response)
+          ...prev.user,
           id:       authData!.user.id,
           name:     authData!.user.name     ?? prev.user.name,
           username: authData!.user.username ?? prev.user.username,
@@ -316,13 +341,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         channels:        realChannels,
         brandKits:       realBrandKits,
         posts:           loadedPosts,
-        activeChannelId: (() => {
-          try {
-            const saved = localStorage.getItem('activeChannelId')
-            if (saved && realChannels.some(c => c.id === saved)) return saved
-          } catch {}
-          return realChannels[0]?.id ?? ''
-        })(),
+        activeChannelId: resolvedActiveChannelId,
       }))
       setAuthStatus('authenticated')
     })()
@@ -454,6 +473,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setActiveChannel = useCallback((id: string) => {
     setState(prev => ({ ...prev, activeChannelId: id }))
     try { localStorage.setItem('activeChannelId', id) } catch {}
+    // Persist to DB so the bot webhook uses the same active channel
+    const initData = getTelegramInitData()
+    if (initData) {
+      fetch(`${API_BASE}/api/auth/active-channel`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, channelId: id }),
+      }).catch(() => {})
+    }
   }, [])
 
   const connectChannel = useCallback((channel: Channel) => {

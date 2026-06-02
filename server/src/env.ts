@@ -44,7 +44,7 @@ export const env = {
   DEEPSEEK_MODEL:    process.env['DEEPSEEK_MODEL']    ?? 'deepseek-chat',
   // Image generation — all optional; server starts fine if absent
   IMAGE_PROVIDER,
-  IMAGE_MODEL:                       process.env['IMAGE_MODEL']                       ?? 'openai/gpt-image-2',
+  IMAGE_MODEL:                       process.env['IMAGE_MODEL']                       ?? 'black-forest-labs/flux-schnell',
   REPLICATE_API_TOKEN:               process.env['REPLICATE_API_TOKEN']               ?? '',
   // How long to wait for a Replicate prediction to finish (ms).
   // Imagen 4 typically takes 30–90 s on Replicate.
