@@ -80,7 +80,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
   const isEmpty = messages.length === 0 && historyLoaded
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-2.5 px-3 pt-4 pb-3 border-b border-white/[0.06]">
         <motion.button
@@ -188,7 +188,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
         </div> {/* end scrollable div */}
       </div> {/* end relative wrapper */}
 
-      {/* Scroll-to-bottom button — centered above nav bar, like Telegram/WhatsApp */}
+      {/* Scroll-to-bottom button — fixed, centered on screen above nav bar */}
       <AnimatePresence>
         {showScrollBtn && (
           <motion.button
@@ -199,7 +199,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
             transition={{ duration: 0.18 }}
             onClick={() => scrollToBottom()}
             style={{ bottom: 'calc(78px + env(safe-area-inset-bottom, 0px))' }}
-            className="absolute left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.12] shadow-xl flex items-center justify-center text-[#ABABAB] hover:text-white hover:border-white/25 transition-colors"
+            className="fixed left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.12] shadow-xl flex items-center justify-center text-[#ABABAB] hover:text-white hover:border-white/25 transition-colors"
           >
             <ChevronDown size={16} />
           </motion.button>
