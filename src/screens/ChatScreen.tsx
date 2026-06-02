@@ -199,7 +199,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
             transition={{ duration: 0.18 }}
             onClick={() => scrollToBottom()}
             style={{ bottom: 'calc(78px + env(safe-area-inset-bottom, 0px))' }}
-            className="fixed left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.12] shadow-xl flex items-center justify-center text-[#ABABAB] hover:text-white hover:border-white/25 transition-colors"
+            className="absolute left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.12] shadow-xl flex items-center justify-center text-[#ABABAB] hover:text-white hover:border-white/25 transition-colors"
           >
             <ChevronDown size={16} />
           </motion.button>
