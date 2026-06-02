@@ -25,6 +25,8 @@ export function BottomNav({ active, onChange, onAISend, aiLoading }: BottomNavPr
   const [input, setInput] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const prevIsAI = useRef(false)
+  // Track if we've mounted — skip animation on first render
+  const mounted = useRef(false)
 
   const navItems: NavItem[] = [
     { id: 'posts',   label: t('nav.posts'),   icon: FileText },
@@ -33,10 +35,14 @@ export function BottomNav({ active, onChange, onAISend, aiLoading }: BottomNavPr
     { id: 'profile', label: t('nav.profile'), icon: User     },
   ]
 
+  useEffect(() => {
+    mounted.current = true
+  }, [])
+
   // Auto-focus input when switching to AI mode
   useEffect(() => {
     if (isAI && !prevIsAI.current) {
-      setTimeout(() => inputRef.current?.focus(), 350)
+      setTimeout(() => inputRef.current?.focus(), 300)
     }
     prevIsAI.current = isAI
   }, [isAI])
@@ -48,13 +54,14 @@ export function BottomNav({ active, onChange, onAISend, aiLoading }: BottomNavPr
   }
 
   return (
-    <motion.nav
-      layout
-      transition={{ type: 'spring', bounce: 0.18, duration: 0.45 }}
+    // Plain nav — no motion.nav with layout (conflicts with position:fixed, causes jank)
+    // Padding switches via CSS transition instead
+    <nav
       className={cn(
         'bottom-nav flex items-center',
         isAI ? 'px-4' : 'px-2'
       )}
+      style={{ transition: 'padding 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
     >
       <AnimatePresence mode="wait" initial={false}>
         {isAI ? (
@@ -65,13 +72,12 @@ export function BottomNav({ active, onChange, onAISend, aiLoading }: BottomNavPr
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18, delay: 0.1 }}
+            transition={{ duration: 0.16 }}
           >
-            {/* Bot icon — stays as visual anchor */}
             <motion.div
-              initial={{ scale: 0.6, opacity: 0 }}
+              initial={{ scale: 0.7, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              transition={{ type: 'spring', bounce: 0.4, duration: 0.4, delay: 0.15 }}
+              transition={{ type: 'spring', bounce: 0.35, duration: 0.35 }}
               className="w-7 h-7 rounded-full bg-[rgba(255,106,0,0.15)] flex items-center justify-center flex-shrink-0"
             >
               <Bot size={14} className="text-[#FF6A00]" />
@@ -147,6 +153,6 @@ export function BottomNav({ active, onChange, onAISend, aiLoading }: BottomNavPr
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.nav>
+    </nav>
   )
 }

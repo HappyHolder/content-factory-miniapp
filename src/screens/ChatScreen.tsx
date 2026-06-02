@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
-import { Bot, Loader2, Sparkles, ArrowLeft } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { Bot, Loader2, Sparkles, ArrowLeft, ChevronDown } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -30,7 +30,21 @@ interface ChatScreenProps {
 
 export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, loading, onBack }: ChatScreenProps) {
   const { activeChannel, authStatus } = useApp()
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const bottomRef    = useRef<HTMLDivElement>(null)
+  const scrollRef    = useRef<HTMLDivElement>(null)
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    bottomRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
+  }, [])
+
+  // Show/hide scroll-to-bottom button based on scroll position
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    setShowScrollBtn(distanceFromBottom > 120)
+  }, [])
 
   // Load history from DB once
   useEffect(() => {
@@ -46,12 +60,22 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
         }
       })
       .catch(() => {})
-      .finally(() => setHistoryLoaded(true))
-  }, [authStatus, historyLoaded, setHistoryLoaded, setMessages])
+      .finally(() => {
+        setHistoryLoaded(true)
+        // Scroll to bottom without animation after history loads
+        setTimeout(() => scrollToBottom(false), 50)
+      })
+  }, [authStatus, historyLoaded, setHistoryLoaded, setMessages, scrollToBottom])
 
+  // Auto-scroll on new message / loading indicator
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+    if (!historyLoaded) return
+    const el = scrollRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    // Only auto-scroll if already near the bottom (user hasn't scrolled up)
+    if (distanceFromBottom < 200) scrollToBottom()
+  }, [messages, loading, historyLoaded, scrollToBottom])
 
   const isEmpty = messages.length === 0 && historyLoaded
 
@@ -82,7 +106,30 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 no-scrollbar" style={{ paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}>
+      <div className="relative flex-1 min-h-0">
+        {/* Scroll to bottom button */}
+        <AnimatePresence>
+          {showScrollBtn && (
+            <motion.button
+              key="scroll-btn"
+              initial={{ opacity: 0, scale: 0.8, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 8 }}
+              transition={{ duration: 0.18 }}
+              onClick={() => scrollToBottom()}
+              className="absolute bottom-4 right-4 z-10 w-8 h-8 rounded-full bg-[#1A1A1E] border border-white/[0.10] shadow-lg flex items-center justify-center text-[#ABABAB] hover:text-white hover:border-white/20 transition-colors"
+            >
+              <ChevronDown size={16} />
+            </motion.button>
+          )}
+        </AnimatePresence>
+
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto px-4 py-3 space-y-3 no-scrollbar"
+          style={{ paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}
+        >
         {!historyLoaded && (
           <div className="flex justify-center pt-10">
             <Loader2 size={16} className="text-[#FF6A00] animate-spin" />
@@ -155,7 +202,8 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
         )}
 
         <div ref={bottomRef} />
-      </div>
+        </div> {/* end scrollable div */}
+      </div> {/* end relative wrapper */}
     </div>
   )
 }
