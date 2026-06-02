@@ -107,23 +107,6 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
 
       {/* Messages */}
       <div className="relative flex-1 min-h-0">
-        {/* Scroll to bottom button */}
-        <AnimatePresence>
-          {showScrollBtn && (
-            <motion.button
-              key="scroll-btn"
-              initial={{ opacity: 0, scale: 0.8, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: 8 }}
-              transition={{ duration: 0.18 }}
-              onClick={() => scrollToBottom()}
-              className="absolute bottom-4 right-4 z-10 w-8 h-8 rounded-full bg-[#1A1A1E] border border-white/[0.10] shadow-lg flex items-center justify-center text-[#ABABAB] hover:text-white hover:border-white/20 transition-colors"
-            >
-              <ChevronDown size={16} />
-            </motion.button>
-          )}
-        </AnimatePresence>
-
         <div
           ref={scrollRef}
           onScroll={handleScroll}
@@ -204,6 +187,24 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
         <div ref={bottomRef} />
         </div> {/* end scrollable div */}
       </div> {/* end relative wrapper */}
+
+      {/* Scroll-to-bottom button — centered above nav bar, like Telegram/WhatsApp */}
+      <AnimatePresence>
+        {showScrollBtn && (
+          <motion.button
+            key="scroll-btn"
+            initial={{ opacity: 0, scale: 0.8, y: 6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 6 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => scrollToBottom()}
+            style={{ bottom: 'calc(78px + env(safe-area-inset-bottom, 0px))' }}
+            className="absolute left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.12] shadow-xl flex items-center justify-center text-[#ABABAB] hover:text-white hover:border-white/25 transition-colors"
+          >
+            <ChevronDown size={16} />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
