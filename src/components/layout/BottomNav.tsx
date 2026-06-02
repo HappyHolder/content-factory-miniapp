@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileText, Sparkles, User, Bot, Send, Loader2 } from 'lucide-react'
+import { FileText, Sparkles, User, Bot, Send, Loader2, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/context/AppContext'
 
