@@ -66,17 +66,23 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, showScrollBtn
       {/* Scroll-to-bottom button — absolute inside fixed nav = perfectly centered above bar */}
       <AnimatePresence>
         {showScrollBtn && (
-          <motion.button
-            key="scroll-btn"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 0.18 }}
-            onClick={onScrollToBottom}
-            className="absolute left-1/2 -translate-x-1/2 -top-11 w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.15] shadow-xl flex items-center justify-center text-[#ABABAB]"
+          // Outer div handles centering, inner motion.button handles animation
+          // (framer-motion overwrites transform, which breaks translateX centering if combined)
+          <div
+            key="scroll-btn-wrapper"
+            style={{ position: 'absolute', top: '-44px', left: '50%', transform: 'translateX(-50%)' }}
           >
-            <ChevronDown size={16} />
-          </motion.button>
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{ duration: 0.18 }}
+              onClick={onScrollToBottom}
+              className="w-8 h-8 rounded-full bg-[#1C1C1F] border border-white/[0.15] shadow-xl flex items-center justify-center text-[#ABABAB]"
+            >
+              <ChevronDown size={16} />
+            </motion.button>
+          </div>
         )}
       </AnimatePresence>
       <AnimatePresence mode="wait" initial={false}>
