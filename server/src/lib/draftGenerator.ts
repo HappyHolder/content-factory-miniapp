@@ -24,6 +24,7 @@ export interface CreateDraftParams {
   sourceUrl:    string | null;
   imagePrompt?: string;    // optional; if provided, Replicate image generation is attempted
   useBrandKit?: boolean;   // default true; false = ignore channel style for this generation
+  imageOnly?:   boolean;   // skip text AI generation, produce one empty-text variant
 }
 
 /** Frontend-compatible post shape — identical to what /api/posts/generate returns. */
@@ -100,7 +101,7 @@ function extractButtonLinks(brandKit: unknown): {
 export async function createDraftPostForChannel(
   params: CreateDraftParams,
 ): Promise<DraftPost> {
-  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true } = params;
+  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false } = params;
 
   // ── Load channel ──────────────────────────────────────────────────────────
   const channel = await prisma.channel.findUniqueOrThrow({
@@ -136,14 +137,16 @@ export async function createDraftPostForChannel(
   const buttonLinks = extractButtonLinks(brandKit);
 
   // ── Generate variant drafts (AI or placeholder fallback) ──────────────────
-  const title         = buildTitle(input);
-  const sourceSummary = input.slice(0, 120);
-  const variantDrafts = await generatePostVariants({
-    input,
-    sourceType,
-    channel: { handle: channel.handle, name: channel.name },
-    brandKit,
-  });
+  const title         = buildTitle(input || imagePrompt || 'Image post');
+  const sourceSummary = (input || imagePrompt || '').slice(0, 120);
+  const variantDrafts = imageOnly
+    ? [{ label: 'Visual', text: '' }]
+    : await generatePostVariants({
+        input,
+        sourceType,
+        channel: { handle: channel.handle, name: channel.name },
+        brandKit,
+      });
 
   // ── Persist: GeneratedPost + 3 PostVariant rows (interactive transaction) ─
   // Step A — create post with nested variants in one round-trip.

@@ -31,7 +31,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
   const [isGenerating, setIsGenerating] = useState(false)
   const [done, setDone] = useState(false)
 
-  const canGenerate = textPrompt.trim().length > 3 && !isGenerating
+  const canGenerate = (textPrompt.trim().length > 3 || imagePrompt.trim().length > 3) && !isGenerating
 
   const handleGenerate = async () => {
     if (!canGenerate || !activeChannel) return
@@ -46,15 +46,17 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
         const initData = getTelegramInitData()
         if (!initData) throw new Error('No initData')
 
+        const effectiveInput = textPrompt.trim() || imagePrompt.trim()
         const res = await fetch(`${API_BASE}/api/posts/generate`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({
             initData,
             channelId:   state.activeChannelId,
-            input:       textPrompt.trim(),
+            input:       effectiveInput,
             sourceType:  'prompt',
             useBrandKit,
+            imageOnly:   !textPrompt.trim() && !!imagePrompt.trim(),
             ...(imagePrompt.trim() ? { imagePrompt: imagePrompt.trim() } : {}),
           }),
         })

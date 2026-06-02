@@ -61,13 +61,14 @@ function normalizeTelegramUrl(raw: unknown): string | null {
 // Response 500: DB error
 
 router.post('/generate', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, input, sourceType, imagePrompt, useBrandKit } = req.body as {
+  const { initData, channelId, input, sourceType, imagePrompt, useBrandKit, imageOnly } = req.body as {
     initData?:    unknown;
     channelId?:   unknown;
     input?:       unknown;
     sourceType?:  unknown;
     imagePrompt?: unknown;
     useBrandKit?: unknown;
+    imageOnly?:   unknown;
   };
 
   // ── 1. Input validation ───────────────────────────────────────────────────
@@ -79,11 +80,13 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     res.status(400).json({ error: 'channelId is required' });
     return;
   }
-  if (typeof input !== 'string' || !input.trim()) {
+  // input is required unless imageOnly mode (image prompt is used as the creative brief)
+  const isImageOnly = imageOnly === true;
+  if (!isImageOnly && (typeof input !== 'string' || !input.trim())) {
     res.status(400).json({ error: 'input is required and must be a non-empty string' });
     return;
   }
-  if (input.length > 8000) {
+  if (typeof input === 'string' && input.length > 8000) {
     res.status(400).json({ error: 'input exceeds maximum length of 8000 characters' });
     return;
   }
@@ -92,7 +95,7 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  const trimmedInput = input.trim();
+  const trimmedInput = typeof input === 'string' ? input.trim() : (typeof imagePrompt === 'string' ? imagePrompt.trim() : '');
 
   // ── 2. Validate Telegram initData ────────────────────────────────────────
   let parsed;
@@ -154,8 +157,8 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
       sourceType:  sourceType as string,
       sourceUrl:   null,
       imagePrompt: typeof imagePrompt === 'string' ? imagePrompt : undefined,
-      // Default true for backward compatibility (bot auto-draft, older clients).
       useBrandKit: useBrandKit === false ? false : true,
+      imageOnly:   isImageOnly,
     });
     res.json({ post: draft });
   } catch (err) {
