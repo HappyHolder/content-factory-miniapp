@@ -85,7 +85,7 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, showScrollBtn
           </div>
         )}
       </AnimatePresence>
-      <AnimatePresence initial={false}>
+      <AnimatePresence mode="wait" initial={false}>
         {isAI ? (
           /* ── AI input mode ── */
           <motion.div
@@ -157,9 +157,11 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, showScrollBtn
                 >
                   {isActive && (
                     <motion.div
-                      layoutId="nav-active-bg"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
                       className="absolute inset-0 rounded-[40px] bg-[rgba(255,106,0,0.09)]"
-                      transition={{ type: 'spring', bounce: 0.2, duration: 0.35 }}
                     />
                   )}
                   <Icon size={18} strokeWidth={isActive ? 2.1 : 1.7} className="relative z-10" />
