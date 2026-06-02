@@ -85,7 +85,7 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, showScrollBtn
           </div>
         )}
       </AnimatePresence>
-      <AnimatePresence mode="wait" initial={false}>
+      <AnimatePresence initial={false}>
         {isAI ? (
           /* ── AI input mode ── */
           <motion.div
