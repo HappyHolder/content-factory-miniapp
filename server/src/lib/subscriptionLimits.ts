@@ -6,12 +6,14 @@ interface TierLimits {
   aiCreatesLimit: number | null; // null = unlimited
   channelLimit: number;
   canSchedule: boolean;
+  canUseAiAssistant: boolean;
 }
 
 export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
-  STARTER:    { aiPostsLimit: 30,  aiCreatesLimit: 20, channelLimit: 1,  canSchedule: false },
-  CREATOR:    { aiPostsLimit: 150, aiCreatesLimit: 60, channelLimit: 3,  canSchedule: true  },
-  STUDIO_PRO: { aiPostsLimit: 700, aiCreatesLimit: null, channelLimit: 10, canSchedule: true },
+  FREE:       { aiPostsLimit: 5,   aiCreatesLimit: 5,  channelLimit: 1,  canSchedule: false, canUseAiAssistant: false },
+  STARTER:    { aiPostsLimit: 30,  aiCreatesLimit: 20, channelLimit: 1,  canSchedule: false, canUseAiAssistant: true  },
+  CREATOR:    { aiPostsLimit: 150, aiCreatesLimit: 60, channelLimit: 3,  canSchedule: true,  canUseAiAssistant: true  },
+  STUDIO_PRO: { aiPostsLimit: 700, aiCreatesLimit: null, channelLimit: 10, canSchedule: true, canUseAiAssistant: true },
 };
 
 export function isCreatesLimitReached(used: number, limit: number | null): boolean {
@@ -112,15 +114,15 @@ export async function applyTierExpiry(sub: {
   expiresAt: Date | null;
 }): Promise<TierState> {
   const now = new Date();
-  const expired = sub.tier !== 'STARTER' && sub.expiresAt !== null && now >= sub.expiresAt;
+  const expired = sub.tier !== 'FREE' && sub.expiresAt !== null && now >= sub.expiresAt;
   if (!expired) {
     return { tier: sub.tier, aiPostsLimit: sub.aiPostsLimit, aiCreatesLimit: sub.aiCreatesLimit, expiresAt: sub.expiresAt };
   }
-  const l = TIER_LIMITS.STARTER;
+  const l = TIER_LIMITS.FREE;
   await prisma.subscription.update({
     where: { userId: sub.userId },
     data:  {
-      tier: 'STARTER',
+      tier: 'FREE',
       aiPostsLimit:   l.aiPostsLimit,
       aiCreatesLimit: l.aiCreatesLimit,
       aiPostsUsed:    0,
@@ -128,7 +130,7 @@ export async function applyTierExpiry(sub: {
       expiresAt:      null,
     },
   }).catch(() => {});
-  return { tier: 'STARTER', aiPostsLimit: l.aiPostsLimit, aiCreatesLimit: l.aiCreatesLimit, expiresAt: null };
+  return { tier: 'FREE', aiPostsLimit: l.aiPostsLimit, aiCreatesLimit: l.aiCreatesLimit, expiresAt: null };
 }
 
 // ─── Per-post regeneration caps ─────────────────────────────────────────────

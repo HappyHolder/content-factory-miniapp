@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import { Loader2, ChevronDown } from 'lucide-react'
+import { Loader2, ChevronDown, Bot } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AppProvider, useApp } from '@/context/AppContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -26,7 +26,7 @@ type ModalScreen =
   | { type: 'admin_promo' }
 
 function AppContent() {
-  const { toasts, authStatus, activeChannel } = useApp()
+  const { toasts, authStatus, activeChannel, canUseAiAssistant } = useApp()
   const [activeTab, setActiveTab]             = useState<MainTab>('posts')
   const [modal, setModal]                     = useState<ModalScreen>({ type: 'none' })
   const [chatMessages, setChatMessages]       = useState<ChatMessage[]>([])
@@ -108,18 +108,38 @@ function AppContent() {
           </div>
         ) : (
           <>
-            <div className={activeTab === 'ai' ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
-              <ChatScreen
-                messages={chatMessages}
-                setMessages={setChatMessages}
-                historyLoaded={chatHistoryLoaded}
-                setHistoryLoaded={setChatHistoryLoaded}
-                onSend={sendChatMessage}
-                loading={chatLoading}
-                onBack={() => { setActiveTab('posts'); setShowChatScrollBtn(false) }}
-                onScrollBtnChange={(visible, fn) => { setShowChatScrollBtn(visible); chatScrollFn.current = fn }}
-              />
-            </div>
+            {canUseAiAssistant ? (
+              <div className={activeTab === 'ai' ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
+                <ChatScreen
+                  messages={chatMessages}
+                  setMessages={setChatMessages}
+                  historyLoaded={chatHistoryLoaded}
+                  setHistoryLoaded={setChatHistoryLoaded}
+                  onSend={sendChatMessage}
+                  loading={chatLoading}
+                  onBack={() => { setActiveTab('posts'); setShowChatScrollBtn(false) }}
+                  onScrollBtnChange={(visible, fn) => { setShowChatScrollBtn(visible); chatScrollFn.current = fn }}
+                />
+              </div>
+            ) : activeTab === 'ai' ? (
+              <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-8 text-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.22)] flex items-center justify-center">
+                  <Bot size={26} className="text-[#FF6A00]" />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[16px] font-bold text-white">Личный AI ассистент</p>
+                  <p className="text-[13px] text-[#A1A1AA] leading-relaxed">
+                    Помогает с идеями, черновиками и стратегией канала. Доступен на тарифе Starter и выше.
+                  </p>
+                </div>
+                <button
+                  onClick={handleOpenPlans}
+                  className="mt-1 px-5 py-2.5 rounded-[12px] bg-[#FF6A00] text-white text-[13px] font-semibold hover:bg-[#ff7a1a] transition-colors orange-glow"
+                >
+                  Посмотреть тарифы
+                </button>
+              </div>
+            ) : null}
             {activeTab !== 'ai' && (
               <AppShell key={activeTab} pageKey={activeTab}>
                 {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
@@ -136,6 +156,7 @@ function AppContent() {
         onChange={tab => { setModal({ type: 'none' }); setActiveTab(tab) }}
         onAISend={sendChatMessage}
         aiLoading={chatLoading}
+        aiEnabled={canUseAiAssistant}
         showScrollBtn={activeTab === 'ai' && showChatScrollBtn}
         onScrollToBottom={() => chatScrollFn.current?.()}
       />

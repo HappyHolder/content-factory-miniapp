@@ -12,7 +12,8 @@ import type { TranslationKey } from '@/i18n'
 import type { Channel, PlanTier } from '@/types'
 
 // Map planTier to translation key for plan names
-const PLAN_NAME_KEY: Record<PlanTier, 'plans.starter' | 'plans.creator' | 'plans.studioPro'> = {
+const PLAN_NAME_KEY: Record<PlanTier, 'plans.free' | 'plans.starter' | 'plans.creator' | 'plans.studioPro'> = {
+  free:       'plans.free',
   starter:    'plans.starter',
   creator:    'plans.creator',
   studio_pro: 'plans.studioPro',

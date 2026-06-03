@@ -82,6 +82,7 @@ interface AppContextValue {
   authStatus: AuthStatus
   activeChannel: Channel | undefined
   canSchedulePosts: boolean
+  canUseAiAssistant: boolean
   canGenerate: boolean
   createsRemaining: number | null  // null = unlimited
   language: Language
@@ -516,7 +517,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     aiCreatesUsed: number
   }) => {
     const planTier = sub.tier.toLowerCase() as import('@/types').PlanTier
-    const planName = planTier === 'studio_pro' ? 'Studio Pro' : planTier === 'creator' ? 'Creator' : 'Starter'
+    const planName = planTier === 'studio_pro' ? 'Studio Pro'
+      : planTier === 'creator' ? 'Creator'
+      : planTier === 'starter' ? 'Starter'
+      : 'Free'
     setState(prev => ({
       ...prev,
       user: {
@@ -605,8 +609,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const activeChannel = state.channels.find(c => c.id === state.activeChannelId)
 
-  // STARTER cannot schedule posts; CREATOR and STUDIO_PRO can
-  const canSchedulePosts = state.user.subscription.planTier !== 'starter'
+  // Only CREATOR and STUDIO_PRO can schedule posts (FREE/STARTER cannot)
+  const planTier = state.user.subscription.planTier
+  const canSchedulePosts = planTier === 'creator' || planTier === 'studio_pro'
+  // AI assistant is gated to STARTER and above (FREE has no access)
+  const canUseAiAssistant = planTier !== 'free'
 
   // Check if user can still generate in Create mode
   const aiCreatesLimit = state.user.subscription.aiCreatesLimit ?? null
@@ -620,6 +627,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       authStatus,
       activeChannel,
       canSchedulePosts,
+      canUseAiAssistant,
       canGenerate,
       createsRemaining,
       language,

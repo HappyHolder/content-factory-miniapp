@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
+import { TIER_LIMITS } from '../lib/subscriptionLimits';
 
 const router = Router();
 
@@ -60,6 +61,17 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     select: { id: true, name: true },
   }).catch(() => null);
   if (!dbUser) { res.status(401).json({ error: 'User not found' }); return; }
+
+  // Gate the AI assistant by plan tier — FREE has no access.
+  const sub = await prisma.subscription.findUnique({
+    where:  { userId: dbUser.id },
+    select: { tier: true },
+  }).catch(() => null);
+  const tier = sub?.tier ?? 'FREE';
+  if (!TIER_LIMITS[tier].canUseAiAssistant) {
+    res.status(403).json({ error: 'AI ассистент доступен на тарифе Starter и выше.', code: 'UPGRADE_REQUIRED' });
+    return;
+  }
 
   if (!env.DEEPSEEK_API_KEY) { res.status(503).json({ error: 'AI not configured' }); return; }
 

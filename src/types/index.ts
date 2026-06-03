@@ -20,7 +20,7 @@ export interface ChannelAbout {
   contentGoal: string
 }
 
-export type PlanTier = 'starter' | 'creator' | 'studio_pro'
+export type PlanTier = 'free' | 'starter' | 'creator' | 'studio_pro'
 
 export interface Subscription {
   planTier: PlanTier

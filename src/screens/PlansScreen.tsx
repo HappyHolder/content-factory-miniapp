@@ -14,7 +14,7 @@ interface PlansScreenProps {
 }
 
 // Tier order for upgrade/downgrade detection
-const TIER_RANK: Record<PlanTier, number> = { starter: 0, creator: 1, studio_pro: 2 }
+const TIER_RANK: Record<PlanTier, number> = { free: 0, starter: 1, creator: 2, studio_pro: 3 }
 
 // Static per-plan config — keys resolved via t() inside the component
 interface PlanConfig {
@@ -28,11 +28,19 @@ interface PlanConfig {
 
 const PLAN_CONFIG: PlanConfig[] = [
   {
+    tier: 'free',
+    price: '$0',
+    nameKey: 'plans.free',
+    featureKeys: ['plans.posts5', 'plans.creates5', 'plans.channel1', 'plans.noAiAssistant'],
+    upgradeKey: null,
+    downgradeKey: 'plans.switchToFree',
+  },
+  {
     tier: 'starter',
     price: '$5',
     nameKey: 'plans.starter',
     featureKeys: ['plans.posts30', 'plans.creates20', 'plans.channel1', 'plans.aiAssistant'],
-    upgradeKey: null,
+    upgradeKey: 'plans.upgradeToStarter',
     downgradeKey: 'plans.switchToStarter',
   },
   {

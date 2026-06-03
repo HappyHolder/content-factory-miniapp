@@ -17,13 +17,15 @@ interface BottomNavProps {
   onChange: (tab: Tab) => void
   onAISend: (text: string) => void
   aiLoading: boolean
+  aiEnabled?: boolean
   showScrollBtn?: boolean
   onScrollToBottom?: () => void
 }
 
-export function BottomNav({ active, onChange, onAISend, aiLoading, showScrollBtn, onScrollToBottom }: BottomNavProps) {
+export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = true, showScrollBtn, onScrollToBottom }: BottomNavProps) {
   const { t } = useApp()
-  const isAI = active === 'ai'
+  // FREE users have no AI input — keep the bar in normal tabs mode on the AI tab.
+  const isAI = active === 'ai' && aiEnabled
   const [input, setInput] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const prevIsAI = useRef(false)

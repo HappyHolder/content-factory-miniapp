@@ -37,6 +37,7 @@ enum JobStatus {
 }
 
 enum PlanTier {
+  FREE
   STARTER
   CREATOR
   STUDIO_PRO
@@ -227,10 +228,10 @@ model PromoCode {
 model Subscription {
   id              String    @id @default(cuid())
   userId          String    @unique
-  tier            PlanTier  @default(STARTER)
-  aiPostsLimit    Int       @default(30)
+  tier            PlanTier  @default(FREE)
+  aiPostsLimit    Int       @default(5)
   aiPostsUsed     Int       @default(0)
-  aiCreatesLimit  Int?                       // null = unlimited (Studio Pro)
+  aiCreatesLimit  Int?      @default(5)       // null = unlimited (Studio Pro)
   aiCreatesUsed   Int       @default(0)
   quotaResetAt    DateTime?                  // when aiPostsUsed/aiCreatesUsed next reset (monthly)
   expiresAt       DateTime?

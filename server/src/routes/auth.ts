@@ -139,13 +139,13 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       });
       dbSubscription = { tier: tierState.tier, expiresAt: tierState.expiresAt, ...fresh };
     } else {
-      const limits = TIER_LIMITS['STARTER'];
+      const limits = TIER_LIMITS['FREE'];
       const nextReset = new Date();
       nextReset.setMonth(nextReset.getMonth() + 1);
       dbSubscription = await prisma.subscription.create({
         data: {
           userId:         dbUser.id,
-          tier:           'STARTER',
+          tier:           'FREE',
           aiPostsLimit:   limits.aiPostsLimit,
           aiPostsUsed:    0,
           aiCreatesLimit: limits.aiCreatesLimit,
