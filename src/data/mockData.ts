@@ -12,6 +12,10 @@ export const mockUser: User = {
     billingPeriod: 'monthly',
     renewsAt: 'Jun 25',
     status: 'active',
+    aiPostsLimit:   150,
+    aiPostsUsed:    0,
+    aiCreatesLimit: 60,
+    aiCreatesUsed:  0,
   },
 }
 

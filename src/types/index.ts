@@ -28,6 +28,11 @@ export interface Subscription {
   billingPeriod: 'monthly'
   renewsAt: string
   status: 'active'
+  // Quota counters from backend
+  aiPostsLimit: number
+  aiPostsUsed: number
+  aiCreatesLimit: number | null  // null = unlimited
+  aiCreatesUsed: number
 }
 
 export interface Plan {

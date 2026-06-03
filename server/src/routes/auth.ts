@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
+import { TIER_LIMITS } from '../lib/subscriptionLimits';
 
 const router = Router();
 
@@ -106,6 +107,36 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
     }
   }
 
+  // ── Upsert Subscription (create on first login, keep existing if present) ──
+  let dbSubscription: {
+    tier: string; aiPostsLimit: number; aiPostsUsed: number;
+    aiCreatesLimit: number | null; aiCreatesUsed: number; expiresAt: Date | null;
+  } | null = null;
+  try {
+    const existingSub = await prisma.subscription.findUnique({
+      where:  { userId: dbUser.id },
+      select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
+    });
+    if (existingSub) {
+      dbSubscription = existingSub;
+    } else {
+      const limits = TIER_LIMITS['STARTER'];
+      dbSubscription = await prisma.subscription.create({
+        data: {
+          userId:         dbUser.id,
+          tier:           'STARTER',
+          aiPostsLimit:   limits.aiPostsLimit,
+          aiPostsUsed:    0,
+          aiCreatesLimit: limits.aiCreatesLimit,
+          aiCreatesUsed:  0,
+        },
+        select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
+      });
+    }
+  } catch (err) {
+    console.error('[auth/telegram] Subscription upsert failed (non-fatal):', err);
+  }
+
   // ── Response ──────────────────────────────────────────────────────────────
   res.json({
     user: {
@@ -123,8 +154,15 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       isDefault:        i === 0,
       isConnected:      true,
     })),
-    brandKits:    dbBrandKits,
-    subscription: null,
+    brandKits: dbBrandKits,
+    subscription: dbSubscription ? {
+      tier:           dbSubscription.tier,
+      aiPostsLimit:   dbSubscription.aiPostsLimit,
+      aiPostsUsed:    dbSubscription.aiPostsUsed,
+      aiCreatesLimit: dbSubscription.aiCreatesLimit,
+      aiCreatesUsed:  dbSubscription.aiCreatesUsed,
+      expiresAt:      dbSubscription.expiresAt?.toISOString() ?? null,
+    } : null,
   });
 });
 

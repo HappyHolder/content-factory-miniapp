@@ -8,6 +8,7 @@ import {
   getBotIdFromToken,
   TelegramApiError,
 } from '../lib/telegramBot';
+import { TIER_LIMITS } from '../lib/subscriptionLimits';
 
 const router = Router();
 
@@ -158,7 +159,29 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 8. Duplicate-ownership check ─────────────────────────────────────────
+  // ── 8. Check channel limit for subscription tier ─────────────────────────
+  try {
+    const userSub = await prisma.subscription.findUnique({
+      where:  { userId: dbUser.id },
+      select: { tier: true },
+    });
+    const tier = (userSub?.tier ?? 'STARTER') as keyof typeof TIER_LIMITS;
+    const channelLimit = TIER_LIMITS[tier].channelLimit;
+    const channelCount = await prisma.channel.count({ where: { userId: dbUser.id } });
+    if (channelCount >= channelLimit) {
+      res.status(403).json({
+        error:  `Your ${tier} plan allows up to ${channelLimit} channel${channelLimit > 1 ? 's' : ''}. Upgrade to add more.`,
+        code:   'CHANNEL_LIMIT_REACHED',
+        limit:  channelLimit,
+      });
+      return;
+    }
+  } catch (err) {
+    console.error('[channels/connect] Subscription check failed:', err);
+    // Non-fatal: allow the connection if the check fails
+  }
+
+  // ── 9. Duplicate-ownership check ─────────────────────────────────────────
   let existingChannel: { id: string; userId: string } | null = null;
   try {
     existingChannel = await prisma.channel.findFirst({
@@ -178,7 +201,7 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 9. Upsert Channel in DB ───────────────────────────────────────────────
+  // ── 10. Upsert Channel in DB ──────────────────────────────────────────────
   const title = tgChat.title ?? handle;
   const subscribersCount = tgChat.member_count ?? 0;
 

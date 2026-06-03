@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { sendBotMessage } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
+import { isPostsLimitReached } from '../lib/subscriptionLimits';
 
 const router = Router();
 
@@ -260,6 +261,17 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 
   // ── 8. Generate draft and notify user asynchronously ─────────────────────
   (async () => {
+    // Check bot-posts quota before generating
+    const userSub = await prisma.subscription.findUnique({
+      where:  { userId: dbUser.id },
+      select: { aiPostsLimit: true, aiPostsUsed: true },
+    }).catch(() => null);
+
+    if (userSub && isPostsLimitReached(userSub.aiPostsUsed, userSub.aiPostsLimit)) {
+      await trySendReply(chatId, `⚠️ You've reached your monthly bot-post limit (${userSub.aiPostsLimit}). Upgrade your plan in the Mini App.`);
+      return;
+    }
+
     let draftCreated = false;
     try {
       await createDraftPostForChannel({
@@ -271,6 +283,13 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       draftCreated = true;
     } catch (err) {
       console.error('[bot/webhook] Draft generation failed:', (err as Error).message);
+    }
+
+    if (draftCreated && userSub) {
+      prisma.subscription.update({
+        where: { userId: dbUser.id },
+        data:  { aiPostsUsed: { increment: 1 } },
+      }).catch(err => console.error('[bot/webhook] Usage increment failed:', (err as Error).message));
     }
 
     const reply = draftCreated

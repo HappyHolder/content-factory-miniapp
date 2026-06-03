@@ -82,6 +82,8 @@ interface AppContextValue {
   authStatus: AuthStatus
   activeChannel: Channel | undefined
   canSchedulePosts: boolean
+  canGenerate: boolean
+  createsRemaining: number | null  // null = unlimited
   language: Language
   setLanguage: (lang: Language) => void
   t: (key: TranslationKey) => string
@@ -229,7 +231,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         signature:    unknown
         postRules:    unknown
       }[]
-      subscription: null
+      subscription: {
+        tier:           string
+        aiPostsLimit:   number
+        aiPostsUsed:    number
+        aiCreatesLimit: number | null
+        aiCreatesUsed:  number
+        expiresAt:      string | null
+      } | null
     }
 
     // Async IIFE — lets us await auth then posts sequentially while keeping
@@ -330,6 +339,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }).catch(() => {})
       }
 
+      const serverSub = authData!.subscription
       setState(prev => ({
         ...prev,
         user: {
@@ -337,6 +347,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id:       authData!.user.id,
           name:     authData!.user.name     ?? prev.user.name,
           username: authData!.user.username ?? prev.user.username,
+          subscription: serverSub ? {
+            ...prev.user.subscription,
+            planTier:       serverSub.tier.toLowerCase().replace('_pro', '_pro') as import('@/types').PlanTier,
+            aiPostsLimit:   serverSub.aiPostsLimit,
+            aiPostsUsed:    serverSub.aiPostsUsed,
+            aiCreatesLimit: serverSub.aiCreatesLimit,
+            aiCreatesUsed:  serverSub.aiCreatesUsed,
+          } : prev.user.subscription,
         },
         channels:        realChannels,
         brandKits:       realBrandKits,
@@ -399,6 +417,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addPost = useCallback((post: GeneratedPost) => {
     postService.add(post)
     refreshPosts()
+    // Increment local Create-mode usage counter optimistically
+    setState(prev => ({
+      ...prev,
+      user: {
+        ...prev.user,
+        subscription: {
+          ...prev.user.subscription,
+          aiCreatesUsed: prev.user.subscription.aiCreatesUsed + 1,
+        },
+      },
+    }))
   }, [refreshPosts])
 
   const updatePost = useCallback((id: string, updates: Partial<GeneratedPost>) => {
@@ -544,12 +573,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // STARTER cannot schedule posts; CREATOR and STUDIO_PRO can
   const canSchedulePosts = state.user.subscription.planTier !== 'starter'
 
+  // Check if user can still generate in Create mode
+  const aiCreatesLimit = state.user.subscription.aiCreatesLimit ?? null
+  const aiCreatesUsed  = state.user.subscription.aiCreatesUsed  ?? 0
+  const canGenerate = aiCreatesLimit === null || aiCreatesUsed < aiCreatesLimit
+  const createsRemaining = aiCreatesLimit === null ? null : Math.max(0, aiCreatesLimit - aiCreatesUsed)
+
   return (
     <AppContext.Provider value={{
       state,
       authStatus,
       activeChannel,
       canSchedulePosts,
+      canGenerate,
+      createsRemaining,
       language,
       setLanguage,
       t,

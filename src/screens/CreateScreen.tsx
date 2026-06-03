@@ -24,17 +24,22 @@ interface CreateScreenProps {
 }
 
 export function CreateScreen({ onPostCreated }: CreateScreenProps) {
-  const { state, activeChannel, addPost, showToast, t, authStatus } = useApp()
+  const { state, activeChannel, addPost, showToast, t, authStatus, canGenerate: hasQuota, createsRemaining } = useApp()
   const [textPrompt, setTextPrompt] = useState('')
   const [imagePrompt, setImagePrompt] = useState('')
   const [useBrandKit, setUseBrandKit] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [done, setDone] = useState(false)
 
-  const canGenerate = (textPrompt.trim().length > 3 || imagePrompt.trim().length > 3) && !isGenerating
+  const hasInput = textPrompt.trim().length > 3 || imagePrompt.trim().length > 3
+  const canGenerate = hasInput && !isGenerating && hasQuota
 
   const handleGenerate = async () => {
-    if (!canGenerate || !activeChannel) return
+    if (!hasInput || !activeChannel) return
+    if (!hasQuota) {
+      showToast('Лимит генераций исчерпан. Обновите план.', 'error')
+      return
+    }
 
     setIsGenerating(true)
     setDone(false)
@@ -152,7 +157,31 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
               />
             </div>
 
-            <div className="px-4 pb-4">
+            <div className="px-4 pb-4 space-y-2">
+              {/* Quota counter */}
+              {createsRemaining !== null && (
+                <div className={cn(
+                  'flex items-center justify-between px-3 py-2 rounded-[10px] text-[12px]',
+                  createsRemaining === 0
+                    ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+                    : createsRemaining <= 5
+                      ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                      : 'bg-white/[0.03] border border-white/[0.07] text-[#55555D]'
+                )}>
+                  <span>Генераций осталось</span>
+                  <span className="font-semibold">{createsRemaining}</span>
+                </div>
+              )}
+
+              {/* Limit reached banner */}
+              {!hasQuota && (
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-[10px] bg-red-500/10 border border-red-500/20">
+                  <span className="text-[12px] text-red-400 leading-snug">
+                    Лимит генераций исчерпан. <span className="font-semibold underline cursor-pointer">Обновите план</span>
+                  </span>
+                </div>
+              )}
+
               <motion.button
                 onClick={handleGenerate}
                 disabled={!canGenerate}

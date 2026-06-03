@@ -8,6 +8,7 @@ import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard 
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { generateImageForPost, buildVisualKitPromptHints } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
+import { isCreatesLimitReached } from '../lib/subscriptionLimits';
 
 // ─── Multer for image uploads ─────────────────────────────────────────────────
 const uploadMiddleware = multer({
@@ -126,7 +127,27 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 4. Find channel + verify ownership ───────────────────────────────────
+  // ── 4. Check Create-mode generation quota ────────────────────────────────
+  let subscription: { tier: string; aiCreatesLimit: number | null; aiCreatesUsed: number } | null = null;
+  try {
+    subscription = await prisma.subscription.findUnique({
+      where:  { userId: dbUser.id },
+      select: { tier: true, aiCreatesLimit: true, aiCreatesUsed: true },
+    });
+  } catch (err) {
+    console.error('[posts/generate] Subscription lookup failed:', (err as Error).message);
+  }
+  if (subscription && isCreatesLimitReached(subscription.aiCreatesUsed, subscription.aiCreatesLimit)) {
+    res.status(403).json({
+      error:       'Monthly Create-mode generation limit reached. Upgrade your plan.',
+      code:        'CREATES_LIMIT_REACHED',
+      used:        subscription.aiCreatesUsed,
+      limit:       subscription.aiCreatesLimit,
+    });
+    return;
+  }
+
+  // ── 5. Find channel + verify ownership ───────────────────────────────────
   let channel: { id: string; userId: string; handle: string | null; name: string } | null = null;
   try {
     channel = await prisma.channel.findUnique({
@@ -147,7 +168,7 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 5. Create draft: BrandKit load + AI generation + DB persist ─────────────
+  // ── 6. Create draft: BrandKit load + AI generation + DB persist ─────────────
   // Delegated to the shared draftGenerator helper so the logic is not
   // duplicated between this route and the bot webhook auto-draft flow.
   try {
@@ -160,7 +181,22 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
       useBrandKit: useBrandKit === false ? false : true,
       imageOnly:   isImageOnly,
     });
-    res.json({ post: draft });
+
+    // Increment Create-mode usage counter (non-fatal if it fails)
+    if (subscription) {
+      prisma.subscription.update({
+        where: { userId: dbUser.id },
+        data:  { aiCreatesUsed: { increment: 1 } },
+      }).catch(err => console.error('[posts/generate] Usage increment failed:', (err as Error).message));
+    }
+
+    res.json({
+      post: draft,
+      usage: subscription ? {
+        aiCreatesUsed:  (subscription.aiCreatesUsed ?? 0) + 1,
+        aiCreatesLimit: subscription.aiCreatesLimit,
+      } : undefined,
+    });
   } catch (err) {
     console.error('[posts/generate] Draft creation failed:', (err as Error).message);
     res.status(500).json({ error: 'Internal server error' });
@@ -753,7 +789,16 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
     res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
   }
 
-  // ── 4. Load post + channel for ownership check ────────────────────────────
+  // ── 4. Check scheduling permission (Creator+ only) ───────────────────────
+  const sub = await prisma.subscription.findUnique({
+    where:  { userId: dbUser.id },
+    select: { tier: true },
+  }).catch(() => null);
+  if (sub?.tier === 'STARTER') {
+    res.status(403).json({ error: 'Scheduled posts are available on the Creator plan and above.', code: 'UPGRADE_REQUIRED' }); return;
+  }
+
+  // ── 5. Load post + channel for ownership check ────────────────────────────
   let post: { id: string; status: string; channel: { userId: string } } | null = null;
   try {
     post = await prisma.generatedPost.findUnique({
@@ -778,7 +823,7 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
     res.status(409).json({ error: 'Cannot schedule an already published post.' }); return;
   }
 
-  // ── 5. Persist SCHEDULED status + scheduledAt ─────────────────────────────
+  // ── 6. Persist SCHEDULED status + scheduledAt ─────────────────────────────
   try {
     await prisma.generatedPost.update({
       where: { id: postId },
