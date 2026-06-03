@@ -28,7 +28,7 @@ const PLAN_CONFIG: PlanConfig[] = [
     tier: 'starter',
     price: '$5',
     nameKey: 'plans.starter',
-    featureKeys: ['plans.posts30', 'plans.channel1'],
+    featureKeys: ['plans.posts30', 'plans.creates20', 'plans.channel1', 'plans.aiAssistant'],
     upgradeKey: null,
     downgradeKey: 'plans.switchToStarter',
   },
@@ -36,7 +36,7 @@ const PLAN_CONFIG: PlanConfig[] = [
     tier: 'creator',
     price: '$20',
     nameKey: 'plans.creator',
-    featureKeys: ['plans.posts150', 'plans.channels3', 'plans.scheduledPosts'],
+    featureKeys: ['plans.posts150', 'plans.creates60', 'plans.channels3', 'plans.scheduledPosts', 'plans.aiAssistant', 'plans.storiesPostingSoon'],
     upgradeKey: 'plans.upgradeToCreator',
     downgradeKey: 'plans.switchToCreator',
   },
@@ -44,7 +44,7 @@ const PLAN_CONFIG: PlanConfig[] = [
     tier: 'studio_pro',
     price: '$70',
     nameKey: 'plans.studioPro',
-    featureKeys: ['plans.posts700', 'plans.channels10', 'plans.scheduledPosts', 'plans.postPromotionSoon'],
+    featureKeys: ['plans.posts700', 'plans.createsUnlimited', 'plans.channels10', 'plans.scheduledPosts', 'plans.aiAssistant', 'plans.storiesPostingSoon', 'plans.postPromotionSoon', 'plans.videoGenerationSoon', 'plans.chatActivityBot'],
     upgradeKey: 'plans.upgradeToPro',
     downgradeKey: null,
   },
@@ -92,6 +92,11 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                 <div className="mb-3">
                   <div className="flex items-center gap-2 mb-0.5">
                     <h2 className="text-[17px] font-bold text-white">{planName}</h2>
+                    {plan.tier === 'studio_pro' && !isCurrent && (
+                      <span className="text-[10px] font-semibold text-[#A1A1AA] bg-white/[0.07] border border-white/[0.10] px-2 py-px rounded-full">
+                        Soon
+                      </span>
+                    )}
                     {isCurrent && (
                       <span className="text-[10px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.25)] px-2 py-px rounded-full">
                         {t('plans.active')}
