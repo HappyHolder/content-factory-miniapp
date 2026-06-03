@@ -63,7 +63,7 @@ export const env = {
   IMAGE_GENERATION_POLL_TIMEOUT_MS:
     parseInt(process.env['IMAGE_GENERATION_POLL_TIMEOUT_MS'] ?? '300000', 10),
   ADMIN_TELEGRAM_IDS,
-  // /start welcome: image shown + Mini App URL opened by the "Open app" button
-  WELCOME_IMAGE_URL: process.env['WELCOME_IMAGE_URL'] ?? '',
-  MINI_APP_URL:      process.env['MINI_APP_URL']      ?? '',
+  // Optional: Mini App URL for the /start "Open app" button. If unset, the
+  // welcome is sent without a button (users tap the bot's menu button instead).
+  MINI_APP_URL: process.env['MINI_APP_URL'] ?? '',
 } as const;

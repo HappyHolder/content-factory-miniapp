@@ -193,6 +193,39 @@ export async function sendBotPhoto(
 }
 
 /**
+ * Sends a local image file as a photo via multipart upload (no public URL needed).
+ * Reads the file from disk and uploads the bytes directly to Telegram.
+ * Throws TelegramApiError on a non-ok response or network failure.
+ */
+export async function sendBotPhotoFile(
+  chatId: number | string,
+  fileBytes: Buffer,
+  fileName: string,
+  caption: string,
+  token: string,
+  replyMarkup?: AnyInlineKeyboard,
+): Promise<void> {
+  const url = `${TG_API}/bot${token}/sendPhoto`;
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  form.append('caption', buildPhotoCaption(caption));
+  if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+  form.append('photo', new Blob([new Uint8Array(fileBytes)]), fileName);
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'POST', body: form });
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling sendPhoto (file): ${(err as Error).message}`);
+  }
+
+  const body = (await res.json()) as TgApiResponse<unknown>;
+  if (!body.ok) {
+    throw new TelegramApiError(body.description ?? 'sendPhoto (file) returned not-ok', body.error_code);
+  }
+}
+
+/**
  * Returns the membership/role info for a user in a chat.
  * chatId should be in the form "@username".
  * Throws TelegramApiError if the user is not found or the request fails.

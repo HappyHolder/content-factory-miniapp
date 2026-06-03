@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
-import { sendBotMessage, sendBotPhoto, TelegramWebAppKeyboard } from '../lib/telegramBot';
+import fs from 'fs';
+import path from 'path';
+import { sendBotMessage, sendBotPhotoFile, TelegramWebAppKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { isPostsLimitReached, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
 
@@ -11,17 +13,22 @@ const WELCOME_TEXT =
   'Кидаешь идею или пересылаешь пост с другого канала → получаешь 3 варианта ' +
   'оригинального поста с обложкой → публикуешь в канал в пару тапов.\n\nНачнём?';
 
+// Welcome image bundled in the repo. Drop the file here and it just works —
+// no hosting/URL needed (sent to Telegram as a direct file upload).
+const WELCOME_IMAGE_PATH = path.resolve(process.cwd(), 'assets/welcome.jpg');
+
 /**
- * Sends the /start welcome: image (if configured) + caption + a Web App button
- * that opens the Mini App. Falls back to a plain message if no image/app URL set.
+ * Sends the /start welcome: the bundled image (if present) + caption + an
+ * optional Web App button. Falls back to a plain text message if no image file.
  */
 async function sendWelcome(chatId: number): Promise<void> {
   const keyboard: TelegramWebAppKeyboard | undefined = env.MINI_APP_URL
     ? { inline_keyboard: [[{ text: '🚀 Открыть приложение', web_app: { url: env.MINI_APP_URL } }]] }
     : undefined;
   try {
-    if (env.WELCOME_IMAGE_URL) {
-      await sendBotPhoto(chatId, env.WELCOME_IMAGE_URL, WELCOME_TEXT, env.TELEGRAM_BOT_TOKEN, keyboard);
+    if (fs.existsSync(WELCOME_IMAGE_PATH)) {
+      const bytes = await fs.promises.readFile(WELCOME_IMAGE_PATH);
+      await sendBotPhotoFile(chatId, bytes, 'welcome.jpg', WELCOME_TEXT, env.TELEGRAM_BOT_TOKEN, keyboard);
     } else {
       await sendBotMessage(chatId, WELCOME_TEXT, env.TELEGRAM_BOT_TOKEN, keyboard);
     }
