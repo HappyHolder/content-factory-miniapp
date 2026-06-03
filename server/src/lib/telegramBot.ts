@@ -86,6 +86,16 @@ export interface TelegramInlineKeyboard {
 }
 
 /**
+ * Inline keyboard with a Web App button — opens the Mini App inside Telegram.
+ * Only valid in private chats. Used for the /start welcome message.
+ */
+export interface TelegramWebAppKeyboard {
+  inline_keyboard: { text: string; web_app: { url: string } }[][];
+}
+
+export type AnyInlineKeyboard = TelegramInlineKeyboard | TelegramWebAppKeyboard;
+
+/**
  * Sends a plain-text message to a Telegram chat via sendMessage.
  * chatId may be a numeric user/chat ID or a public username string ("@channelname").
  * Pass replyMarkup to attach an inline keyboard (link buttons) to the message.
@@ -96,7 +106,7 @@ export async function sendBotMessage(
   chatId: number | string,
   text: string,
   token: string,
-  replyMarkup?: TelegramInlineKeyboard,
+  replyMarkup?: AnyInlineKeyboard,
 ): Promise<void> {
   const url = `${TG_API}/bot${token}/sendMessage`;
   let res: Response;
@@ -152,7 +162,7 @@ export async function sendBotPhoto(
   photoUrl: string,
   caption: string,
   token: string,
-  replyMarkup?: TelegramInlineKeyboard,
+  replyMarkup?: AnyInlineKeyboard,
 ): Promise<void> {
   const url = `${TG_API}/bot${token}/sendPhoto`;
   const safeCaption = buildPhotoCaption(caption);

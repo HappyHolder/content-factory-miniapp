@@ -1,9 +1,34 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
-import { sendBotMessage } from '../lib/telegramBot';
+import { sendBotMessage, sendBotPhoto, TelegramWebAppKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { isPostsLimitReached, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
+
+// ─── /start welcome ─────────────────────────────────────────────────────────
+const WELCOME_TEXT =
+  '👋 Content Factory — твоя AI-фабрика контента.\n\n' +
+  'Кидаешь идею или пересылаешь пост с другого канала → получаешь 3 варианта ' +
+  'оригинального поста с обложкой → публикуешь в канал в пару тапов.\n\nНачнём?';
+
+/**
+ * Sends the /start welcome: image (if configured) + caption + a Web App button
+ * that opens the Mini App. Falls back to a plain message if no image/app URL set.
+ */
+async function sendWelcome(chatId: number): Promise<void> {
+  const keyboard: TelegramWebAppKeyboard | undefined = env.MINI_APP_URL
+    ? { inline_keyboard: [[{ text: '🚀 Открыть приложение', web_app: { url: env.MINI_APP_URL } }]] }
+    : undefined;
+  try {
+    if (env.WELCOME_IMAGE_URL) {
+      await sendBotPhoto(chatId, env.WELCOME_IMAGE_URL, WELCOME_TEXT, env.TELEGRAM_BOT_TOKEN, keyboard);
+    } else {
+      await sendBotMessage(chatId, WELCOME_TEXT, env.TELEGRAM_BOT_TOKEN, keyboard);
+    }
+  } catch (err) {
+    console.error('[bot/webhook] sendWelcome failed:', (err as Error).message);
+  }
+}
 
 const router = Router();
 
@@ -137,6 +162,13 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 
   if (!sourceText.trim()) {
     await trySendReply(chatId, 'For now, send text or a link.');
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // ── /start → welcome message with Open-app button ────────────────────────
+  if (sourceText.trim().toLowerCase().startsWith('/start')) {
+    await sendWelcome(chatId);
     res.status(200).json({ ok: true });
     return;
   }
