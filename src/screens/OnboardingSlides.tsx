@@ -37,7 +37,8 @@ export function OnboardingSlides({ onDone }: OnboardingSlidesProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col bg-[#070708]">
+    <div className="fixed inset-0 z-[200] flex justify-center bg-[#070708]">
+     <div className="w-full max-w-[430px] flex flex-col">
       {/* Skip */}
       <div className="flex justify-end px-4 pt-4">
         <button
@@ -105,6 +106,7 @@ export function OnboardingSlides({ onDone }: OnboardingSlidesProps) {
           {!isLast && <ChevronRight size={17} />}
         </button>
       </div>
+     </div>
     </div>
   )
 }
