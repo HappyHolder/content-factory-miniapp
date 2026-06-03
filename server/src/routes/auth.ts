@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { TIER_LIMITS } from '../lib/subscriptionLimits';
+import { TIER_LIMITS, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
 
 const router = Router();
 
@@ -115,12 +115,16 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
   try {
     const existingSub = await prisma.subscription.findUnique({
       where:  { userId: dbUser.id },
-      select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
+      select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true, expiresAt: true },
     });
     if (existingSub) {
-      dbSubscription = existingSub;
+      // Lazily roll over monthly counters if the billing period elapsed.
+      const fresh = await applyMonthlyQuotaReset({ userId: dbUser.id, ...existingSub });
+      dbSubscription = { tier: existingSub.tier, expiresAt: existingSub.expiresAt, ...fresh };
     } else {
       const limits = TIER_LIMITS['STARTER'];
+      const nextReset = new Date();
+      nextReset.setMonth(nextReset.getMonth() + 1);
       dbSubscription = await prisma.subscription.create({
         data: {
           userId:         dbUser.id,
@@ -129,6 +133,7 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
           aiPostsUsed:    0,
           aiCreatesLimit: limits.aiCreatesLimit,
           aiCreatesUsed:  0,
+          quotaResetAt:   nextReset,
         },
         select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
       });

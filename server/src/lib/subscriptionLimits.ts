@@ -1,4 +1,5 @@
 import type { PlanTier } from '@prisma/client';
+import { prisma } from '../db';
 
 interface TierLimits {
   aiPostsLimit: number;
@@ -20,6 +21,75 @@ export function isCreatesLimitReached(used: number, limit: number | null): boole
 
 export function isPostsLimitReached(used: number, limit: number): boolean {
   return used >= limit;
+}
+
+// ─── Monthly quota reset (lazy) ─────────────────────────────────────────────
+// Called before reading/enforcing quota. If the billing period has rolled over
+// (now >= quotaResetAt), zero the monthly counters and advance the anchor by one
+// month. No cron needed — the reset happens on the next user action after the
+// boundary. Returns the up-to-date counters so callers don't need a re-fetch.
+
+export interface QuotaState {
+  aiPostsLimit: number;
+  aiPostsUsed: number;
+  aiCreatesLimit: number | null;
+  aiCreatesUsed: number;
+}
+
+function addOneMonth(from: Date): Date {
+  const d = new Date(from);
+  d.setMonth(d.getMonth() + 1);
+  return d;
+}
+
+/**
+ * Lazily resets a subscription's monthly usage counters if the period elapsed.
+ * Safe to call on every quota check. Returns the effective (post-reset) counters.
+ */
+export async function applyMonthlyQuotaReset(sub: {
+  userId: string;
+  aiPostsLimit: number;
+  aiPostsUsed: number;
+  aiCreatesLimit: number | null;
+  aiCreatesUsed: number;
+  quotaResetAt: Date | null;
+}): Promise<QuotaState> {
+  const now = new Date();
+
+  // First-ever check (legacy rows with null anchor): set the anchor, no reset.
+  if (!sub.quotaResetAt) {
+    await prisma.subscription.update({
+      where: { userId: sub.userId },
+      data:  { quotaResetAt: addOneMonth(now) },
+    }).catch(() => {});
+    return {
+      aiPostsLimit: sub.aiPostsLimit, aiPostsUsed: sub.aiPostsUsed,
+      aiCreatesLimit: sub.aiCreatesLimit, aiCreatesUsed: sub.aiCreatesUsed,
+    };
+  }
+
+  if (now < sub.quotaResetAt) {
+    // Period still active — counters unchanged.
+    return {
+      aiPostsLimit: sub.aiPostsLimit, aiPostsUsed: sub.aiPostsUsed,
+      aiCreatesLimit: sub.aiCreatesLimit, aiCreatesUsed: sub.aiCreatesUsed,
+    };
+  }
+
+  // Period rolled over — reset counters and advance the anchor.
+  // Advance from the old anchor (not now) so missed periods don't drift the date.
+  let nextReset = addOneMonth(sub.quotaResetAt);
+  while (nextReset <= now) nextReset = addOneMonth(nextReset);
+
+  await prisma.subscription.update({
+    where: { userId: sub.userId },
+    data:  { aiPostsUsed: 0, aiCreatesUsed: 0, quotaResetAt: nextReset },
+  }).catch(() => {});
+
+  return {
+    aiPostsLimit: sub.aiPostsLimit, aiPostsUsed: 0,
+    aiCreatesLimit: sub.aiCreatesLimit, aiCreatesUsed: 0,
+  };
 }
 
 // ─── Per-post regeneration caps ─────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { sendBotMessage } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
-import { isPostsLimitReached } from '../lib/subscriptionLimits';
+import { isPostsLimitReached, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
 
 const router = Router();
 
@@ -261,11 +261,15 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 
   // ── 8. Generate draft and notify user asynchronously ─────────────────────
   (async () => {
-    // Check bot-posts quota before generating
-    const userSub = await prisma.subscription.findUnique({
+    // Check bot-posts quota before generating (with lazy monthly reset)
+    const rawSub = await prisma.subscription.findUnique({
       where:  { userId: dbUser.id },
-      select: { aiPostsLimit: true, aiPostsUsed: true },
+      select: { aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
     }).catch(() => null);
+
+    const userSub = rawSub
+      ? await applyMonthlyQuotaReset({ userId: dbUser.id, ...rawSub })
+      : null;
 
     if (userSub && isPostsLimitReached(userSub.aiPostsUsed, userSub.aiPostsLimit)) {
       await trySendReply(chatId, `⚠️ You've reached your monthly bot-post limit (${userSub.aiPostsLimit}). Upgrade your plan in the Mini App.`);

@@ -218,6 +218,7 @@ model Subscription {
   aiPostsUsed     Int       @default(0)
   aiCreatesLimit  Int?                       // null = unlimited (Studio Pro)
   aiCreatesUsed   Int       @default(0)
+  quotaResetAt    DateTime?                  // when aiPostsUsed/aiCreatesUsed next reset (monthly)
   expiresAt       DateTime?
 
   createdAt DateTime @default(now())

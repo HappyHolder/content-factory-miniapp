@@ -8,7 +8,7 @@ import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard 
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { generateImageForPost, buildVisualKitPromptHints } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
-import { isCreatesLimitReached, MAX_TEXT_REGENS_PER_POST, MAX_IMAGE_REGENS_PER_POST } from '../lib/subscriptionLimits';
+import { isCreatesLimitReached, applyMonthlyQuotaReset, MAX_TEXT_REGENS_PER_POST, MAX_IMAGE_REGENS_PER_POST } from '../lib/subscriptionLimits';
 import { generatePostVariants } from '../lib/aiGenerator';
 
 // ─── Multer for image uploads ─────────────────────────────────────────────────
@@ -128,13 +128,17 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 4. Check Create-mode generation quota ────────────────────────────────
-  let subscription: { tier: string; aiCreatesLimit: number | null; aiCreatesUsed: number } | null = null;
+  // ── 4. Check Create-mode generation quota (with lazy monthly reset) ──────
+  let subscription: { aiCreatesLimit: number | null; aiCreatesUsed: number } | null = null;
   try {
-    subscription = await prisma.subscription.findUnique({
+    const sub = await prisma.subscription.findUnique({
       where:  { userId: dbUser.id },
-      select: { tier: true, aiCreatesLimit: true, aiCreatesUsed: true },
+      select: { aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
     });
+    if (sub) {
+      const fresh = await applyMonthlyQuotaReset({ userId: dbUser.id, ...sub });
+      subscription = { aiCreatesLimit: fresh.aiCreatesLimit, aiCreatesUsed: fresh.aiCreatesUsed };
+    }
   } catch (err) {
     console.error('[posts/generate] Subscription lookup failed:', (err as Error).message);
   }
