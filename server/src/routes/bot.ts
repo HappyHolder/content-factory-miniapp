@@ -17,11 +17,23 @@ const WELCOME_TEXT =
 // and it just works — no hosting/URL needed (sent as a direct file upload).
 const WELCOME_IMAGE_CANDIDATES = ['welcome.png', 'welcome.jpg', 'welcome.jpeg'];
 
+// Search several base dirs so it resolves regardless of the runtime cwd:
+//  - __dirname is dist/routes (prod) or src/routes (tsx dev) → ../../assets = server/assets
+//  - process.cwd() may be server/ or the repo root depending on the host
+const WELCOME_IMAGE_BASES = [
+  path.resolve(__dirname, '../../assets'),       // server/assets from dist|src/routes
+  path.resolve(process.cwd(), 'assets'),         // cwd = server/
+  path.resolve(process.cwd(), 'server/assets'),  // cwd = repo root
+];
+
 function findWelcomeImage(): string | null {
-  for (const name of WELCOME_IMAGE_CANDIDATES) {
-    const p = path.resolve(process.cwd(), 'assets', name);
-    if (fs.existsSync(p)) return p;
+  for (const base of WELCOME_IMAGE_BASES) {
+    for (const name of WELCOME_IMAGE_CANDIDATES) {
+      const p = path.join(base, name);
+      if (fs.existsSync(p)) return p;
+    }
   }
+  console.warn('[bot/webhook] welcome image not found. Checked bases:', WELCOME_IMAGE_BASES.join(' | '));
   return null;
 }
 
