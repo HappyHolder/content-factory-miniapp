@@ -13,9 +13,17 @@ const WELCOME_TEXT =
   'Кидаешь идею или пересылаешь пост с другого канала → получаешь 3 варианта ' +
   'оригинального поста с обложкой → публикуешь в канал в пару тапов.\n\nНачнём?';
 
-// Welcome image bundled in the repo. Drop the file here and it just works —
-// no hosting/URL needed (sent to Telegram as a direct file upload).
-const WELCOME_IMAGE_PATH = path.resolve(process.cwd(), 'assets/welcome.jpg');
+// Welcome image bundled in the repo. Drop welcome.png (or .jpg) into assets/
+// and it just works — no hosting/URL needed (sent as a direct file upload).
+const WELCOME_IMAGE_CANDIDATES = ['welcome.png', 'welcome.jpg', 'welcome.jpeg'];
+
+function findWelcomeImage(): string | null {
+  for (const name of WELCOME_IMAGE_CANDIDATES) {
+    const p = path.resolve(process.cwd(), 'assets', name);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
 
 /**
  * Sends the /start welcome: the bundled image (if present) + caption + an
@@ -26,9 +34,10 @@ async function sendWelcome(chatId: number): Promise<void> {
     ? { inline_keyboard: [[{ text: '🚀 Открыть приложение', web_app: { url: env.MINI_APP_URL } }]] }
     : undefined;
   try {
-    if (fs.existsSync(WELCOME_IMAGE_PATH)) {
-      const bytes = await fs.promises.readFile(WELCOME_IMAGE_PATH);
-      await sendBotPhotoFile(chatId, bytes, 'welcome.jpg', WELCOME_TEXT, env.TELEGRAM_BOT_TOKEN, keyboard);
+    const imagePath = findWelcomeImage();
+    if (imagePath) {
+      const bytes = await fs.promises.readFile(imagePath);
+      await sendBotPhotoFile(chatId, bytes, path.basename(imagePath), WELCOME_TEXT, env.TELEGRAM_BOT_TOKEN, keyboard);
     } else {
       await sendBotMessage(chatId, WELCOME_TEXT, env.TELEGRAM_BOT_TOKEN, keyboard);
     }
