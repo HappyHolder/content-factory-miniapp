@@ -31,7 +31,7 @@ const PLAN_CONFIG: PlanConfig[] = [
     tier: 'free',
     price: '$0',
     nameKey: 'plans.free',
-    featureKeys: ['plans.posts5', 'plans.creates5', 'plans.channel1', 'plans.noAiAssistant'],
+    featureKeys: ['plans.posts5', 'plans.creates5', 'plans.channel1'],
     upgradeKey: null,
     downgradeKey: 'plans.switchToFree',
   },

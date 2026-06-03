@@ -65,7 +65,6 @@ export const en = {
     month:              '/ month',
     posts5:             '5 AI posts via bot / month',
     creates5:           '5 generations in Create mode',
-    noAiAssistant:      'No AI assistant',
     posts30:            '30 AI posts via bot / month',
     posts150:           '150 AI posts / month',
     posts700:           '700 AI posts / month',
