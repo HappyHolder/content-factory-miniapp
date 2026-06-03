@@ -12,6 +12,7 @@ import { PostDetailsScreen } from '@/screens/PostDetailsScreen'
 import { BrandKitScreen } from '@/screens/BrandKitScreen'
 import { PlansScreen } from '@/screens/PlansScreen'
 import { AdminPromoScreen } from '@/screens/AdminPromoScreen'
+import { OnboardingSlides } from '@/screens/OnboardingSlides'
 import { ChatScreen, type ChatMessage } from '@/screens/ChatScreen'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
@@ -30,6 +31,13 @@ function AppContent() {
   const [activeTab, setActiveTab]             = useState<MainTab>('posts')
   const [modal, setModal]                     = useState<ModalScreen>({ type: 'none' })
   const [chatMessages, setChatMessages]       = useState<ChatMessage[]>([])
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    try { return !localStorage.getItem('cf_onboarded') } catch { return true }
+  })
+  const dismissOnboarding = useCallback(() => {
+    try { localStorage.setItem('cf_onboarded', '1') } catch {}
+    setShowOnboarding(false)
+  }, [])
   const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false)
   const [chatLoading, setChatLoading]         = useState(false)
   const [showChatScrollBtn, setShowChatScrollBtn] = useState(false)
@@ -95,6 +103,8 @@ function AppContent() {
   return (
     <div className="flex flex-col h-full bg-[#070708] overflow-hidden">
       <ToastContainer toasts={toasts} />
+
+      {showOnboarding && <OnboardingSlides onDone={dismissOnboarding} />}
 
       <AnimatePresence mode="wait" initial={false}>
         {isModalOpen ? (
