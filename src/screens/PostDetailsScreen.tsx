@@ -140,10 +140,6 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     onBack()
   }
 
-  const handleRegenerate = () => {
-    showToast(t('postDetails.regenerateVariants') + '…')
-  }
-
   const handleRegenerateVisual = async () => {
     if (isRegeneratingVisual || !selectedVariant) return
     const initData = getTelegramInitData()
@@ -414,9 +410,6 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                 <Calendar size={16} />
               </Button>
             </div>
-            <Button variant="ghost" size="md" onClick={handleRegenerate} fullWidth>
-              <RefreshCw size={14} /> {t('postDetails.regenerateVariants')}
-            </Button>
           </div>
         )}
 

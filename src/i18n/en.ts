@@ -167,7 +167,6 @@ export const en = {
     changeSchedule:     'Change schedule',
     openInTelegram:     'Open in Telegram',
     createSimilar:      'Create similar',
-    regenerateVariants: 'Regenerate variants',
     save:               'Save',
     copy:               'Copy',
 

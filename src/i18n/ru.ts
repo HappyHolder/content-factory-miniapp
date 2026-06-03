@@ -167,7 +167,6 @@ export const ru: Dict = {
     changeSchedule:     'Изменить время',
     openInTelegram:     'Открыть в Telegram',
     createSimilar:      'Создать похожий',
-    regenerateVariants: 'Перегенерировать варианты',
     save:               'Сохранить',
     copy:               'Скопировать',
 
