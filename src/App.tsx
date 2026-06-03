@@ -11,6 +11,7 @@ import { ProfileScreen } from '@/screens/ProfileScreen'
 import { PostDetailsScreen } from '@/screens/PostDetailsScreen'
 import { BrandKitScreen } from '@/screens/BrandKitScreen'
 import { PlansScreen } from '@/screens/PlansScreen'
+import { AdminPromoScreen } from '@/screens/AdminPromoScreen'
 import { ChatScreen, type ChatMessage } from '@/screens/ChatScreen'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
@@ -22,6 +23,7 @@ type ModalScreen =
   | { type: 'post_detail'; postId: string }
   | { type: 'brand_kit'; channelId: string; channelUsername: string }
   | { type: 'plans' }
+  | { type: 'admin_promo' }
 
 function AppContent() {
   const { toasts, authStatus, activeChannel } = useApp()
@@ -65,6 +67,7 @@ function AppContent() {
   const handlePostCreated = (id: string) => { setActiveTab('posts'); setModal({ type: 'post_detail', postId: id }) }
   const handleOpenBrandKit = (channelId: string, channelUsername: string) => setModal({ type: 'brand_kit', channelId, channelUsername })
   const handleOpenPlans = () => setModal({ type: 'plans' })
+  const handleOpenAdmin = () => setModal({ type: 'admin_promo' })
   const handleBack = () => setModal({ type: 'none' })
 
   const isModalOpen = modal.type !== 'none'
@@ -101,6 +104,7 @@ function AppContent() {
               <BrandKitScreen channelId={modal.channelId} channelUsername={modal.channelUsername} onBack={handleBack} />
             )}
             {modal.type === 'plans' && <PlansScreen onBack={handleBack} />}
+            {modal.type === 'admin_promo' && <AdminPromoScreen onBack={handleBack} />}
           </div>
         ) : (
           <>
@@ -120,7 +124,7 @@ function AppContent() {
               <AppShell key={activeTab} pageKey={activeTab}>
                 {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
                 {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} />}
-                {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenPlans={handleOpenPlans} />}
+                {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenPlans={handleOpenPlans} onOpenAdmin={handleOpenAdmin} />}
               </AppShell>
             )}
           </>

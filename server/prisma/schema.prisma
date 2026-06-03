@@ -210,6 +210,20 @@ model PostVariant {
   @@index([generatedPostId])
 }
 
+model PromoCode {
+  id           String    @id @default(cuid())
+  code         String    @unique               // stored uppercased; matched case-insensitively in app
+  tier         PlanTier                          // tier granted on redemption
+  durationDays Int                               // days of access the grant lasts
+  redeemedAt   DateTime?                          // null = unused; set = burned (single-use)
+  redeemedById String?                            // userId that redeemed it
+  createdById  String?                            // admin telegramId that created it (audit)
+
+  createdAt DateTime @default(now())
+
+  @@index([code])
+}
+
 model Subscription {
   id              String    @id @default(cuid())
   userId          String    @unique

@@ -28,6 +28,13 @@ if (AI_PROVIDER === 'deepseek' && !process.env['DEEPSEEK_API_KEY']) {
 
 const IMAGE_PROVIDER = (process.env['IMAGE_PROVIDER'] ?? 'none') as 'none' | 'replicate';
 
+// Comma-separated Telegram numeric IDs allowed to access the admin panel.
+// Example: ADMIN_TELEGRAM_IDS=123456789,987654321
+const ADMIN_TELEGRAM_IDS = (process.env['ADMIN_TELEGRAM_IDS'] ?? '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
 export const env = {
   DATABASE_URL:              requireEnv('DATABASE_URL'),
   DIRECT_URL:                requireEnv('DIRECT_URL'),
@@ -55,4 +62,5 @@ export const env = {
   BLOB_READ_WRITE_TOKEN: process.env['BLOB_READ_WRITE_TOKEN'] ?? '',
   IMAGE_GENERATION_POLL_TIMEOUT_MS:
     parseInt(process.env['IMAGE_GENERATION_POLL_TIMEOUT_MS'] ?? '300000', 10),
+  ADMIN_TELEGRAM_IDS,
 } as const;

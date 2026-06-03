@@ -150,6 +150,7 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       telegramId:      dbUser.telegramId,
       username:        tgUser.username ?? null,
       activeChannelId: dbUser.activeChannelId ?? null,
+      isAdmin:         env.ADMIN_TELEGRAM_IDS.includes(telegramId),
     },
     channels: dbChannels.map((ch, i) => ({
       id:               ch.id,

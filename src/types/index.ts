@@ -49,6 +49,7 @@ export interface User {
   username: string
   avatarUrl?: string
   subscription: Subscription
+  isAdmin?: boolean
 }
 
 export interface Channel {

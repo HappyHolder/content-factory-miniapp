@@ -219,6 +219,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         telegramId:      string
         username:        string | null
         activeChannelId: string | null
+        isAdmin?:        boolean
       }
       channels: Channel[]
       // brandKits is optional so older backend versions stay compatible
@@ -347,6 +348,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id:       authData!.user.id,
           name:     authData!.user.name     ?? prev.user.name,
           username: authData!.user.username ?? prev.user.username,
+          isAdmin:  authData!.user.isAdmin ?? false,
           subscription: serverSub ? {
             ...prev.user.subscription,
             planTier:       serverSub.tier.toLowerCase().replace('_pro', '_pro') as import('@/types').PlanTier,

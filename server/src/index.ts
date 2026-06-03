@@ -9,6 +9,7 @@ import botRouter from './routes/bot';
 import sourcesRouter from './routes/sources';
 import postsRouter from './routes/posts';
 import chatRouter from './routes/chat';
+import adminRouter from './routes/admin';
 import { startScheduler } from './lib/scheduler';
 
 const app = express();
@@ -26,6 +27,7 @@ app.use('/api/bot',       botRouter);
 app.use('/api/sources',   sourcesRouter);
 app.use('/api/posts',     postsRouter);
 app.use('/api/chat',      chatRouter);
+app.use('/api/admin',     adminRouter);
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(env.PORT, () => {

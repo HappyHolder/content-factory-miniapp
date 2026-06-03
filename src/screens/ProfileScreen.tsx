@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio
+  Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -21,9 +21,10 @@ const PLAN_NAME_KEY: Record<PlanTier, 'plans.starter' | 'plans.creator' | 'plans
 interface ProfileScreenProps {
   onOpenBrandKit: (channelId: string, channelUsername: string) => void
   onOpenPlans: () => void
+  onOpenAdmin: () => void
 }
 
-export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProps) {
+export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: ProfileScreenProps) {
   const { state, setActiveChannel, showToast, language, setLanguage, t } = useApp()
   const { user, channels, activeChannelId } = state
   const { subscription } = user
@@ -138,6 +139,22 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans }: ProfileScreenProp
         {/* Settings list */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.22 }}>
           <GlassCard padding="none" className="overflow-hidden divide-y divide-white/6">
+
+            {user.isAdmin && (
+              <button
+                onClick={onOpenAdmin}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
+              >
+                <div className="w-7 h-7 rounded-[8px] bg-[rgba(255,106,0,0.12)] flex items-center justify-center">
+                  <Ticket size={13} className="text-[#FF6A00]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium text-white">Промокоды</p>
+                  <p className="text-[11px] text-[#55555D]">Генерация кодов доступа</p>
+                </div>
+                <ChevronRight size={13} className="text-[#44444C]" />
+              </button>
+            )}
 
             <button
               onClick={() => showToast(t('profile.botSettings') + ' — coming soon')}
