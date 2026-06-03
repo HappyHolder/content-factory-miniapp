@@ -82,22 +82,8 @@ export function OnboardingSlides({ onDone }: OnboardingSlidesProps) {
         </AnimatePresence>
       </div>
 
-      {/* Footer: dots + CTA */}
-      <div className="px-7 pb-8 space-y-5">
-        {/* Dots */}
-        <div className="flex items-center justify-center gap-1.5">
-          {SLIDES.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => setIndex(i)}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                i === index ? 'w-6 bg-[#FF6A00]' : 'w-1.5 bg-white/[0.15]'
-              }`}
-              aria-label={`Slide ${i + 1}`}
-            />
-          ))}
-        </div>
-
+      {/* Footer: CTA */}
+      <div className="px-7 pb-8">
         <button
           onClick={next}
           className="w-full flex items-center justify-center gap-2 py-3.5 rounded-[14px] bg-[#FF6A00] text-white text-[15px] font-semibold hover:bg-[#ff7a1a] transition-colors orange-glow"
