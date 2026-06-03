@@ -22,11 +22,16 @@ interface PostDetailsScreenProps {
 
 type Section = 'variants' | 'editor' | 'banner' | 'buttons'
 
+// Per-post regeneration caps — must match server lib/subscriptionLimits.ts
+const MAX_TEXT_REGENS = 3
+const MAX_IMAGE_REGENS = 3
+
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost, updateVariantBannerUrl, deletePost } = useApp()
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
+  const [isRegeneratingText, setIsRegeneratingText] = useState(false)
   const [isRegeneratingVisual, setIsRegeneratingVisual] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -42,6 +47,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const allLinkButtons = brandKit?.linkKit.links.filter(l =>
     l.usage === 'button' || l.usage === 'always'
   ) || []
+
+  // Per-post regeneration remaining counts
+  const textRegensLeft  = Math.max(0, MAX_TEXT_REGENS  - (post.textRegensUsed  ?? 0))
+  const imageRegensLeft = Math.max(0, MAX_IMAGE_REGENS - (post.imageRegensUsed ?? 0))
 
   const handlePublish = async () => {
     if (isPublishing) return
@@ -140,8 +149,60 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     onBack()
   }
 
+  const handleRegenerateText = async () => {
+    if (isRegeneratingText) return
+    if (textRegensLeft <= 0) {
+      showToast(t('postDetails.textRegenLimit'), 'info')
+      return
+    }
+    const initData = getTelegramInitData()
+    if (!initData) {
+      showToast('Доступно только в Telegram', 'error')
+      return
+    }
+    setIsRegeneratingText(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/regenerate-text`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, postId: post.id }),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({})) as { code?: string; error?: string }
+        showToast(
+          errData.code === 'TEXT_REGENS_LIMIT_REACHED'
+            ? t('postDetails.textRegenLimit')
+            : (errData.error ?? t('postDetails.textRegenerateFailed')),
+          'error',
+        )
+        return
+      }
+      const data = await res.json() as {
+        variants: { id: string; label: string; text: string; isSelected: boolean; bannerUrl: string | null }[]
+        selectedVariantId: string
+        textRegensUsed: number
+      }
+      updatePost(post.id, {
+        variants: data.variants.map(v => ({
+          id: v.id, label: v.label, text: v.text, isSelected: v.isSelected, bannerUrl: v.bannerUrl,
+        })),
+        selectedVariantId: data.selectedVariantId,
+        textRegensUsed:    data.textRegensUsed,
+      })
+      showToast(t('postDetails.textRegenerated'))
+    } catch {
+      showToast(t('postDetails.textRegenerateFailed'), 'error')
+    } finally {
+      setIsRegeneratingText(false)
+    }
+  }
+
   const handleRegenerateVisual = async () => {
     if (isRegeneratingVisual || !selectedVariant) return
+    if (imageRegensLeft <= 0) {
+      showToast(t('postDetails.visualRegenLimit'), 'info')
+      return
+    }
     const initData = getTelegramInitData()
     if (!initData) return
 
@@ -153,11 +214,21 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         body:    JSON.stringify({ initData, postId: post.id, variantId: selectedVariant.id }),
       })
       if (!res.ok) {
-        showToast(t('postDetails.visualRegenerateFailed'), 'error')
+        const errData = await res.json().catch(() => ({})) as { code?: string; error?: string }
+        showToast(
+          errData.code === 'IMAGE_REGENS_LIMIT_REACHED'
+            ? t('postDetails.visualRegenLimit')
+            : t('postDetails.visualRegenerateFailed'),
+          'error',
+        )
         return
       }
-      const data = await res.json() as { bannerUrl: string }
-      updateVariantBannerUrl(post.id, selectedVariant.id, data.bannerUrl)
+      const data = await res.json() as { bannerUrl: string; imageRegensUsed?: number }
+      // Cover is post-level — apply to all variants so switching text keeps it
+      updatePost(post.id, {
+        variants: post.variants.map(v => ({ ...v, bannerUrl: data.bannerUrl })),
+        ...(typeof data.imageRegensUsed === 'number' ? { imageRegensUsed: data.imageRegensUsed } : {}),
+      })
       showToast(t('postDetails.visualRegenerated'))
     } catch {
       showToast(t('postDetails.visualRegenerateFailed'), 'error')
@@ -257,6 +328,22 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                   selectedId={post.selectedVariantId}
                   onSelect={id => selectVariant(post.id, id)}
                 />
+                {post.status !== 'published' && (
+                  <div className="mt-2.5">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleRegenerateText}
+                      disabled={isRegeneratingText || textRegensLeft <= 0}
+                      fullWidth
+                    >
+                      {isRegeneratingText
+                        ? <><Loader2 size={13} className="animate-spin" />{t('postDetails.regeneratingText')}</>
+                        : <><RefreshCw size={13} />{t('postDetails.regenerateText')} · {textRegensLeft}/{MAX_TEXT_REGENS}</>
+                      }
+                    </Button>
+                  </div>
+                )}
               </motion.div>
             )}
           </div>
@@ -327,12 +414,12 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                       variant="secondary"
                       size="sm"
                       onClick={handleRegenerateVisual}
-                      disabled={isRegeneratingVisual}
+                      disabled={isRegeneratingVisual || imageRegensLeft <= 0}
                       fullWidth
                     >
                       {isRegeneratingVisual
                         ? <><Loader2 size={13} className="animate-spin" />{t('postDetails.regeneratingVisual')}</>
-                        : <><RefreshCw size={13} />{t('postDetails.regenerateVisual')}</>
+                        : <><RefreshCw size={13} />{t('postDetails.regenerateVisual')} · {imageRegensLeft}/{MAX_IMAGE_REGENS}</>
                       }
                     </Button>
                   </div>

@@ -8,7 +8,8 @@ import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard 
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { generateImageForPost, buildVisualKitPromptHints } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
-import { isCreatesLimitReached } from '../lib/subscriptionLimits';
+import { isCreatesLimitReached, MAX_TEXT_REGENS_PER_POST, MAX_IMAGE_REGENS_PER_POST } from '../lib/subscriptionLimits';
+import { generatePostVariants } from '../lib/aiGenerator';
 
 // ─── Multer for image uploads ─────────────────────────────────────────────────
 const uploadMiddleware = multer({
@@ -1018,9 +1019,11 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
     text:            string;
     bannerUrl:       string | null;
     generatedPost: {
-      title:         string;
-      sourceSummary: string | null;
-      imagePrompt:   string | null;
+      id:              string;
+      title:           string;
+      sourceSummary:   string | null;
+      imagePrompt:     string | null;
+      imageRegensUsed: number;
       channel: {
         userId:   string;
         brandKit: { visualKit: unknown } | null;
@@ -1038,9 +1041,11 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
         bannerUrl:       true,
         generatedPost: {
           select: {
-            title:         true,
-            sourceSummary: true,
-            imagePrompt:   true,
+            id:              true,
+            title:           true,
+            sourceSummary:   true,
+            imagePrompt:     true,
+            imageRegensUsed: true,
             channel: {
               select: {
                 userId:   true,
@@ -1064,6 +1069,17 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   }
   if (variant.generatedPost.channel.userId !== dbUser.id) {
     res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+
+  // ── 4b. Enforce per-post visual regeneration cap ─────────────────────────
+  if (variant.generatedPost.imageRegensUsed >= MAX_IMAGE_REGENS_PER_POST) {
+    res.status(403).json({
+      error: `Лимит перегенераций визуала исчерпан (${MAX_IMAGE_REGENS_PER_POST} на пост).`,
+      code:  'IMAGE_REGENS_LIMIT_REACHED',
+      used:  variant.generatedPost.imageRegensUsed,
+      limit: MAX_IMAGE_REGENS_PER_POST,
+    });
+    return;
   }
 
   // ── 5. Build image prompt ────────────────────────────────────────────────
@@ -1103,19 +1119,207 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
     return;
   }
 
-  // ── 7. Persist new bannerUrl to PostVariant ───────────────────────────────
+  // ── 7. Persist new bannerUrl to PostVariant + increment regen counter ─────
   // Old bannerUrl is replaced only after a successful generation.
+  // The cover is a post-level asset: apply to ALL variants so switching the
+  // selected text variant keeps the regenerated image.
   try {
-    await prisma.postVariant.update({
-      where: { id: variantId },
-      data:  { bannerUrl: imageUrl },
-    });
+    await prisma.$transaction([
+      prisma.postVariant.updateMany({
+        where: { generatedPostId: postId },
+        data:  { bannerUrl: imageUrl },
+      }),
+      prisma.generatedPost.update({
+        where: { id: postId },
+        data:  { imageRegensUsed: { increment: 1 } },
+      }),
+    ]);
   } catch (err) {
     console.error('[posts/regenerate-visual] DB update failed:', (err as Error).message);
     res.status(500).json({ error: 'Internal server error' }); return;
   }
 
-  res.json({ bannerUrl: imageUrl });
+  res.json({
+    bannerUrl:       imageUrl,
+    imageRegensUsed: variant.generatedPost.imageRegensUsed + 1,
+    imageRegensLimit: MAX_IMAGE_REGENS_PER_POST,
+  });
+});
+
+// ─── POST /api/posts/regenerate-text ─────────────────────────────────────────
+//
+// Regenerates the text variants for an existing post using the stored source
+// summary + channel BrandKit. Old variants are replaced; the existing banner
+// (post-level cover) is preserved onto the new variants. Capped per-post via
+// GeneratedPost.textRegensUsed.
+//
+// Request body: { initData, postId }
+// Response 200: { variants: MappedVariant[], selectedVariantId, textRegensUsed, textRegensLimit }
+// Response 400/401/403/404/500 as elsewhere
+// Response 403 code TEXT_REGENS_LIMIT_REACHED when the per-post cap is hit
+
+router.post('/regenerate-text', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId } = req.body as { initData?: unknown; postId?: unknown };
+
+  // ── 1. Input validation ───────────────────────────────────────────────────
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof postId !== 'string' || !postId.trim()) {
+    res.status(400).json({ error: 'postId is required' }); return;
+  }
+
+  // ── 2. Validate Telegram initData ────────────────────────────────────────
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  // ── 3. Resolve authenticated user ────────────────────────────────────────
+  const telegramId = String(parsed.user.id);
+  let dbUser: { id: string } | null = null;
+  try {
+    dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+  } catch (err) {
+    console.error('[posts/regenerate-text] User lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!dbUser) {
+    res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
+  }
+
+  // ── 4. Load post + channel + variants for ownership and context ──────────
+  let post: {
+    id:             string;
+    status:         string;
+    channelId:      string;
+    sourceType:     string | null;
+    sourceSummary:  string | null;
+    textRegensUsed: number;
+    channel: { userId: string; handle: string | null; name: string };
+    variants: { id: string; bannerUrl: string | null }[];
+  } | null = null;
+  try {
+    post = await prisma.generatedPost.findUnique({
+      where:  { id: postId },
+      select: {
+        id:             true,
+        status:         true,
+        channelId:      true,
+        sourceType:     true,
+        sourceSummary:  true,
+        textRegensUsed: true,
+        channel:  { select: { userId: true, handle: true, name: true } },
+        variants: { select: { id: true, bannerUrl: true }, orderBy: { variantIndex: 'asc' } },
+      },
+    });
+  } catch (err) {
+    console.error('[posts/regenerate-text] Post lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!post) {
+    res.status(404).json({ error: 'Post not found.' }); return;
+  }
+  if (post.channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+  if (post.status === 'PUBLISHED') {
+    res.status(409).json({ error: 'Cannot regenerate an already published post.' }); return;
+  }
+
+  // ── 5. Enforce per-post text regeneration cap ────────────────────────────
+  if (post.textRegensUsed >= MAX_TEXT_REGENS_PER_POST) {
+    res.status(403).json({
+      error: `Лимит перегенераций текста исчерпан (${MAX_TEXT_REGENS_PER_POST} на пост).`,
+      code:  'TEXT_REGENS_LIMIT_REACHED',
+      used:  post.textRegensUsed,
+      limit: MAX_TEXT_REGENS_PER_POST,
+    });
+    return;
+  }
+
+  // ── 6. Load BrandKit for style context (non-fatal) ───────────────────────
+  let brandKit: unknown | null = null;
+  try {
+    brandKit = await prisma.brandKit.findUnique({
+      where:  { channelId: post.channelId },
+      select: { channelAbout: true, voiceProfile: true, postRules: true, linkKit: true, signature: true, visualKit: true },
+    });
+  } catch (err) {
+    console.error('[posts/regenerate-text] BrandKit lookup failed (non-fatal):', (err as Error).message);
+    brandKit = null;
+  }
+
+  // ── 7. Generate fresh variants via AI ────────────────────────────────────
+  const input = post.sourceSummary?.trim() || post.channel.name;
+  let variantDrafts;
+  try {
+    variantDrafts = await generatePostVariants({
+      input,
+      sourceType: post.sourceType ?? 'prompt',
+      channel:    { handle: post.channel.handle, name: post.channel.name },
+      brandKit,
+    });
+  } catch (err) {
+    console.error('[posts/regenerate-text] AI generation failed:', (err as Error).message);
+    res.status(502).json({ error: 'Text generation failed. Try again.' }); return;
+  }
+  if (!Array.isArray(variantDrafts) || variantDrafts.length === 0) {
+    res.status(502).json({ error: 'Text generation returned no variants. Try again.' }); return;
+  }
+
+  // Preserve the existing post-level banner (any variant carries it).
+  const preservedBanner = post.variants.find(v => v.bannerUrl)?.bannerUrl ?? null;
+
+  // ── 8. Replace variants + increment counter (transaction) ────────────────
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      await tx.postVariant.deleteMany({ where: { generatedPostId: postId } });
+      await tx.generatedPost.update({
+        where: { id: postId },
+        data: {
+          textRegensUsed: { increment: 1 },
+          selectedVariantId: null,
+          variants: {
+            create: variantDrafts.map((v, i) => ({
+              label:        v.label,
+              variantIndex: i,
+              text:         v.text,
+              isSelected:   i === 0,
+              bannerUrl:    preservedBanner,
+            })),
+          },
+        },
+        include: { variants: { orderBy: { variantIndex: 'asc' } } },
+      });
+      const created = await tx.generatedPost.findUniqueOrThrow({
+        where:  { id: postId },
+        select: { textRegensUsed: true, variants: { orderBy: { variantIndex: 'asc' }, select: { id: true, label: true, text: true, bannerUrl: true } } },
+      });
+      const firstVariantId = created.variants[0]!.id;
+      await tx.generatedPost.update({ where: { id: postId }, data: { selectedVariantId: firstVariantId } });
+      return { created, firstVariantId };
+    });
+  } catch (err) {
+    console.error('[posts/regenerate-text] DB transaction failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({
+    variants: result.created.variants.map(v => ({
+      id:         v.id,
+      label:      v.label ?? 'Variant',
+      text:       v.text,
+      isSelected: v.id === result.firstVariantId,
+      bannerUrl:  v.bannerUrl ?? null,
+    })),
+    selectedVariantId: result.firstVariantId,
+    textRegensUsed:    result.created.textRegensUsed,
+    textRegensLimit:   MAX_TEXT_REGENS_PER_POST,
+  });
 });
 
 // ─── POST /api/posts/upload-image ────────────────────────────────────────────

@@ -21,3 +21,10 @@ export function isCreatesLimitReached(used: number, limit: number | null): boole
 export function isPostsLimitReached(used: number, limit: number): boolean {
   return used >= limit;
 }
+
+// ─── Per-post regeneration caps ─────────────────────────────────────────────
+// Flat across all tiers — these protect against hammering the neural API on a
+// single post, not a plan value lever. Tracked per-post in GeneratedPost
+// (textRegensUsed / imageRegensUsed).
+export const MAX_TEXT_REGENS_PER_POST = 3;
+export const MAX_IMAGE_REGENS_PER_POST = 3;
