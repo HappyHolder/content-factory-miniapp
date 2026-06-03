@@ -92,6 +92,45 @@ export async function applyMonthlyQuotaReset(sub: {
   };
 }
 
+// ─── Tier expiry (lazy downgrade) ───────────────────────────────────────────
+// A promo/paid grant sets expiresAt. When that passes, the user must fall back
+// to STARTER. Done lazily on the next action — no cron. Returns the effective
+// tier + limits after any downgrade.
+
+export interface TierState {
+  tier: PlanTier;
+  aiPostsLimit: number;
+  aiCreatesLimit: number | null;
+  expiresAt: Date | null;
+}
+
+export async function applyTierExpiry(sub: {
+  userId: string;
+  tier: PlanTier;
+  aiPostsLimit: number;
+  aiCreatesLimit: number | null;
+  expiresAt: Date | null;
+}): Promise<TierState> {
+  const now = new Date();
+  const expired = sub.tier !== 'STARTER' && sub.expiresAt !== null && now >= sub.expiresAt;
+  if (!expired) {
+    return { tier: sub.tier, aiPostsLimit: sub.aiPostsLimit, aiCreatesLimit: sub.aiCreatesLimit, expiresAt: sub.expiresAt };
+  }
+  const l = TIER_LIMITS.STARTER;
+  await prisma.subscription.update({
+    where: { userId: sub.userId },
+    data:  {
+      tier: 'STARTER',
+      aiPostsLimit:   l.aiPostsLimit,
+      aiCreatesLimit: l.aiCreatesLimit,
+      aiPostsUsed:    0,
+      aiCreatesUsed:  0,
+      expiresAt:      null,
+    },
+  }).catch(() => {});
+  return { tier: 'STARTER', aiPostsLimit: l.aiPostsLimit, aiCreatesLimit: l.aiCreatesLimit, expiresAt: null };
+}
+
 // ─── Per-post regeneration caps ─────────────────────────────────────────────
 // Flat across all tiers — these protect against hammering the neural API on a
 // single post, not a plan value lever. Tracked per-post in GeneratedPost

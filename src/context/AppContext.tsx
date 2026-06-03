@@ -99,6 +99,13 @@ interface AppContextValue {
   setActiveChannel: (id: string) => void
   connectChannel: (channel: Channel) => void
   updateBrandKit: (channelId: string, kit: Partial<BrandKit>) => void
+  applyServerSubscription: (sub: {
+    tier: string
+    aiPostsLimit: number
+    aiPostsUsed: number
+    aiCreatesLimit: number | null
+    aiCreatesUsed: number
+  }) => void
   toasts: Toast[]
   showToast: (message: string, type?: Toast['type']) => void
 }
@@ -501,6 +508,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
+  const applyServerSubscription = useCallback((sub: {
+    tier: string
+    aiPostsLimit: number
+    aiPostsUsed: number
+    aiCreatesLimit: number | null
+    aiCreatesUsed: number
+  }) => {
+    const planTier = sub.tier.toLowerCase() as import('@/types').PlanTier
+    const planName = planTier === 'studio_pro' ? 'Studio Pro' : planTier === 'creator' ? 'Creator' : 'Starter'
+    setState(prev => ({
+      ...prev,
+      user: {
+        ...prev.user,
+        subscription: {
+          ...prev.user.subscription,
+          planTier,
+          planName,
+          aiPostsLimit:   sub.aiPostsLimit,
+          aiPostsUsed:    sub.aiPostsUsed,
+          aiCreatesLimit: sub.aiCreatesLimit,
+          aiCreatesUsed:  sub.aiCreatesUsed,
+        },
+      },
+    }))
+  }, [])
+
   const setActiveChannel = useCallback((id: string) => {
     setState(prev => ({ ...prev, activeChannelId: id }))
     try { localStorage.setItem('activeChannelId', id) } catch {}
@@ -604,6 +637,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setActiveChannel,
       connectChannel,
       updateBrandKit,
+      applyServerSubscription,
       toasts,
       showToast,
     }}>

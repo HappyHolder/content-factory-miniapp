@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check } from 'lucide-react'
+import { Check, Ticket, Loader2 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/Button'
+import { getTelegramInitData } from '@/lib/telegram'
+import { API_BASE } from '@/lib/api'
 import type { PlanTier } from '@/types'
 import type { TranslationKey } from '@/i18n'
 
@@ -51,8 +54,42 @@ const PLAN_CONFIG: PlanConfig[] = [
 ]
 
 export function PlansScreen({ onBack }: PlansScreenProps) {
-  const { state, showToast, t } = useApp()
+  const { state, showToast, t, applyServerSubscription } = useApp()
   const currentTier = state.user.subscription.planTier
+
+  const [promo, setPromo] = useState('')
+  const [redeeming, setRedeeming] = useState(false)
+
+  const handleRedeem = async () => {
+    const code = promo.trim()
+    if (!code || redeeming) return
+    const initData = getTelegramInitData()
+    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+
+    setRedeeming(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/promo/redeem`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, code }),
+      })
+      const data = await res.json().catch(() => ({})) as {
+        subscription?: { tier: string; aiPostsLimit: number; aiPostsUsed: number; aiCreatesLimit: number | null; aiCreatesUsed: number }
+        error?: string
+      }
+      if (!res.ok || !data.subscription) {
+        showToast(data.error ?? 'Не удалось применить промокод', 'error')
+        return
+      }
+      applyServerSubscription(data.subscription)
+      setPromo('')
+      showToast('Промокод применён! Тариф обновлён.')
+    } catch {
+      showToast('Ошибка соединения', 'error')
+    } finally {
+      setRedeeming(false)
+    }
+  }
 
   return (
     <div>
@@ -63,6 +100,32 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
       />
 
       <div className="px-4 mt-2 space-y-3">
+        {/* Promo code */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22 }}
+          className="rounded-[18px] border border-white/[0.07] bg-[rgba(255,255,255,0.03)] p-3"
+        >
+          <div className="flex items-center gap-1.5 mb-2">
+            <Ticket size={13} className="text-[#FF6A00]" />
+            <span className="text-[12px] font-semibold text-white">{t('plans.havePromo')}</span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={promo}
+              onChange={e => setPromo(e.target.value.toUpperCase())}
+              onKeyDown={e => { if (e.key === 'Enter') handleRedeem() }}
+              placeholder="CF-XXXX-XXXX"
+              className="glass-input flex-1 px-3 py-2.5 text-sm tracking-wider"
+              style={{ background: 'rgba(255,255,255,0.03)' }}
+            />
+            <Button variant="primary" size="md" onClick={handleRedeem} disabled={redeeming || !promo.trim()}>
+              {redeeming ? <Loader2 size={15} className="animate-spin" /> : t('plans.applyPromo')}
+            </Button>
+          </div>
+        </motion.div>
+
         {PLAN_CONFIG.map((plan, i) => {
           const isCurrent  = plan.tier === currentTier
           const isUpgrade  = !isCurrent && TIER_RANK[plan.tier] > TIER_RANK[currentTier]

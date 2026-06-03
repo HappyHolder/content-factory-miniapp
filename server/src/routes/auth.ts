@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { TIER_LIMITS, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
+import { TIER_LIMITS, applyMonthlyQuotaReset, applyTierExpiry } from '../lib/subscriptionLimits';
 
 const router = Router();
 
@@ -118,9 +118,26 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true, expiresAt: true },
     });
     if (existingSub) {
-      // Lazily roll over monthly counters if the billing period elapsed.
-      const fresh = await applyMonthlyQuotaReset({ userId: dbUser.id, ...existingSub });
-      dbSubscription = { tier: existingSub.tier, expiresAt: existingSub.expiresAt, ...fresh };
+      // 1) Lazily downgrade to STARTER if a promo/paid grant has expired.
+      const tierState = await applyTierExpiry({
+        userId:         dbUser.id,
+        tier:           existingSub.tier,
+        aiPostsLimit:   existingSub.aiPostsLimit,
+        aiCreatesLimit: existingSub.aiCreatesLimit,
+        expiresAt:      existingSub.expiresAt,
+      });
+      // If a downgrade happened, the counters were just zeroed in the DB.
+      const downgraded = tierState.tier !== existingSub.tier;
+      // 2) Roll over monthly counters if the billing period elapsed (use post-expiry limits).
+      const fresh = await applyMonthlyQuotaReset({
+        userId:         dbUser.id,
+        aiPostsLimit:   tierState.aiPostsLimit,
+        aiPostsUsed:    downgraded ? 0 : existingSub.aiPostsUsed,
+        aiCreatesLimit: tierState.aiCreatesLimit,
+        aiCreatesUsed:  downgraded ? 0 : existingSub.aiCreatesUsed,
+        quotaResetAt:   existingSub.quotaResetAt,
+      });
+      dbSubscription = { tier: tierState.tier, expiresAt: tierState.expiresAt, ...fresh };
     } else {
       const limits = TIER_LIMITS['STARTER'];
       const nextReset = new Date();

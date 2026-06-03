@@ -73,6 +73,8 @@ export const en = {
     channels3:          '3 channels',
     channels10:         '10 channels',
     scheduledPosts:     'Scheduled posts',
+    havePromo:          'Have a promo code?',
+    applyPromo:         'Apply',
     postPromotionSoon:  'Post promotion — soon',
     videoGenerationSoon: 'Video generation — soon',
     footer:             'All plans include mock data · Payments not implemented',

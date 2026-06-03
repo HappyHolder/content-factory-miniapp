@@ -73,6 +73,8 @@ export const ru: Dict = {
     channels3:          '3 канала',
     channels10:         '10 каналов',
     scheduledPosts:     'Отложенные посты',
+    havePromo:          'Есть промокод?',
+    applyPromo:         'Применить',
     postPromotionSoon:  'Продвижение постов — soon',
     videoGenerationSoon: 'Генерация видео — soon',
     footer:             'Все планы содержат тестовые данные · Оплата не реализована',
