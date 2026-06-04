@@ -5,6 +5,7 @@
 interface TelegramWebApp {
   initData: string
   ready?: () => void
+  openInvoice?: (url: string, callback: (status: string) => void) => void
 }
 
 interface TelegramGlobal {
@@ -38,4 +39,15 @@ export function notifyTelegramReady(): void {
   } catch {
     // not in Telegram environment — ignore
   }
+}
+
+/**
+ * Opens the native Telegram Stars invoice. Returns false (no-op) when not running
+ * inside Telegram or the method is unavailable, so callers can show a fallback.
+ */
+export function openTelegramInvoice(url: string, callback: (status: string) => void): boolean {
+  const wa = getWebApp()
+  if (!wa?.openInvoice) return false
+  wa.openInvoice(url, callback)
+  return true
 }

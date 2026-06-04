@@ -3,9 +3,10 @@ import { prisma } from '../db';
 import { env } from '../env';
 import fs from 'fs';
 import path from 'path';
-import { sendBotMessage, sendBotPhotoFile, TelegramWebAppKeyboard } from '../lib/telegramBot';
+import { sendBotMessage, sendBotPhotoFile, answerPreCheckoutQuery, TelegramWebAppKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { isPostsLimitReached, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
+import { isPaidTier, grantSubscription } from '../lib/payments';
 
 // ─── /start welcome ─────────────────────────────────────────────────────────
 const WELCOME_TEXT =
@@ -86,11 +87,27 @@ interface TgMessage {
   caption_entities?: TgMessageEntity[];
   // forwarded messages carry a forward_date field
   forward_date?: number;
+  // Telegram Stars payment confirmation
+  successful_payment?: {
+    currency: string;
+    total_amount: number;
+    invoice_payload: string;
+    telegram_payment_charge_id?: string;
+  };
+}
+
+interface TgPreCheckoutQuery {
+  id: string;
+  from?: { id: number };
+  currency: string;
+  total_amount: number;
+  invoice_payload: string;
 }
 
 interface TelegramUpdate {
   update_id: number;
   message?: TgMessage;
+  pre_checkout_query?: TgPreCheckoutQuery;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -168,6 +185,32 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 
   // ── 2. Parse the Update ──────────────────────────────────────────────────
   const update = req.body as TelegramUpdate;
+
+  // ── Stars payments: pre-checkout must be answered within 10s ─────────────
+  if (update.pre_checkout_query) {
+    await answerPreCheckoutQuery(update.pre_checkout_query.id, true, env.TELEGRAM_BOT_TOKEN);
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // ── Stars payments: successful_payment is the authoritative grant ────────
+  if (update.message?.successful_payment) {
+    const pay = update.message.successful_payment;
+    const payChatId = update.message.chat.id;
+    if (pay.currency === 'XTR') {
+      try {
+        const data = JSON.parse(pay.invoice_payload) as { t?: string; tier?: unknown; uid?: string };
+        if (data.t === 'sub' && isPaidTier(data.tier) && typeof data.uid === 'string') {
+          await grantSubscription(data.uid, data.tier);
+          await trySendReply(payChatId, `✅ Оплата получена. Тариф ${data.tier} активирован на 30 дней. Открой приложение.`);
+        }
+      } catch (err) {
+        console.error('[bot/webhook] successful_payment grant failed:', (err as Error).message);
+      }
+    }
+    res.status(200).json({ ok: true });
+    return;
+  }
 
   // Ignore non-message updates (channel_post, callback_query, etc.)
   if (!update.message) {

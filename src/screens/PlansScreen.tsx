@@ -1,13 +1,18 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check, Ticket, Loader2 } from 'lucide-react'
+import { Check, Ticket, Loader2, Star, Gem } from 'lucide-react'
+import { useTonConnectUI } from '@tonconnect/ui-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/Button'
-import { getTelegramInitData } from '@/lib/telegram'
+import { Sheet } from '@/components/ui/Sheet'
+import { getTelegramInitData, openTelegramInvoice } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
+import { PLAN_PRICING, TON_RECEIVING_WALLET, tierToServer, tonToNano } from '@/lib/payments'
 import type { PlanTier } from '@/types'
 import type { TranslationKey } from '@/i18n'
+
+type PaidTier = Exclude<PlanTier, 'free'>
 
 interface PlansScreenProps {
   onBack: () => void
@@ -64,9 +69,88 @@ const PLAN_CONFIG: PlanConfig[] = [
 export function PlansScreen({ onBack }: PlansScreenProps) {
   const { state, showToast, t, applyServerSubscription } = useApp()
   const currentTier = state.user.subscription.planTier
+  const [tonConnectUI] = useTonConnectUI()
 
   const [promo, setPromo] = useState('')
   const [redeeming, setRedeeming] = useState(false)
+  const [payTier, setPayTier] = useState<PaidTier | null>(null)
+  const [paying, setPaying] = useState(false)
+
+  // Refresh subscription from the server (after a payment) and update the UI.
+  const refreshSubscription = async () => {
+    const initData = getTelegramInitData()
+    if (!initData) return
+    try {
+      const res = await fetch(`${API_BASE}/api/payments/subscription`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData }),
+      })
+      const data = await res.json().catch(() => ({})) as { subscription?: { tier: string; aiPostsLimit: number; aiPostsUsed: number; aiCreatesLimit: number | null; aiCreatesUsed: number } }
+      if (data.subscription) applyServerSubscription(data.subscription)
+    } catch { /* non-fatal */ }
+  }
+
+  const payWithStars = async (tier: PaidTier) => {
+    if (paying) return
+    const initData = getTelegramInitData()
+    if (!initData) { showToast(t('plans.payStarsOnly'), 'error'); return }
+    setPaying(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/payments/stars/create-invoice`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, tier: tierToServer(tier) }),
+      })
+      const data = await res.json().catch(() => ({})) as { invoiceUrl?: string; error?: string }
+      if (!res.ok || !data.invoiceUrl) { showToast(data.error ?? t('plans.payFailed'), 'error'); setPaying(false); return }
+      const opened = openTelegramInvoice(data.invoiceUrl, async (status: string) => {
+        setPaying(false)
+        if (status === 'paid') {
+          await refreshSubscription()
+          setPayTier(null)
+          showToast(t('plans.paySuccess'))
+        }
+      })
+      if (!opened) { showToast(t('plans.payStarsOnly'), 'error'); setPaying(false) }
+    } catch {
+      showToast(t('plans.payFailed'), 'error')
+      setPaying(false)
+    }
+  }
+
+  const payWithTon = async (tier: PaidTier) => {
+    if (paying) return
+    const initData = getTelegramInitData()
+    if (!initData) { showToast(t('plans.payStarsOnly'), 'error'); return }
+    setPaying(true)
+    try {
+      const amount = PLAN_PRICING[tier].ton
+      await tonConnectUI.sendTransaction({
+        validUntil: Math.floor(Date.now() / 1000) + 600,
+        messages: [{ address: TON_RECEIVING_WALLET, amount: tonToNano(amount) }],
+      })
+      // Wallet that just paid (raw "0:..." — backend matches friendly/raw)
+      const sender = tonConnectUI.account?.address
+      if (!sender) { showToast(t('plans.payFailed'), 'error'); setPaying(false); return }
+      showToast(t('plans.payTonChecking'))
+      const res = await fetch(`${API_BASE}/api/payments/ton/verify`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, tier: tierToServer(tier), senderWallet: sender }),
+      })
+      const data = await res.json().catch(() => ({})) as { subscription?: { tier: string; aiPostsLimit: number; aiPostsUsed: number; aiCreatesLimit: number | null; aiCreatesUsed: number }; error?: string }
+      if (!res.ok || !data.subscription) { showToast(data.error ?? t('plans.payFailed'), 'error'); setPaying(false); return }
+      applyServerSubscription(data.subscription)
+      setPayTier(null)
+      showToast(t('plans.paySuccess'))
+    } catch {
+      // includes user-rejected transaction
+      showToast(t('plans.payFailed'), 'error')
+    } finally {
+      setPaying(false)
+    }
+  }
 
   const handleRedeem = async () => {
     const code = promo.trim()
@@ -207,12 +291,17 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                     <Check size={13} strokeWidth={2.5} />
                     {t('plans.currentPlan')}
                   </div>
+                ) : plan.tier === 'free' ? (
+                  // Downgrading to Free happens automatically when a paid plan expires.
+                  <Button variant="ghost" size="md" fullWidth disabled>
+                    {ctaLabel}
+                  </Button>
                 ) : isUpgrade ? (
                   <Button
                     variant="primary"
                     size="md"
                     fullWidth
-                    onClick={() => showToast(`${planName} — coming soon`)}
+                    onClick={() => setPayTier(plan.tier as PaidTier)}
                   >
                     {ctaLabel}
                   </Button>
@@ -221,7 +310,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                     variant="ghost"
                     size="md"
                     fullWidth
-                    onClick={() => showToast(`${planName} — coming soon`)}
+                    onClick={() => setPayTier(plan.tier as PaidTier)}
                   >
                     {ctaLabel}
                   </Button>
@@ -235,6 +324,41 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
           <p className="text-[11px] text-[#44444C]">{t('plans.footer')}</p>
         </div>
       </div>
+
+      {/* Payment method sheet */}
+      <Sheet open={payTier !== null} onClose={() => { if (!paying) setPayTier(null) }} title={t('plans.choosePayment')}>
+        {payTier && (
+          <div className="space-y-2 pt-1">
+            <button
+              onClick={() => payWithStars(payTier)}
+              disabled={paying}
+              className="w-full flex items-center justify-between px-4 py-3.5 rounded-[14px] bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.07] transition-colors disabled:opacity-50"
+            >
+              <span className="flex items-center gap-2.5">
+                <Star size={18} className="text-[#FF6A00]" fill="#FF6A00" />
+                <span className="text-[14px] font-medium text-white">Telegram Stars</span>
+              </span>
+              <span className="text-[14px] font-bold text-white">{PLAN_PRICING[payTier].stars} ⭐</span>
+            </button>
+
+            <button
+              onClick={() => payWithTon(payTier)}
+              disabled={paying}
+              className="w-full flex items-center justify-between px-4 py-3.5 rounded-[14px] bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.07] transition-colors disabled:opacity-50"
+            >
+              <span className="flex items-center gap-2.5">
+                <Gem size={18} className="text-[#3AA6FF]" />
+                <span className="text-[14px] font-medium text-white">TON</span>
+              </span>
+              <span className="text-[14px] font-bold text-white">{PLAN_PRICING[payTier].ton} TON</span>
+            </button>
+
+            <p className="text-center text-[11px] text-[#55555D] pt-1">
+              {paying ? t('plans.payProcessing') : t('plans.payForDays')}
+            </p>
+          </div>
+        )}
+      </Sheet>
     </div>
   )
 }

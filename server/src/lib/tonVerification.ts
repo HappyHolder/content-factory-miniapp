@@ -1,0 +1,111 @@
+// TON deposit verification via TON Center API v3.
+//
+// TON Connect returns a BOC, not a simple hash. Instead of parsing it, we query
+// recent incoming transactions to our receiving wallet and match one by:
+//   - source  = sender's wallet
+//   - value   >= expected amount
+//   - recency = within MATCH_WINDOW_SEC
+//   - hash    not already credited (caller checks the DB)
+// Retries to allow for TON confirmation time (~5-15s).
+
+const TONCENTER_BASE   = 'https://toncenter.com/api/v3';
+const MATCH_WINDOW_SEC = 600;   // 10 minutes
+const RETRY_COUNT      = 5;
+const RETRY_DELAY_MS   = 4_000;
+
+/** Decode a user-friendly TON address (UQ…/EQ…) to raw "workchain:hexhash". */
+export function friendlyToRaw(addr: string): string | null {
+  if (!addr || typeof addr !== 'string') return null;
+  if (/^-?\d+:[0-9a-fA-F]{64}$/.test(addr.trim())) return addr.trim().toLowerCase();
+  try {
+    const b64 = addr.trim().replace(/-/g, '+').replace(/_/g, '/');
+    const buf = Buffer.from(b64, 'base64');
+    if (buf.length < 36) return null;
+    const workchain = buf[1] === 0xff ? -1 : buf[1];
+    const hash = buf.slice(2, 34).toString('hex');
+    return `${workchain}:${hash}`;
+  } catch {
+    return null;
+  }
+}
+
+export function addressesMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const rawA = friendlyToRaw(a) || a.toLowerCase().replace(/\s/g, '');
+  const rawB = friendlyToRaw(b) || b.toLowerCase().replace(/\s/g, '');
+  return rawA === rawB;
+}
+
+interface TonTx { now?: number; hash?: string; in_msg?: { source?: string; value?: string }; }
+
+export interface VerifyResult {
+  ok: boolean;
+  txHash?: string;
+  actualTon?: number;
+  error?: string;
+  hint?: string;
+}
+
+/**
+ * Finds a recent incoming TON payment to `receivingWallet` from `senderWallet`
+ * worth at least `expectedTon`. Returns the matching tx hash. The caller must
+ * ensure the hash hasn't been credited before (double-spend protection).
+ */
+export async function verifyTonDeposit(opts: {
+  expectedTon: number;
+  senderWallet: string;
+  receivingWallet: string;
+  apiKey: string;
+  isHashUsed: (hash: string) => Promise<boolean>;
+}): Promise<VerifyResult> {
+  const { expectedTon, senderWallet, receivingWallet, apiKey, isHashUsed } = opts;
+  const expectedNano = BigInt(Math.round(expectedTon * 1e9));
+  const since = Math.floor(Date.now() / 1000) - MATCH_WINDOW_SEC;
+
+  for (let attempt = 1; attempt <= RETRY_COUNT; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const url =
+        `${TONCENTER_BASE}/transactions` +
+        `?account=${encodeURIComponent(receivingWallet)}` +
+        `&limit=30&sort=desc` +
+        `&api_key=${encodeURIComponent(apiKey)}`;
+
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) {
+        return { ok: false, error: 'toncenter_api_error', hint: `HTTP ${res.status}` };
+      }
+      const data = await res.json() as { transactions?: TonTx[] };
+      const txs = Array.isArray(data.transactions) ? data.transactions : [];
+
+      for (const tx of txs) {
+        if ((tx.now || 0) < since) continue;
+        const inMsg = tx.in_msg;
+        if (!inMsg) continue;
+        if (!addressesMatch(inMsg.source ?? '', senderWallet)) continue;
+        if (BigInt(inMsg.value || '0') < expectedNano) continue;
+        const txHash = tx.hash;
+        if (!txHash) continue;
+        if (await isHashUsed(txHash)) continue;
+        return { ok: true, txHash, actualTon: Number(BigInt(inMsg.value || '0')) / 1e9 };
+      }
+
+      if (attempt < RETRY_COUNT) await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+    } catch (err) {
+      clearTimeout(timer);
+      if ((err as Error).name === 'AbortError') {
+        return { ok: false, error: 'toncenter_timeout', hint: 'TON Center did not respond in 15s.' };
+      }
+      return { ok: false, error: 'verification_error', hint: (err as Error).message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return {
+    ok: false,
+    error: 'transaction_not_found',
+    hint: `No matching transaction from your wallet in the last ${MATCH_WINDOW_SEC / 60} min. Make sure you sent at least ${expectedTon} TON.`,
+  };
+}

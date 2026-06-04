@@ -66,4 +66,7 @@ export const env = {
   // Optional: Mini App URL for the /start "Open app" button. If unset, the
   // welcome is sent without a button (users tap the bot's menu button instead).
   MINI_APP_URL: process.env['MINI_APP_URL'] ?? '',
+  // TON payments
+  TON_RECEIVING_WALLET: process.env['TON_RECEIVING_WALLET'] ?? '',
+  TONCENTER_API_KEY:    process.env['TONCENTER_API_KEY']    ?? '',
 } as const;

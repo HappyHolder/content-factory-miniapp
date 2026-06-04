@@ -225,6 +225,71 @@ export async function sendBotPhotoFile(
   }
 }
 
+// ─── Telegram Stars (XTR) payments ──────────────────────────────────────────
+
+/**
+ * Creates a Telegram Stars invoice link (Bot API createInvoiceLink).
+ * For Stars: provider_token is empty and currency is "XTR".
+ * `amountStars` is the integer number of Stars; `payload` (≤128 bytes) is echoed
+ * back in the successful_payment update so we can identify what was bought.
+ * Returns the invoice URL to hand to WebApp.openInvoice().
+ */
+export async function createStarsInvoiceLink(params: {
+  title: string;
+  description: string;
+  payload: string;
+  amountStars: number;
+  token: string;
+}): Promise<string> {
+  const { title, description, payload, amountStars, token } = params;
+  const url = `${TG_API}/bot${token}/createInvoiceLink`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        description,
+        payload,
+        provider_token: '',
+        currency: 'XTR',
+        prices: [{ label: title, amount: amountStars }],
+      }),
+    });
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling createInvoiceLink: ${(err as Error).message}`);
+  }
+  const body = (await res.json()) as TgApiResponse<string>;
+  if (!body.ok || !body.result) {
+    throw new TelegramApiError(body.description ?? 'createInvoiceLink returned not-ok', body.error_code);
+  }
+  return body.result;
+}
+
+/** Answers a pre_checkout_query. Telegram requires this within 10s of the query. */
+export async function answerPreCheckoutQuery(
+  queryId: string,
+  ok: boolean,
+  token: string,
+  errorMessage?: string,
+): Promise<void> {
+  const url = `${TG_API}/bot${token}/answerPreCheckoutQuery`;
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pre_checkout_query_id: queryId,
+        ok,
+        ...(ok ? {} : { error_message: errorMessage ?? 'Payment cannot be processed' }),
+      }),
+    });
+  } catch (err) {
+    console.error('[telegramBot] answerPreCheckoutQuery failed:', (err as Error).message);
+  }
+}
+
 /**
  * Returns the membership/role info for a user in a chat.
  * chatId should be in the form "@username".

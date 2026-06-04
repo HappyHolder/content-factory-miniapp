@@ -211,6 +211,17 @@ model PostVariant {
   @@index([generatedPostId])
 }
 
+model TonPayment {
+  id        String   @id @default(cuid())
+  txHash    String   @unique          // TON transaction hash — prevents double-credit
+  userId    String
+  tier      PlanTier
+  amountTon Float
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
 model PromoCode {
   id           String    @id @default(cuid())
   code         String    @unique               // stored uppercased; matched case-insensitively in app
