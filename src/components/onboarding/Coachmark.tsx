@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { useWalkthrough } from '@/context/WalkthroughContext'
+import { useApp } from '@/context/AppContext'
 
 interface CoachmarkProps {
   title: string
@@ -13,6 +14,7 @@ interface CoachmarkProps {
  */
 export function Coachmark({ title, text, stepLabel }: CoachmarkProps) {
   const { skipStep, skipAll } = useWalkthrough()
+  const { t } = useApp()
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -25,10 +27,10 @@ export function Coachmark({ title, text, stepLabel }: CoachmarkProps) {
       <p className="text-[12px] text-[#A1A1AA] leading-relaxed mb-3">{text}</p>
       <div className="flex items-center justify-between">
         <button onClick={skipStep} className="text-[12px] font-medium text-[#A1A1AA] hover:text-white transition-colors">
-          Пропустить шаг
+          {t('onboarding.skipStep')}
         </button>
         <button onClick={skipAll} className="text-[11px] text-[#55555D] hover:text-[#A1A1AA] transition-colors">
-          Пропустить всё
+          {t('onboarding.skipAll')}
         </button>
       </div>
     </motion.div>

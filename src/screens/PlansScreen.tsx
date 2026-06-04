@@ -72,7 +72,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
     const code = promo.trim()
     if (!code || redeeming) return
     const initData = getTelegramInitData()
-    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    if (!initData) { showToast(t('plans.promoOnlyTelegram'), 'error'); return }
 
     setRedeeming(true)
     try {
@@ -86,14 +86,14 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
         error?: string
       }
       if (!res.ok || !data.subscription) {
-        showToast(data.error ?? 'Не удалось применить промокод', 'error')
+        showToast(data.error ?? t('plans.promoFailed'), 'error')
         return
       }
       applyServerSubscription(data.subscription)
       setPromo('')
-      showToast('Промокод применён! Тариф обновлён.')
+      showToast(t('plans.promoApplied'))
     } catch {
-      showToast('Ошибка соединения', 'error')
+      showToast(t('plans.promoConnError'), 'error')
     } finally {
       setRedeeming(false)
     }

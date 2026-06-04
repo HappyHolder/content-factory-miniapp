@@ -40,7 +40,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
   const handleGenerate = async () => {
     if (!hasInput || !activeChannel) return
     if (!hasQuota) {
-      showToast('Лимит генераций исчерпан. Обновите план.', 'error')
+      showToast(t('create.limitToast'), 'error')
       return
     }
 
@@ -164,9 +164,9 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
               {/* Walkthrough step 3 */}
               {wtStep === 'create' && (
                 <Coachmark
-                  stepLabel="Шаг 3 из 3"
-                  title="Создай первый пост"
-                  text="Опиши идею выше и нажми кнопку - получишь 3 варианта поста с обложкой. Это твой первый пост!"
+                  stepLabel={t('onboarding.step3')}
+                  title={t('onboarding.createTitle')}
+                  text={t('onboarding.createText')}
                 />
               )}
 
@@ -180,7 +180,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
                       ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
                       : 'bg-white/[0.03] border border-white/[0.07] text-[#55555D]'
                 )}>
-                  <span>Генераций осталось</span>
+                  <span>{t('create.creditsLeft')}</span>
                   <span className="font-semibold">{createsRemaining}</span>
                 </div>
               )}
@@ -189,7 +189,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
               {!hasQuota && (
                 <div className="flex items-center gap-2 px-3 py-2.5 rounded-[10px] bg-red-500/10 border border-red-500/20">
                   <span className="text-[12px] text-red-400 leading-snug">
-                    Лимит генераций исчерпан. <span className="font-semibold underline cursor-pointer">Обновите план</span>
+                    {t('create.limitReached')} <span className="font-semibold underline cursor-pointer">{t('create.upgradePlan')}</span>
                   </span>
                 </div>
               )}

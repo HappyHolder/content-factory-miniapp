@@ -28,7 +28,7 @@ type ModalScreen =
   | { type: 'admin_promo' }
 
 function AppContent() {
-  const { toasts, authStatus, activeChannel, canUseAiAssistant } = useApp()
+  const { toasts, authStatus, activeChannel, canUseAiAssistant, t } = useApp()
   const { step: wtStep, start: startWalkthrough, notifyStyleOpened } = useWalkthrough()
   const [activeTab, setActiveTab]             = useState<MainTab>('posts')
   const [modal, setModal]                     = useState<ModalScreen>({ type: 'none' })
@@ -155,16 +155,16 @@ function AppContent() {
                   <Bot size={26} className="text-[#FF6A00]" />
                 </div>
                 <div className="space-y-1.5">
-                  <p className="text-[16px] font-bold text-white">Личный AI ассистент</p>
+                  <p className="text-[16px] font-bold text-white">{t('aiGate.title')}</p>
                   <p className="text-[13px] text-[#A1A1AA] leading-relaxed">
-                    Помогает с идеями, черновиками и стратегией канала. Доступен на тарифе Starter и выше.
+                    {t('aiGate.text')}
                   </p>
                 </div>
                 <button
                   onClick={handleOpenPlans}
                   className="mt-1 px-5 py-2.5 rounded-[12px] bg-[#FF6A00] text-white text-[13px] font-semibold hover:bg-[#ff7a1a] transition-colors orange-glow"
                 >
-                  Посмотреть тарифы
+                  {t('aiGate.cta')}
                 </button>
               </div>
             ) : null}

@@ -107,9 +107,9 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
           {wtStep === 'style' && channels.length > 0 && (
             <div className="mb-2.5">
               <Coachmark
-                stepLabel="Шаг 2 из 3"
-                title="Настрой стиль канала"
-                text="Открой «Стиль канала» и задай тему, тон и оформление - чтобы посты выходили в голосе твоего канала."
+                stepLabel={t('onboarding.step2')}
+                title={t('onboarding.styleTitle')}
+                text={t('onboarding.styleText')}
               />
             </div>
           )}
@@ -123,9 +123,9 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
               >
                 {wtStep === 'connect' && (
                   <Coachmark
-                    stepLabel="Шаг 1 из 3"
-                    title="Подключи канал"
-                    text="Добавь свой Telegram-канал - без него не сделать пост. Нажми кнопку ниже и следуй подсказкам."
+                    stepLabel={t('onboarding.step1')}
+                    title={t('onboarding.connectTitle')}
+                    text={t('onboarding.connectText')}
                   />
                 )}
                 <HighlightRing active={wtStep === 'connect'}>
