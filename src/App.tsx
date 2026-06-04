@@ -1,7 +1,8 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { Loader2, ChevronDown, Bot } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AppProvider, useApp } from '@/context/AppContext'
+import { WalkthroughProvider, useWalkthrough } from '@/context/WalkthroughContext'
 import { AppShell } from '@/components/layout/AppShell'
 import { BottomNav } from '@/components/layout/BottomNav'
 import { ToastContainer } from '@/components/ui/Toast'
@@ -28,6 +29,7 @@ type ModalScreen =
 
 function AppContent() {
   const { toasts, authStatus, activeChannel, canUseAiAssistant } = useApp()
+  const { step: wtStep, start: startWalkthrough, notifyStyleOpened } = useWalkthrough()
   const [activeTab, setActiveTab]             = useState<MainTab>('posts')
   const [modal, setModal]                     = useState<ModalScreen>({ type: 'none' })
   const [chatMessages, setChatMessages]       = useState<ChatMessage[]>([])
@@ -37,7 +39,8 @@ function AppContent() {
   const dismissOnboarding = useCallback(() => {
     try { localStorage.setItem('cf_onboarded', '1') } catch {}
     setShowOnboarding(false)
-  }, [])
+    startWalkthrough()   // kick off the guided walkthrough after the slides
+  }, [startWalkthrough])
   const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false)
   const [chatLoading, setChatLoading]         = useState(false)
   const [showChatScrollBtn, setShowChatScrollBtn] = useState(false)
@@ -76,7 +79,22 @@ function AppContent() {
   const handleOpenBrandKit = (channelId: string, channelUsername: string) => setModal({ type: 'brand_kit', channelId, channelUsername })
   const handleOpenPlans = () => setModal({ type: 'plans' })
   const handleOpenAdmin = () => setModal({ type: 'admin_promo' })
-  const handleBack = () => setModal({ type: 'none' })
+  const handleBack = () => {
+    // Closing the channel-style screen during the walkthrough advances step 2 → 3
+    if (wtStep === 'style' && modal.type === 'brand_kit') notifyStyleOpened()
+    setModal({ type: 'none' })
+  }
+
+  // Drive the user to the right screen for the active walkthrough step.
+  useEffect(() => {
+    if (wtStep === 'connect' || wtStep === 'style') {
+      setModal({ type: 'none' })
+      setActiveTab('profile')
+    } else if (wtStep === 'create') {
+      setModal({ type: 'none' })
+      setActiveTab('create')
+    }
+  }, [wtStep])
 
   const isModalOpen = modal.type !== 'none'
 
@@ -177,7 +195,9 @@ function AppContent() {
 export default function App() {
   return (
     <AppProvider>
-      <AppContent />
+      <WalkthroughProvider>
+        <AppContent />
+      </WalkthroughProvider>
     </AppProvider>
   )
 }

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Sparkles, Check, Loader2, Radio } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
+import { useWalkthrough } from '@/context/WalkthroughContext'
+import { Coachmark, HighlightRing } from '@/components/onboarding/Coachmark'
 import { ChannelSwitcherHeader } from '@/components/layout/ChannelSwitcherHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Switch } from '@/components/ui/Switch'
@@ -25,6 +27,7 @@ interface CreateScreenProps {
 
 export function CreateScreen({ onPostCreated }: CreateScreenProps) {
   const { state, activeChannel, addPost, showToast, t, authStatus, canGenerate: hasQuota, createsRemaining } = useApp()
+  const { step: wtStep } = useWalkthrough()
   const [textPrompt, setTextPrompt] = useState('')
   const [imagePrompt, setImagePrompt] = useState('')
   const [useBrandKit, setUseBrandKit] = useState(true)
@@ -158,6 +161,15 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
             </div>
 
             <div className="px-4 pb-4 space-y-2">
+              {/* Walkthrough step 3 */}
+              {wtStep === 'create' && (
+                <Coachmark
+                  stepLabel="Шаг 3 из 3"
+                  title="Создай первый пост"
+                  text="Опиши идею выше и нажми кнопку - получишь 3 варианта поста с обложкой. Это твой первый пост!"
+                />
+              )}
+
               {/* Quota counter */}
               {createsRemaining !== null && (
                 <div className={cn(
@@ -182,36 +194,38 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
                 </div>
               )}
 
-              <motion.button
-                onClick={handleGenerate}
-                disabled={!canGenerate}
-                whileTap={{ scale: canGenerate ? 0.97 : 1 }}
-                className={cn(
-                  'w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[14px] text-sm font-semibold transition-all duration-200',
-                  canGenerate && !isGenerating && !done
-                    ? 'bg-[#FF6A00] text-white hover:bg-[#ff7a1a] orange-glow'
-                    : done
-                      ? 'bg-[rgba(255,106,0,0.20)] text-[#FF6A00] border border-[rgba(255,106,0,0.38)]'
-                      : 'bg-white/[0.04] text-[#44444C] border border-white/[0.06] cursor-not-allowed'
-                )}
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    {t('create.generating')}
-                  </>
-                ) : done ? (
-                  <>
-                    <Check size={16} />
-                    {t('create.postsReady')}
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={16} />
-                    {t('create.generatePost')}
-                  </>
-                )}
-              </motion.button>
+              <HighlightRing active={wtStep === 'create'}>
+                <motion.button
+                  onClick={handleGenerate}
+                  disabled={!canGenerate}
+                  whileTap={{ scale: canGenerate ? 0.97 : 1 }}
+                  className={cn(
+                    'w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[14px] text-sm font-semibold transition-all duration-200',
+                    canGenerate && !isGenerating && !done
+                      ? 'bg-[#FF6A00] text-white hover:bg-[#ff7a1a] orange-glow'
+                      : done
+                        ? 'bg-[rgba(255,106,0,0.20)] text-[#FF6A00] border border-[rgba(255,106,0,0.38)]'
+                        : 'bg-white/[0.04] text-[#44444C] border border-white/[0.06] cursor-not-allowed'
+                  )}
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      {t('create.generating')}
+                    </>
+                  ) : done ? (
+                    <>
+                      <Check size={16} />
+                      {t('create.postsReady')}
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      {t('create.generatePost')}
+                    </>
+                  )}
+                </motion.button>
+              </HighlightRing>
             </div>
           </GlassCard>
         </motion.div>

@@ -4,6 +4,8 @@ import {
   Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
+import { useWalkthrough } from '@/context/WalkthroughContext'
+import { Coachmark, HighlightRing } from '@/components/onboarding/Coachmark'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
@@ -27,6 +29,7 @@ interface ProfileScreenProps {
 
 export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: ProfileScreenProps) {
   const { state, setActiveChannel, showToast, language, setLanguage, t } = useApp()
+  const { step: wtStep } = useWalkthrough()
   const { user, channels, activeChannelId } = state
   const { subscription } = user
 
@@ -101,25 +104,44 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
               {t('profile.add')}
             </Button>
           </div>
+          {wtStep === 'style' && channels.length > 0 && (
+            <div className="mb-2.5">
+              <Coachmark
+                stepLabel="Шаг 2 из 3"
+                title="Настрой стиль канала"
+                text="Открой «Стиль канала» и задай тему, тон и оформление - чтобы посты выходили в голосе твоего канала."
+              />
+            </div>
+          )}
           <div className="space-y-2">
             {channels.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
+                className="space-y-2.5"
               >
-                <GlassCard className="flex flex-col items-center text-center gap-3 py-5">
-                  <div className="w-10 h-10 rounded-full bg-white/[0.05] border border-white/[0.08] flex items-center justify-center">
-                    <Radio size={18} className="text-[#44444C]" />
-                  </div>
-                  <div>
-                    <p className="text-[13px] font-semibold text-white mb-0.5">{t('profile.noChannels')}</p>
-                    <p className="text-[11px] text-[#55555D] leading-relaxed">{t('profile.noChannelsSub')}</p>
-                  </div>
-                  <Button variant="secondary" size="sm" onClick={() => setConnectSheetOpen(true)}>
-                    {t('profile.noChannelsAction')}
-                  </Button>
-                </GlassCard>
+                {wtStep === 'connect' && (
+                  <Coachmark
+                    stepLabel="Шаг 1 из 3"
+                    title="Подключи канал"
+                    text="Добавь свой Telegram-канал - без него не сделать пост. Нажми кнопку ниже и следуй подсказкам."
+                  />
+                )}
+                <HighlightRing active={wtStep === 'connect'}>
+                  <GlassCard className="flex flex-col items-center text-center gap-3 py-5">
+                    <div className="w-10 h-10 rounded-full bg-white/[0.05] border border-white/[0.08] flex items-center justify-center">
+                      <Radio size={18} className="text-[#44444C]" />
+                    </div>
+                    <div>
+                      <p className="text-[13px] font-semibold text-white mb-0.5">{t('profile.noChannels')}</p>
+                      <p className="text-[11px] text-[#55555D] leading-relaxed">{t('profile.noChannelsSub')}</p>
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={() => setConnectSheetOpen(true)}>
+                      {t('profile.noChannelsAction')}
+                    </Button>
+                  </GlassCard>
+                </HighlightRing>
               </motion.div>
             ) : (
               channels.map((ch, i) => (
@@ -129,6 +151,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
                   isActive={ch.id === activeChannelId}
                   onSetDefault={() => setActiveChannel(ch.id)}
                   onOpenBrandKit={() => onOpenBrandKit(ch.id, ch.username)}
+                  highlightStyle={wtStep === 'style' && i === 0}
                   index={i}
                   t={t}
                 />
@@ -260,11 +283,12 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
   )
 }
 
-function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, index, t }: {
+function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, highlightStyle, index, t }: {
   channel: Channel
   isActive: boolean
   onSetDefault: () => void
   onOpenBrandKit: () => void
+  highlightStyle?: boolean
   index: number
   t: (key: TranslationKey) => string
 }) {
@@ -298,9 +322,13 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, index, t
               {t('profile.makeActive')}
             </Button>
           )}
-          <Button variant="secondary" size="sm" onClick={onOpenBrandKit} className="flex-1">
-            {t('profile.channelStyle')} →
-          </Button>
+          <div className="flex-1">
+            <HighlightRing active={!!highlightStyle}>
+              <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
+                {t('profile.channelStyle')} →
+              </Button>
+            </HighlightRing>
+          </div>
         </div>
       </GlassCard>
     </motion.div>
