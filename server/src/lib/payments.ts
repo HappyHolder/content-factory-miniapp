@@ -8,7 +8,7 @@ import { TIER_LIMITS } from './subscriptionLimits';
 export interface PlanPrice { stars: number; ton: number; }
 
 export const PLAN_PRICING: Record<Exclude<PlanTier, 'FREE'>, PlanPrice> = {
-  STARTER:    { stars: 350,  ton: 3  },
+  STARTER:    { stars: 1,    ton: 0.1 },  // TEMP: lowered for live payment testing
   CREATOR:    { stars: 1100, ton: 7  },
   STUDIO_PRO: { stars: 7000, ton: 50 },
 };
