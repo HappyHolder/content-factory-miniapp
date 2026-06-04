@@ -123,6 +123,15 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
     if (paying) return
     const initData = getTelegramInitData()
     if (!initData) { showToast(t('plans.payStarsOnly'), 'error'); return }
+
+    // A wallet must be connected before we can send. If not, open the connect
+    // modal and ask the user to tap Pay again (auto-connect-on-send is unreliable).
+    if (!tonConnectUI.account) {
+      try { await tonConnectUI.openModal() } catch { /* ignore */ }
+      showToast(t('plans.connectWalletFirst'))
+      return
+    }
+
     setPaying(true)
     try {
       const amount = PLAN_PRICING[tier].ton
@@ -130,7 +139,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
         validUntil: Math.floor(Date.now() / 1000) + 600,
         messages: [{ address: TON_RECEIVING_WALLET, amount: tonToNano(amount) }],
       })
-      // Wallet that just paid (raw "0:..." — backend matches friendly/raw)
+      // Wallet that just paid (raw "0:…" — backend matches friendly/raw)
       const sender = tonConnectUI.account?.address
       if (!sender) { showToast(t('plans.payFailed'), 'error'); setPaying(false); return }
       showToast(t('plans.payTonChecking'))
@@ -144,9 +153,14 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
       applyServerSubscription(data.subscription)
       setPayTier(null)
       showToast(t('plans.paySuccess'))
-    } catch {
-      // includes user-rejected transaction
-      showToast(t('plans.payFailed'), 'error')
+    } catch (err) {
+      // User rejected the transaction, or a real error. Surface the message.
+      const msg = (err as Error)?.message || ''
+      if (/reject|cancel|abort|declin|user.*close/i.test(msg)) {
+        showToast(t('plans.payCancelled'))
+      } else {
+        showToast(msg ? `TON: ${msg}` : t('plans.payFailed'), 'error')
+      }
     } finally {
       setPaying(false)
     }

@@ -115,6 +115,8 @@ export const ru: Dict = {
     payTonChecking:     'Платёж отправлен, проверяем… это занимает до минуты.',
     payFailed:          'Оплата не прошла',
     payProcessing:      'Обработка…',
+    connectWalletFirst: 'Подключите кошелёк и нажмите «Оплатить» снова',
+    payCancelled:       'Оплата отменена',
     postPromotionSoon:  'Продвижение постов — soon',
     videoGenerationSoon: 'Генерация видео — soon',
     footer:             'Все планы содержат тестовые данные · Оплата не реализована',

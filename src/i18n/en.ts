@@ -115,6 +115,8 @@ export const en = {
     payTonChecking:     'Payment sent, verifying… this can take up to a minute.',
     payFailed:          'Payment failed',
     payProcessing:      'Processing…',
+    connectWalletFirst: 'Connect a wallet, then tap Pay again',
+    payCancelled:       'Payment cancelled',
     postPromotionSoon:  'Post promotion — soon',
     videoGenerationSoon: 'Video generation — soon',
     footer:             'All plans include mock data · Payments not implemented',
