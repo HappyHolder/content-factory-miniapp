@@ -6,7 +6,7 @@ import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
-import { generateImageForPost, buildVisualKitPromptHints } from '../lib/imageGenerator';
+import { generateImageForPost, buildVisualKitPromptHints, renderCoverFromBase } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
 import { isCreatesLimitReached, applyMonthlyQuotaReset, MAX_TEXT_REGENS_PER_POST, MAX_IMAGE_REGENS_PER_POST } from '../lib/subscriptionLimits';
 import { generatePostVariants } from '../lib/aiGenerator';
@@ -1111,13 +1111,14 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   }
 
   // ── 6. Generate new image via Replicate ───────────────────────────────────
-  let imageUrl: string | null = null;
+  let cover: Awaited<ReturnType<typeof generateImageForPost>> = null;
   try {
-    imageUrl = await generateImageForPost({ prompt, visualKit, headline: variant.generatedPost.title });
+    cover = await generateImageForPost({ prompt, visualKit, headline: variant.generatedPost.title });
   } catch (err) {
     console.warn('[posts/regenerate-visual] generateImageForPost threw:', (err as Error).message);
   }
 
+  const imageUrl = cover?.bannerUrl ?? null;
   if (!imageUrl) {
     res.status(502).json({ error: 'Image generation failed or returned no result. Try again.' });
     return;
@@ -1135,7 +1136,11 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
       }),
       prisma.generatedPost.update({
         where: { id: postId },
-        data:  { imageRegensUsed: { increment: 1 } },
+        data:  {
+          imageRegensUsed: { increment: 1 },
+          // Persist the clean base so the headline can be edited later.
+          ...(cover?.coverBaseUrl ? { coverBaseUrl: cover.coverBaseUrl } : {}),
+        },
       }),
     ]);
   } catch (err) {
@@ -1446,6 +1451,94 @@ router.post('/set-banner', async (req: Request, res: Response): Promise<void> =>
   }
 
   res.json({ ok: true });
+});
+
+// ─── POST /api/posts/set-cover-text ──────────────────────────────────────────
+//
+// Re-renders the cover headline over the stored clean base (coverBaseUrl) — the
+// picture stays identical, only the overlaid text changes. An empty `text`
+// removes the headline. Requires a coverBaseUrl (covers generated before this
+// feature don't have one → 409 NO_COVER_BASE, asking the user to regenerate the
+// visual once). Does NOT consume a regeneration.
+//
+// Request body: { initData, postId, text }
+// Response 200: { bannerUrl }
+// Response 400/401/403/404/409/500/502 as elsewhere
+
+router.post('/set-cover-text', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId, text } = req.body as {
+    initData?: unknown;
+    postId?:   unknown;
+    text?:     unknown;
+  };
+
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof postId !== 'string' || !postId.trim()) {
+    res.status(400).json({ error: 'postId is required' }); return;
+  }
+  if (typeof text !== 'string') {          // empty string allowed (removes text)
+    res.status(400).json({ error: 'text must be a string' }); return;
+  }
+  if (text.length > 300) {
+    res.status(400).json({ error: 'text exceeds maximum length of 300 characters' }); return;
+  }
+
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  const telegramId = String(parsed.user.id);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  // Load base + brand style for re-render, with ownership check.
+  const post = await prisma.generatedPost.findUnique({
+    where:  { id: postId },
+    select: {
+      id:           true,
+      coverBaseUrl: true,
+      channel: {
+        select: {
+          userId:   true,
+          brandKit: { select: { visualKit: true } },
+        },
+      },
+    },
+  }).catch(() => null);
+
+  if (!post) { res.status(404).json({ error: 'Post not found.' }); return; }
+  if (post.channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+  if (!post.coverBaseUrl) {
+    res.status(409).json({
+      error: 'Regenerate the cover once to enable text editing.',
+      code:  'NO_COVER_BASE',
+    });
+    return;
+  }
+
+  const bannerUrl = await renderCoverFromBase(post.coverBaseUrl, text, post.channel.brandKit?.visualKit ?? null);
+  if (!bannerUrl) {
+    res.status(502).json({ error: 'Could not render the cover text. Try again.' }); return;
+  }
+
+  try {
+    await prisma.postVariant.updateMany({
+      where: { generatedPostId: postId },
+      data:  { bannerUrl },
+    });
+  } catch (err) {
+    console.error('[posts/set-cover-text] DB update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({ bannerUrl });
 });
 
 export default router;

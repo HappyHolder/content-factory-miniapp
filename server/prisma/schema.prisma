@@ -178,6 +178,7 @@ model GeneratedPost {
   sourceUrl         String?
   sourceSummary     String?
   imagePrompt       String? // original image generation prompt — reused on regenerate-visual
+  coverBaseUrl      String? // clean (text-free) cover background — lets the headline be re-rendered without regenerating the picture
   linkButtons       Json? // LinkItem[]
   selectedVariantId String?
 

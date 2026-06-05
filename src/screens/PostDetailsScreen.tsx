@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2 } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatusChip, SourceChip } from '@/components/ui/StatusChip'
@@ -40,6 +40,9 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   // when the post detail screen is closed.
   const [bannerHistory, setBannerHistory] = useState<string[]>([])
   const [isRestoringBanner, setIsRestoringBanner] = useState(false)
+  // Custom cover headline (null = not edited yet → shows the post title).
+  const [coverText, setCoverText] = useState<string | null>(null)
+  const [isSettingCoverText, setIsSettingCoverText] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const post = state.posts.find(p => p.id === postId)
@@ -309,6 +312,42 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     }
   }
 
+  const handleSetCoverText = async () => {
+    if (isSettingCoverText) return
+    const initData = getTelegramInitData()
+    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    const value = coverText ?? post.title
+    setIsSettingCoverText(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/set-cover-text`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, postId: post.id, text: value }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { code?: string; error?: string }
+        showToast(
+          err.code === 'NO_COVER_BASE'
+            ? t('postDetails.coverTextNeedsRegen')
+            : (err.error ?? t('postDetails.coverTextFailed')),
+          'error',
+        )
+        return
+      }
+      const data = await res.json() as { bannerUrl: string }
+      // Add the replaced cover to the undo stack.
+      if (displayBannerUrl && displayBannerUrl !== data.bannerUrl) {
+        setBannerHistory(h => [...h, displayBannerUrl])
+      }
+      updatePost(post.id, { variants: post.variants.map(v => ({ ...v, bannerUrl: data.bannerUrl })) })
+      showToast(t('postDetails.coverTextApplied'))
+    } catch {
+      showToast(t('postDetails.coverTextFailed'), 'error')
+    } finally {
+      setIsSettingCoverText(false)
+    }
+  }
+
   const sectionLabel = (id: Section, icon: React.ReactNode, label: string, badge?: string) => (
     <button
       onClick={() => setOpenSection(openSection === id ? 'variants' : id)}
@@ -479,6 +518,27 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                         }
                       </Button>
                     )}
+                    {/* Edit the cover headline text — re-renders over the clean base */}
+                    <div className="pt-1.5 space-y-1.5">
+                      <input
+                        value={coverText ?? post.title}
+                        onChange={e => setCoverText(e.target.value)}
+                        placeholder={t('postDetails.coverTextPlaceholder')}
+                        className="glass-input w-full px-3 py-2 text-sm"
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleSetCoverText}
+                        disabled={isSettingCoverText}
+                        fullWidth
+                      >
+                        {isSettingCoverText
+                          ? <><Loader2 size={13} className="animate-spin" />{t('common.loading')}</>
+                          : <><Type size={13} />{t('postDetails.coverTextApply')}</>
+                        }
+                      </Button>
+                    </div>
                   </div>
                 ) : post.banner ? (
                   <BannerPreview

@@ -194,15 +194,25 @@ export interface GenerateImageInput {
   headline?:  string;
 }
 
+/** Result of cover generation: the final (text-baked) cover + the clean base. */
+export interface GeneratedCover {
+  /** Composited cover (background + headline + logo) to show and publish. */
+  bannerUrl:    string;
+  /** Clean, text-free background re-hosted to Blob — lets the headline be
+   *  re-rendered later without regenerating the picture. Null if not re-hosted. */
+  coverBaseUrl: string | null;
+}
+
 /**
- * Generates an image via Replicate and returns the URL, or null if
- * generation is disabled, misconfigured, or encounters a non-fatal error.
+ * Generates an image via Replicate and returns the composited cover + clean
+ * base, or null if generation is disabled, misconfigured, or encounters a
+ * non-fatal error.
  *
  * Never throws — callers (draftGenerator) can safely ignore a null result.
  */
 export async function generateImageForPost(
   input: GenerateImageInput,
-): Promise<string | null> {
+): Promise<GeneratedCover | null> {
 
   // ── Guard: only run when IMAGE_PROVIDER === 'replicate' ──────────────────
   if (env.IMAGE_PROVIDER !== 'replicate') return null;
@@ -359,47 +369,50 @@ async function renderHeadline(
   return { buf, h: meta.height ?? fontSize, fontSize };
 }
 
+/** Fetches an image URL into a Buffer. Throws on failure (callers handle it). */
+async function downloadImage(url: string): Promise<Buffer> {
+  return fetch(url).then(r => r.arrayBuffer()).then(b => Buffer.from(b));
+}
+
+/** Uploads a composited cover JPEG to Blob and returns its public URL. */
+async function uploadCover(buf: Buffer, kind: 'cover' | 'base'): Promise<string> {
+  const blob = await put(`covers/${kind}-${Date.now()}.jpg`, buf, {
+    access: 'public',
+    token:  env.BLOB_READ_WRITE_TOKEN,
+    contentType: 'image/jpeg',
+  });
+  return blob.url;
+}
+
 /**
- * Downloads the generated cover and composites an optional headline (crisp text
- * drawn by us, never by the model) and the brand logo (top-right) via sharp, then
- * uploads the result to Vercel Blob. Falls back to the original URL on any error
- * (or when there's nothing to add / no blob token) so generation always returns.
+ * Builds the sharp overlay layers (bottom scrim + brand accent bar + headline
+ * text image, then the top-right logo) for a cover of size W×H. Returns [] when
+ * there's nothing to overlay. Shared by generation and headline re-rendering.
  */
-async function composeCover(
-  coverUrl: string,
-  opts: { logoUrl: string | null; headline: string | null; brandColor: string | null },
-): Promise<string> {
-  const { logoUrl, headline, brandColor } = opts;
-  const needsText = !!headline;
-  const needsLogo = !!logoUrl;
+async function buildOverlayLayers(
+  W: number,
+  H: number,
+  opts: { headline: string | null; brandColor: string | null; logoUrl: string | null },
+): Promise<sharp.OverlayOptions[]> {
+  const { headline, brandColor, logoUrl } = opts;
+  const layers: sharp.OverlayOptions[] = [];
 
-  // Nothing to add, or no blob token to re-host the result → keep the original.
-  if ((!needsText && !needsLogo) || !env.BLOB_READ_WRITE_TOKEN) return coverUrl;
+  // Headline: scrim + brand accent bar (SVG shapes, no fonts) + text image.
+  if (headline) {
+    const padX      = Math.round(W * 0.06);
+    const padBottom = Math.round(H * 0.07);
+    const rendered  = await renderHeadline(headline, W, H, padX);
+    if (rendered) {
+      const { buf: textBuf, h: th, fontSize } = rendered;
+      const textTop  = Math.max(0, H - padBottom - th);
+      const barH     = Math.max(4, Math.round(fontSize * 0.22));
+      const barW     = Math.round(W * 0.11);
+      const barGap   = Math.round(fontSize * 0.5);
+      const barY     = Math.max(0, textTop - barGap - barH);
+      const scrimTop = Math.max(0, barY - Math.round(H * 0.05));
+      const accent   = brandColor && HEX_RE.test(brandColor) ? brandColor : '#FF6A00';
 
-  try {
-    const coverBuf = await fetch(coverUrl).then(r => r.arrayBuffer()).then(b => Buffer.from(b));
-    const coverMeta = await sharp(coverBuf).metadata();
-    const W = coverMeta.width  ?? 1024;
-    const H = coverMeta.height ?? 1024;
-
-    const layers: sharp.OverlayOptions[] = [];
-
-    // Headline: scrim + brand accent bar (SVG shapes, no fonts) + text image.
-    if (needsText) {
-      const padX      = Math.round(W * 0.06);
-      const padBottom = Math.round(H * 0.07);
-      const rendered  = await renderHeadline(headline!, W, H, padX);
-      if (rendered) {
-        const { buf: textBuf, h: th, fontSize } = rendered;
-        const textTop  = Math.max(0, H - padBottom - th);
-        const barH     = Math.max(4, Math.round(fontSize * 0.22));
-        const barW     = Math.round(W * 0.11);
-        const barGap   = Math.round(fontSize * 0.5);
-        const barY     = Math.max(0, textTop - barGap - barH);
-        const scrimTop = Math.max(0, barY - Math.round(H * 0.05));
-        const accent   = brandColor && HEX_RE.test(brandColor) ? brandColor : '#FF6A00';
-
-        const scrimBar = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+      const scrimBar = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
   <defs><linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
     <stop offset="${(scrimTop / H).toFixed(3)}" stop-color="#000000" stop-opacity="0"/>
     <stop offset="1" stop-color="#000000" stop-opacity="0.82"/>
@@ -408,44 +421,115 @@ async function composeCover(
   <rect x="${padX}" y="${barY}" width="${barW}" height="${barH}" rx="${Math.round(barH / 2)}" fill="${accent}"/>
 </svg>`;
 
-        layers.push({ input: Buffer.from(scrimBar), top: 0, left: 0 });
-        layers.push({ input: textBuf, top: textTop, left: padX });
-      }
+      layers.push({ input: Buffer.from(scrimBar), top: 0, left: 0 });
+      layers.push({ input: textBuf, top: textTop, left: padX });
+    }
+  }
+
+  // Brand logo, top-right (non-fatal — skip if it can't be fetched).
+  if (logoUrl) {
+    try {
+      const logoBuf  = await downloadImage(logoUrl);
+      const logoSize = Math.round(W * 0.18);
+      const logoPng  = await sharp(logoBuf)
+        .resize(logoSize, logoSize, { fit: 'inside', withoutEnlargement: false })
+        .png()
+        .toBuffer();
+      const logoMeta = await sharp(logoPng).metadata();
+      const logoW = logoMeta.width ?? logoSize;
+      const margin = Math.round(W * 0.04);
+      layers.push({ input: logoPng, top: margin, left: W - logoW - margin, blend: 'over' });
+    } catch (err) {
+      console.warn('[imageGenerator] Logo fetch/resize failed (skipping logo):', (err as Error).message);
+    }
+  }
+
+  return layers;
+}
+
+/**
+ * Downloads the model's (text-free) output, re-hosts it as the clean base, then
+ * composites the headline + logo and uploads the final cover. Returns both URLs.
+ * Falls back to the original URL on any error (or when no blob token) so
+ * generation always returns something.
+ */
+async function composeCover(
+  coverUrl: string,
+  opts: { logoUrl: string | null; headline: string | null; brandColor: string | null },
+): Promise<GeneratedCover> {
+  if (!env.BLOB_READ_WRITE_TOKEN) return { bannerUrl: coverUrl, coverBaseUrl: null };
+
+  try {
+    const coverBuf = await downloadImage(coverUrl);
+
+    // Re-host the clean (text-free) background so the headline can be re-rendered
+    // later without regenerating the picture.
+    let coverBaseUrl: string | null = null;
+    try {
+      coverBaseUrl = await uploadCover(await sharp(coverBuf).jpeg({ quality: 90 }).toBuffer(), 'base');
+    } catch (err) {
+      console.warn('[imageGenerator] Clean base re-host failed:', (err as Error).message);
     }
 
-    // Brand logo, top-right (non-fatal — skip if it can't be fetched).
-    if (needsLogo) {
-      try {
-        const logoBuf = await fetch(logoUrl!).then(r => r.arrayBuffer()).then(b => Buffer.from(b));
-        const logoSize = Math.round(W * 0.18);
-        const logoPng  = await sharp(logoBuf)
-          .resize(logoSize, logoSize, { fit: 'inside', withoutEnlargement: false })
-          .png()
-          .toBuffer();
-        const logoMeta = await sharp(logoPng).metadata();
-        const logoW = logoMeta.width ?? logoSize;
-        const margin = Math.round(W * 0.04);
-        layers.push({ input: logoPng, top: margin, left: W - logoW - margin, blend: 'over' });
-      } catch (err) {
-        console.warn('[imageGenerator] Logo fetch/resize failed (skipping logo):', (err as Error).message);
-      }
+    const meta = await sharp(coverBuf).metadata();
+    const W = meta.width  ?? 1024;
+    const H = meta.height ?? 1024;
+
+    const layers = await buildOverlayLayers(W, H, opts);
+    if (layers.length === 0) {
+      // No overlay → the banner is just the clean base (or the original URL).
+      return { bannerUrl: coverBaseUrl ?? coverUrl, coverBaseUrl };
     }
 
-    if (layers.length === 0) return coverUrl;
-
-    const composited = await sharp(coverBuf).composite(layers).jpeg({ quality: 90 }).toBuffer();
-
-    const blob = await put(`covers/cover-${Date.now()}.jpg`, composited, {
-      access: 'public',
-      token:  env.BLOB_READ_WRITE_TOKEN,
-      contentType: 'image/jpeg',
-    });
-
-    console.log(`[imageGenerator] Cover composed (text=${needsText} logo=${needsLogo}) → ${blob.url}`);
-    return blob.url;
+    const bannerUrl = await uploadCover(
+      await sharp(coverBuf).composite(layers).jpeg({ quality: 90 }).toBuffer(),
+      'cover',
+    );
+    console.log(`[imageGenerator] Cover composed (text=${!!opts.headline} logo=${!!opts.logoUrl}) → ${bannerUrl}`);
+    return { bannerUrl, coverBaseUrl };
 
   } catch (err) {
     console.warn('[imageGenerator] Cover compose failed (returning original):', (err as Error).message);
-    return coverUrl;
+    return { bannerUrl: coverUrl, coverBaseUrl: null };
+  }
+}
+
+/**
+ * Re-renders the headline (and logo) over an existing clean base cover and
+ * uploads the result. Used by "edit cover text" — the picture stays identical,
+ * only the overlaid text changes. `headline` empty/null = remove text. Returns
+ * the new banner URL, or null on failure / when no blob token.
+ */
+export async function renderCoverFromBase(
+  baseUrl: string,
+  headline: string | null,
+  visualKit: unknown,
+): Promise<string | null> {
+  if (!env.BLOB_READ_WRITE_TOKEN) return null;
+
+  const vkObj = (visualKit && typeof visualKit === 'object')
+    ? visualKit as Record<string, unknown>
+    : null;
+  const brandColor = pickBrandColor(vkObj);
+  const logoUrl = typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
+    ? vkObj['logoUrl'] as string
+    : null;
+  const cleanHeadline = headline && headline.trim() ? headline.trim() : null;
+
+  try {
+    const baseBuf = await downloadImage(baseUrl);
+    const meta = await sharp(baseBuf).metadata();
+    const W = meta.width  ?? 1024;
+    const H = meta.height ?? 1024;
+
+    const layers = await buildOverlayLayers(W, H, { headline: cleanHeadline, brandColor, logoUrl });
+    const out = layers.length === 0
+      ? await sharp(baseBuf).jpeg({ quality: 90 }).toBuffer()
+      : await sharp(baseBuf).composite(layers).jpeg({ quality: 90 }).toBuffer();
+
+    return await uploadCover(out, 'cover');
+  } catch (err) {
+    console.warn('[imageGenerator] renderCoverFromBase failed:', (err as Error).message);
+    return null;
   }
 }

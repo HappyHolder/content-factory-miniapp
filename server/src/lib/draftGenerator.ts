@@ -13,7 +13,7 @@
 
 import { prisma } from '../db';
 import { generatePostVariants, generateImagePromptWithAI } from './aiGenerator';
-import { generateImageForPost } from './imageGenerator';
+import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -224,9 +224,9 @@ export async function createDraftPostForChannel(
 
   if (resolvedImagePrompt) {
     // Step 1: generate image (non-fatal)
-    let generatedImageUrl: string | null = null;
+    let cover: GeneratedCover | null = null;
     try {
-      generatedImageUrl = await generateImageForPost({
+      cover = await generateImageForPost({
         prompt:    resolvedImagePrompt,
         visualKit, // brand style tokens (color names, mood) appended as suffix
         headline:  title, // overlaid as crisp text when visualKit.textOnCover !== false
@@ -237,15 +237,22 @@ export async function createDraftPostForChannel(
 
     // Step 2: persist bannerUrl to ALL variants — cover is a post-level asset,
     // not tied to a specific text variant. This way switching variants keeps the visual.
-    if (generatedImageUrl) {
+    // Also persist the clean base so the headline can be re-edited later.
+    if (cover?.bannerUrl) {
       const variantIds = dbPost.variants.map(v => v.id);
       if (variantIds.length > 0) {
         try {
           await prisma.postVariant.updateMany({
             where: { id: { in: variantIds } },
-            data:  { bannerUrl: generatedImageUrl },
+            data:  { bannerUrl: cover.bannerUrl },
           });
-          firstVariantBannerUrl = generatedImageUrl;
+          firstVariantBannerUrl = cover.bannerUrl;
+          if (cover.coverBaseUrl) {
+            await prisma.generatedPost.update({
+              where: { id: dbPost.id },
+              data:  { coverBaseUrl: cover.coverBaseUrl },
+            }).catch(() => { /* non-fatal: text editing just won't be available */ });
+          }
         } catch (err) {
           console.error('[draftGenerator] Failed to persist bannerUrl to DB — clearing from response:', (err as Error).message);
         }
