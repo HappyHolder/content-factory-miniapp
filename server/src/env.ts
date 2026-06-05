@@ -69,4 +69,6 @@ export const env = {
   // TON payments
   TON_RECEIVING_WALLET: process.env['TON_RECEIVING_WALLET'] ?? '',
   TONCENTER_API_KEY:    process.env['TONCENTER_API_KEY']    ?? '',
+  // Web search for the AI assistant (Tavily). Optional — search is disabled if absent.
+  TAVILY_API_KEY:       process.env['TAVILY_API_KEY']       ?? '',
 } as const;

@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { TIER_LIMITS } from '../lib/subscriptionLimits';
+import { webSearch } from '../lib/webSearch';
 
 const router = Router();
 
@@ -144,6 +145,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
            (lines.length > 0 ? lines.join('\n') : '  (no BrandKit configured)');
   }).join('\n\n');
 
+  const canSearch = !!env.TAVILY_API_KEY;
+
   const systemPrompt =
     `You are a personal AI content assistant inside the "Content Factory" Telegram Mini App.\n` +
     (userName ? `You are talking with ${userName}.\n` : '') +
@@ -153,16 +156,37 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     `Tailor all advice to the active channel's BrandKit style and audience.\n` +
     `If the user asks about a different channel, switch context accordingly.\n` +
     `Always respond in the same language the user writes in.\n` +
+    (canSearch
+      ? `You can search the web with the web_search tool for fresh or factual information (news, prices, recent events, statistics). Use it when the user asks about something current or you are not sure of a fact, then answer in your own words and briefly mention the sources.\n`
+      : '') +
     `Be concise, practical, and creative. Give actionable advice.`;
 
-  // Call DeepSeek with full history + new message
-  const messagesForAI = [
+  // Web-search tool, only offered when Tavily is configured.
+  const tools = canSearch ? [{
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: 'Search the web for up-to-date or factual information. Returns a short summary and the top results with title, URL and snippet.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: "Search query, ideally in the user's language" },
+        },
+        required: ['query'],
+      },
+    },
+  }] : undefined;
+
+  // Conversation buffer for the tool-use loop. Typed loosely because assistant /
+  // tool turns carry extra fields (tool_calls, tool_call_id) beyond {role, content}.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const messages: any[] = [
     { role: 'system', content: systemPrompt },
     ...history,
     { role: 'user', content: message },
   ];
 
-  try {
+  async function callModel() {
     const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
       method:  'POST',
       headers: {
@@ -171,21 +195,52 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       },
       body: JSON.stringify({
         model:       env.DEEPSEEK_MODEL,
-        messages:    messagesForAI,
+        messages,
         max_tokens:  1024,
         temperature: 0.8,
+        ...(tools ? { tools, tool_choice: 'auto' } : {}),
       }),
     });
+    if (!response.ok) throw new Error(`DeepSeek HTTP ${response.status}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await response.json() as { choices?: { message?: any }[] };
+    return data.choices?.[0]?.message ?? null;
+  }
 
-    if (!response.ok) {
-      console.error(`[chat] DeepSeek error: ${response.status}`);
-      res.status(502).json({ error: 'AI request failed' }); return;
+  try {
+    // Up to 3 turns: the model may call web_search (we run it and feed the
+    // results back) before producing the final answer.
+    let reply = '';
+    for (let step = 0; step < 3; step++) {
+      const msg = await callModel();
+      if (!msg) break;
+
+      const toolCalls = msg.tool_calls as
+        | { id: string; function: { name: string; arguments: string } }[]
+        | undefined;
+
+      if (toolCalls && toolCalls.length > 0) {
+        messages.push(msg); // assistant turn carrying the tool calls
+        for (const tc of toolCalls) {
+          let result = 'No results found.';
+          if (tc.function?.name === 'web_search') {
+            let query = '';
+            try { query = String(JSON.parse(tc.function.arguments || '{}').query ?? ''); } catch { /* ignore */ }
+            result = (query && await webSearch(query)) || 'No results found.';
+          }
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
+        }
+        continue; // ask the model again with the tool results
+      }
+
+      reply = String(msg.content ?? '').trim();
+      break;
     }
 
-    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
-    const reply = data.choices?.[0]?.message?.content?.trim() ?? '';
+    if (!reply) reply = 'Не удалось получить ответ. Попробуй переформулировать.';
 
-    // Save both messages to DB (non-fatal)
+    // Save user + final assistant reply to DB (non-fatal). Intermediate tool
+    // turns are not persisted — history stays a clean {role, content} log.
     prisma.chatMessage.createMany({
       data: [
         { userId: dbUser.id, role: 'user',      content: message },
@@ -209,7 +264,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
   } catch (err) {
     console.error('[chat] Error:', (err as Error).message);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(502).json({ error: 'AI request failed' });
   }
 });
 
