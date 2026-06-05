@@ -97,6 +97,9 @@ function resolvePath(obj: unknown, path: string): string {
 export function createTranslator(lang: Language) {
   const dict = dictionaries[lang]
   return function t(key: TranslationKey): string {
+    // Defensive: never let a bad/undefined key crash the app (resolvePath would
+    // call .split on a non-string). Returns '' so the UI just renders nothing.
+    if (typeof key !== 'string') return ''
     return resolvePath(dict, key)
   }
 }

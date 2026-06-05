@@ -1,5 +1,5 @@
 export type PostStatus = 'new' | 'scheduled' | 'published'
-export type SourceType = 'bot' | 'link' | 'prompt' | 'text' | 'forwarded_post'
+export type SourceType = 'bot' | 'link' | 'prompt' | 'text' | 'photo' | 'forwarded_post'
 // 'any' = "no preference" — the form shows a "Не важно" pill and the AI is left
 // free on that dimension (the server skips 'any' when building the style prompt).
 export type Tone = 'expert' | 'calm' | 'founder' | 'crypto' | 'bold' | 'meme' | 'any'

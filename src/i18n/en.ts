@@ -137,6 +137,7 @@ export const en = {
       prompt:        'Prompt',
       link:          'Link',
       text:          'Text',
+      photo:         'Photo',
       forwardedPost: 'Forwarded post',
     },
     meta: {

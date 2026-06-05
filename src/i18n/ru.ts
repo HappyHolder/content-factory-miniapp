@@ -137,6 +137,7 @@ export const ru: Dict = {
       prompt:        'Промпт',
       link:          'Ссылка',
       text:          'Текст',
+      photo:         'Фото',
       forwardedPost: 'Пересланный пост',
     },
     meta: {

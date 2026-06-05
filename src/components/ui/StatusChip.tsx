@@ -41,13 +41,14 @@ export function StatusChip({ status, className }: StatusChipProps) {
 export function SourceChip({ source, className }: SourceChipProps) {
   const { t } = useApp()
 
-  const labelKey = {
+  const labelKey = (({
     bot:            'posts.source.bot',
     prompt:         'posts.source.prompt',
     link:           'posts.source.link',
     text:           'posts.source.text',
+    photo:          'posts.source.photo',
     forwarded_post: 'posts.source.forwardedPost',
-  }[source] as Parameters<typeof t>[0]
+  } as Record<string, Parameters<typeof t>[0]>)[source]) ?? 'posts.source.prompt'
 
   return (
     <span className={cn(
