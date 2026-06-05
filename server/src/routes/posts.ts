@@ -1386,4 +1386,66 @@ router.post(
   }
 );
 
+// ─── POST /api/posts/set-banner ──────────────────────────────────────────────
+//
+// Sets an already-hosted banner URL on ALL variants of a post (cover is a
+// post-level asset). Used by the frontend "restore previous cover" undo: old
+// blob images are never deleted, so a prior URL stays valid. Does NOT consume a
+// regeneration and does not touch imageRegensUsed.
+//
+// Request body: { initData, postId, bannerUrl }
+// Response 200: { ok: true }
+// Response 400/401/403/404/500 as elsewhere
+
+router.post('/set-banner', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId, bannerUrl } = req.body as {
+    initData?:  unknown;
+    postId?:    unknown;
+    bannerUrl?: unknown;
+  };
+
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof postId !== 'string' || !postId.trim()) {
+    res.status(400).json({ error: 'postId is required' }); return;
+  }
+  if (typeof bannerUrl !== 'string' || !/^https:\/\/\S+$/.test(bannerUrl.trim())) {
+    res.status(400).json({ error: 'bannerUrl must be an https URL' }); return;
+  }
+
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  const telegramId = String(parsed.user.id);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  // Ownership check
+  const post = await prisma.generatedPost.findUnique({
+    where:  { id: postId },
+    select: { id: true, channel: { select: { userId: true } } },
+  }).catch(() => null);
+  if (!post) { res.status(404).json({ error: 'Post not found.' }); return; }
+  if (post.channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+
+  try {
+    await prisma.postVariant.updateMany({
+      where: { generatedPostId: postId },
+      data:  { bannerUrl: bannerUrl.trim() },
+    });
+  } catch (err) {
+    console.error('[posts/set-banner] DB update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({ ok: true });
+});
+
 export default router;

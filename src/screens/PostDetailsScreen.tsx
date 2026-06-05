@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatusChip, SourceChip } from '@/components/ui/StatusChip'
@@ -35,6 +35,11 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const [isRegeneratingVisual, setIsRegeneratingVisual] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  // Session-only history of previous cover URLs (for the "restore previous cover"
+  // undo). Old blob images are never deleted, so a prior URL stays valid. Resets
+  // when the post detail screen is closed.
+  const [bannerHistory, setBannerHistory] = useState<string[]>([])
+  const [isRestoringBanner, setIsRestoringBanner] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const post = state.posts.find(p => p.id === postId)
@@ -224,6 +229,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         return
       }
       const data = await res.json() as { bannerUrl: string; imageRegensUsed?: number }
+      // Remember the cover we're replacing so it can be restored (session undo).
+      if (displayBannerUrl && displayBannerUrl !== data.bannerUrl) {
+        setBannerHistory(h => [...h, displayBannerUrl])
+      }
       // Cover is post-level — apply to all variants so switching text keeps it
       updatePost(post.id, {
         variants: post.variants.map(v => ({ ...v, bannerUrl: data.bannerUrl })),
@@ -256,6 +265,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         return
       }
       const data = await res.json() as { bannerUrl: string }
+      // Remember the cover we're replacing so it can be restored (session undo).
+      if (displayBannerUrl && displayBannerUrl !== data.bannerUrl) {
+        setBannerHistory(h => [...h, displayBannerUrl])
+      }
       updateVariantBannerUrl(post.id, selectedVariant.id, data.bannerUrl)
       showToast('Картинка прикреплена!')
       setOpenSection('banner')
@@ -263,6 +276,36 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
       showToast('Ошибка загрузки', 'error')
     } finally {
       setIsUploadingImage(false)
+    }
+  }
+
+  const handleRestoreBanner = async () => {
+    if (isRestoringBanner || bannerHistory.length === 0) return
+    const prev = bannerHistory[bannerHistory.length - 1]!
+    setIsRestoringBanner(true)
+    try {
+      // Persist the restored cover so publish/scheduler use it (real backend only).
+      if (authStatus === 'authenticated') {
+        const initData = getTelegramInitData()
+        if (initData) {
+          const res = await fetch(`${API_BASE}/api/posts/set-banner`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ initData, postId: post.id, bannerUrl: prev }),
+          })
+          if (!res.ok) {
+            showToast(t('postDetails.visualRestoreFailed'), 'error')
+            return
+          }
+        }
+      }
+      updatePost(post.id, { variants: post.variants.map(v => ({ ...v, bannerUrl: prev })) })
+      setBannerHistory(h => h.slice(0, -1))
+      showToast(t('postDetails.visualRestored'))
+    } catch {
+      showToast(t('postDetails.visualRestoreFailed'), 'error')
+    } finally {
+      setIsRestoringBanner(false)
     }
   }
 
@@ -422,6 +465,20 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                         : <><RefreshCw size={13} />{t('postDetails.regenerateVisual')} · {imageRegensLeft}/{MAX_IMAGE_REGENS}</>
                       }
                     </Button>
+                    {bannerHistory.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRestoreBanner}
+                        disabled={isRestoringBanner}
+                        fullWidth
+                      >
+                        {isRestoringBanner
+                          ? <><Loader2 size={13} className="animate-spin" />{t('common.loading')}</>
+                          : <><Undo2 size={13} />{t('postDetails.restorePrevCover')}</>
+                        }
+                      </Button>
+                    )}
                   </div>
                 ) : post.banner ? (
                   <BannerPreview
