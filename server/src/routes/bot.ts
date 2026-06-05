@@ -3,8 +3,8 @@ import { prisma } from '../db';
 import { env } from '../env';
 import fs from 'fs';
 import path from 'path';
-import { sendBotMessage, sendBotPhotoFile, answerPreCheckoutQuery, TelegramWebAppKeyboard } from '../lib/telegramBot';
-import { createDraftPostForChannel } from '../lib/draftGenerator';
+import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerPreCheckoutQuery, TelegramWebAppKeyboard } from '../lib/telegramBot';
+import { createDraftPostForChannel, type DraftPost } from '../lib/draftGenerator';
 import { isPostsLimitReached, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
 import { isPaidTier, grantSubscription } from '../lib/payments';
 import { fetchArticle } from '../lib/urlContentExtractor';
@@ -151,6 +151,47 @@ async function trySendReply(chatId: number, text: string): Promise<void> {
     await sendBotMessage(chatId, text, env.TELEGRAM_BOT_TOKEN);
   } catch (err) {
     console.error('[bot/webhook] sendMessage failed:', (err as Error).message);
+  }
+}
+
+/** An "Open the app" Web App button, or undefined when MINI_APP_URL is unset. */
+function openAppKeyboard(label = '🚀 Открыть приложение'): TelegramWebAppKeyboard | undefined {
+  return env.MINI_APP_URL
+    ? { inline_keyboard: [[{ text: label, web_app: { url: env.MINI_APP_URL } }]] }
+    : undefined;
+}
+
+/**
+ * Rich "draft ready" notification: sends the generated cover as a preview image
+ * (when available) with a localized caption and an "Open & review" button, so
+ * the user jumps straight into the Mini App. Falls back to a text message when
+ * there's no cover, and to a "generate manually" note when generation failed.
+ */
+async function sendDraftNotification(chatId: number, draft: DraftPost | null): Promise<void> {
+  const keyboard = openAppKeyboard('🚀 Открыть и проверить');
+  try {
+    if (!draft) {
+      await sendBotMessage(
+        chatId,
+        '✅ Источник сохранён, но черновик не сгенерировался. Открой приложение и сгенерируй вручную.',
+        env.TELEGRAM_BOT_TOKEN,
+        keyboard,
+      );
+      return;
+    }
+
+    const rawTitle = draft.title?.trim();
+    const title    = rawTitle ? `«${rawTitle.length > 80 ? rawTitle.slice(0, 79) + '…' : rawTitle}»` : 'новый пост';
+    const caption  = `✅ Черновик готов: ${title}\n\nОткрой приложение, чтобы проверить и опубликовать.`;
+    const cover    = draft.variants?.find(v => v.bannerUrl)?.bannerUrl ?? null;
+
+    if (cover) {
+      await sendBotPhoto(chatId, cover, caption, env.TELEGRAM_BOT_TOKEN, keyboard);
+    } else {
+      await sendBotMessage(chatId, caption, env.TELEGRAM_BOT_TOKEN, keyboard);
+    }
+  } catch (err) {
+    console.error('[bot/webhook] sendDraftNotification failed:', (err as Error).message);
   }
 }
 
@@ -399,7 +440,16 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       : null;
 
     if (userSub && isPostsLimitReached(userSub.aiPostsUsed, userSub.aiPostsLimit)) {
-      await trySendReply(chatId, `⚠️ You've reached your monthly bot-post limit (${userSub.aiPostsLimit}). Upgrade your plan in the Mini App.`);
+      try {
+        await sendBotMessage(
+          chatId,
+          `⚠️ Достигнут месячный лимит постов через бота (${userSub.aiPostsLimit}). Повысь тариф в приложении.`,
+          env.TELEGRAM_BOT_TOKEN,
+          openAppKeyboard('⭐ Тарифы'),
+        );
+      } catch (err) {
+        console.error('[bot/webhook] quota notice failed:', (err as Error).message);
+      }
       return;
     }
 
@@ -419,31 +469,27 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    let draftCreated = false;
+    let draft: DraftPost | null = null;
     try {
-      await createDraftPostForChannel({
+      draft = await createDraftPostForChannel({
         channelId:  targetChannel.id,
         input:      genInput,
         sourceType: extractedUrl ? 'link' : 'prompt',
         sourceUrl:  extractedUrl ?? null,
       });
-      draftCreated = true;
     } catch (err) {
       console.error('[bot/webhook] Draft generation failed:', (err as Error).message);
     }
 
-    if (draftCreated && userSub) {
+    if (draft && userSub) {
       prisma.subscription.update({
         where: { userId: dbUser.id },
         data:  { aiPostsUsed: { increment: 1 } },
       }).catch(err => console.error('[bot/webhook] Usage increment failed:', (err as Error).message));
     }
 
-    const reply = draftCreated
-      ? '✅ Draft created. Open the Mini App to review and publish.'
-      : '✅ Source saved, but draft generation failed. Open the Mini App to generate manually.';
-
-    await trySendReply(chatId, reply);
+    // Rich notification: cover preview + "Open & review" button (localized).
+    await sendDraftNotification(chatId, draft);
   })();
 });
 
