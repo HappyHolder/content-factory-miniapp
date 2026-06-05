@@ -62,6 +62,23 @@ function buildTitle(input: string): string {
 }
 
 /**
+ * Derives a clean headline from the generated post text: the first non-empty
+ * line with markdown markers stripped, capped to ~80 chars. Used for the post
+ * title and cover headline so they reflect the actual post, not the raw input's
+ * first line (which for links/tweets is often an author handle or URL).
+ */
+function extractHeadline(text: string): string {
+  const firstLine = text.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? '';
+  const cleaned = firstLine
+    .replace(/^#{1,6}\s*/, '')   // markdown heading marker
+    .replace(/^[-*•>]\s*/, '')   // bullet / quote marker
+    .replace(/\*\*|__/g, '')     // bold markers
+    .trim();
+  if (!cleaned) return '';
+  return cleaned.length <= 80 ? cleaned : cleaned.slice(0, 79).replace(/[\s.,;:!?—-]*$/, '') + '…';
+}
+
+/**
  * Extracts LinkItem entries from the BrandKit linkKit that should appear as
  * Telegram inline keyboard buttons (usage === 'button' | 'always').
  * brandKit is typed as unknown because Prisma Json columns arrive untyped.
@@ -148,13 +165,19 @@ export async function createDraftPostForChannel(
         brandKit,
       });
 
+  // Prefer the AI-written headline (first line of the generated post) over the
+  // raw input's first line — for links/tweets the latter is often junk (author
+  // handle, URL). Falls back to the input-based title (and for image-only mode).
+  const contentHeadline = imageOnly ? '' : extractHeadline(variantDrafts[0]?.text ?? '');
+  const finalTitle = contentHeadline || title;
+
   // ── Persist: GeneratedPost + 3 PostVariant rows (interactive transaction) ─
   // Step A — create post with nested variants in one round-trip.
   // Step B — write selectedVariantId (needs variant IDs from step A).
   const dbPost = await prisma.$transaction(async (tx) => {
     const created = await tx.generatedPost.create({
       data: {
-        title,
+        title: finalTitle,
         channelId,
         sourceType,
         sourceSummary,
@@ -229,7 +252,7 @@ export async function createDraftPostForChannel(
       cover = await generateImageForPost({
         prompt:    resolvedImagePrompt,
         visualKit, // brand style tokens (color names, mood) appended as suffix
-        headline:  title, // overlaid as crisp text when visualKit.textOnCover !== false
+        headline:  finalTitle, // AI-written headline overlaid as crisp text (textOnCover)
       });
     } catch (err) {
       console.warn('[draftGenerator] Image generation failed (non-fatal):', (err as Error).message);
