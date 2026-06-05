@@ -222,6 +222,17 @@ model TonPayment {
   @@index([userId])
 }
 
+model StarsPayment {
+  id          String   @id @default(cuid())
+  chargeId    String   @unique          // telegram_payment_charge_id — prevents double-credit on duplicate webhook delivery
+  userId      String
+  tier        PlanTier
+  amountStars Int
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
 model PromoCode {
   id           String    @id @default(cuid())
   code         String    @unique               // stored uppercased; matched case-insensitively in app

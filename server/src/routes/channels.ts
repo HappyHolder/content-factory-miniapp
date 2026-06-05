@@ -165,7 +165,7 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
       where:  { userId: dbUser.id },
       select: { tier: true },
     });
-    const tier = (userSub?.tier ?? 'STARTER') as keyof typeof TIER_LIMITS;
+    const tier = (userSub?.tier ?? 'FREE') as keyof typeof TIER_LIMITS;
     const channelLimit = TIER_LIMITS[tier].channelLimit;
     const channelCount = await prisma.channel.count({ where: { userId: dbUser.id } });
     if (channelCount >= channelLimit) {

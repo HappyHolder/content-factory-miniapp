@@ -201,8 +201,31 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       try {
         const data = JSON.parse(pay.invoice_payload) as { t?: string; tier?: unknown; uid?: string };
         if (data.t === 'sub' && isPaidTier(data.tier) && typeof data.uid === 'string') {
-          await grantSubscription(data.uid, data.tier);
-          await trySendReply(payChatId, `✅ Оплата получена. Тариф ${data.tier} активирован на 30 дней. Открой приложение.`);
+          // Idempotency: record the charge first. Telegram may deliver the same
+          // successful_payment more than once; the unique chargeId stops a repeat
+          // delivery from re-granting (which would reset usage + push expiry forward).
+          // Fail-open: only a unique-constraint violation (P2002) means "already
+          // processed". Any other error (e.g. table not migrated yet) logs and still
+          // grants, so payments are never blocked by this guard.
+          let alreadyProcessed = false;
+          const chargeId = pay.telegram_payment_charge_id;
+          if (chargeId) {
+            try {
+              await prisma.starsPayment.create({
+                data: { chargeId, userId: data.uid, tier: data.tier, amountStars: pay.total_amount },
+              });
+            } catch (e) {
+              if ((e as { code?: string })?.code === 'P2002') {
+                alreadyProcessed = true;
+              } else {
+                console.error('[bot/webhook] StarsPayment record failed (continuing to grant):', (e as Error).message);
+              }
+            }
+          }
+          if (!alreadyProcessed) {
+            await grantSubscription(data.uid, data.tier);
+            await trySendReply(payChatId, `✅ Оплата получена. Тариф ${data.tier} активирован на 30 дней. Открой приложение.`);
+          }
         }
       } catch (err) {
         console.error('[bot/webhook] successful_payment grant failed:', (err as Error).message);
