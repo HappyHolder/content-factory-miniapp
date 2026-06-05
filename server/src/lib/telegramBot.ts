@@ -75,6 +75,26 @@ export async function getChat(chatId: string, token: string): Promise<TgChat> {
   return body.result;
 }
 
+/**
+ * Resolves a Telegram file_id to its temporary file_path via getFile.
+ * The downloadable URL is `${TG_API}/file/bot{token}/{file_path}`.
+ * Throws TelegramApiError on a non-ok response or network failure.
+ */
+export async function getFilePath(fileId: string, token: string): Promise<string> {
+  const url = `${TG_API}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`;
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling getFile: ${(err as Error).message}`);
+  }
+  const body = (await res.json()) as TgApiResponse<{ file_path?: string }>;
+  if (!body.ok || !body.result?.file_path) {
+    throw new TelegramApiError(body.description ?? 'getFile returned no file_path', body.error_code);
+  }
+  return body.result.file_path;
+}
+
 // ─── Inline keyboard ─────────────────────────────────────────────────────────
 
 /**

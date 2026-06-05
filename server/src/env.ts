@@ -52,6 +52,9 @@ export const env = {
   // Image generation — all optional; server starts fine if absent
   IMAGE_PROVIDER,
   IMAGE_MODEL:                       process.env['IMAGE_MODEL']                       ?? 'black-forest-labs/flux-schnell',
+  // Vision model (on Replicate) used to read incoming photos in the bot.
+  // Reuses REPLICATE_API_TOKEN — no separate provider/key needed.
+  VISION_MODEL:                      process.env['VISION_MODEL']                      ?? 'openai/gpt-4o-mini',
   REPLICATE_API_TOKEN:               process.env['REPLICATE_API_TOKEN']               ?? '',
   // How long to wait for a Replicate prediction to finish (ms).
   // Imagen 4 typically takes 30–90 s on Replicate.

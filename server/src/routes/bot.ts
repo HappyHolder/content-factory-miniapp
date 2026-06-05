@@ -8,6 +8,7 @@ import { createDraftPostForChannel, type DraftPost } from '../lib/draftGenerator
 import { isPostsLimitReached, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
 import { isPaidTier, grantSubscription } from '../lib/payments';
 import { fetchArticle } from '../lib/urlContentExtractor';
+import { extractImageContent } from '../lib/visionExtractor';
 
 // ─── /start welcome ─────────────────────────────────────────────────────────
 const WELCOME_TEXT =
@@ -86,6 +87,8 @@ interface TgMessage {
   // photo / video / document captions
   caption?: string;
   caption_entities?: TgMessageEntity[];
+  // attached photo sizes (ascending order; last element is the largest)
+  photo?: { file_id: string; file_unique_id: string; width: number; height: number; file_size?: number }[];
   // forwarded messages carry a forward_date field
   forward_date?: number;
   // Telegram Stars payment confirmation
@@ -295,9 +298,13 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   // Accept both plain text messages and photo/video/document captions.
   const sourceText     = message.text ?? message.caption ?? '';
   const sourceEntities = message.entities ?? message.caption_entities ?? [];
+  // Largest available size of an attached photo (if any).
+  const photoFileId    = message.photo && message.photo.length > 0
+    ? message.photo[message.photo.length - 1]!.file_id
+    : null;
 
-  if (!sourceText.trim()) {
-    await trySendReply(chatId, 'For now, send text or a link.');
+  if (!sourceText.trim() && !photoFileId) {
+    await trySendReply(chatId, 'Пришли текст, ссылку или фото — сделаю пост.');
     res.status(200).json({ ok: true });
     return;
   }
@@ -398,8 +405,8 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       await prisma.sourceInput.create({
         data: {
           userId:  dbUser.id,
-          type:    sourceIsUrl ? 'URL' : 'TEXT',
-          content: sourceText,
+          type:    photoFileId ? 'PROMPT' : (sourceIsUrl ? 'URL' : 'TEXT'),
+          content: sourceText || (photoFileId ? '[photo]' : ''),
           url:     extractedUrl ?? null,
           metadata: {
             telegramMessageId: message.message_id,
@@ -407,6 +414,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
             source:            'telegram_bot',
             channelId:         targetChannel.id,
             hasCaption:        message.caption !== undefined,
+            hasPhoto:          !!photoFileId,
             isForwarded:       message.forward_date !== undefined,
           },
         },
@@ -457,7 +465,15 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     // AI rewrites actual content instead of just seeing a bare URL. Any failure
     // falls back to the original message text — generation never blocks on this.
     let genInput = sourceText;
-    if (extractedUrl) {
+    if (photoFileId) {
+      // Read the photo (OCR + scene) and feed it into generation.
+      try {
+        const extracted = await extractImageContent(photoFileId);
+        if (extracted) genInput = sourceText.trim() ? `${sourceText.trim()}\n\n${extracted}` : extracted;
+      } catch (err) {
+        console.error('[bot/webhook] Image extraction failed (using caption):', (err as Error).message);
+      }
+    } else if (extractedUrl) {
       try {
         const article = await fetchArticle(extractedUrl);
         if (article?.text) {
@@ -469,12 +485,19 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // Nothing usable (e.g. a photo we couldn't read and no caption) → don't
+    // produce an empty draft; tell the user instead.
+    if (!genInput.trim()) {
+      await sendDraftNotification(chatId, null);
+      return;
+    }
+
     let draft: DraftPost | null = null;
     try {
       draft = await createDraftPostForChannel({
         channelId:  targetChannel.id,
         input:      genInput,
-        sourceType: extractedUrl ? 'link' : 'prompt',
+        sourceType: photoFileId ? 'photo' : (extractedUrl ? 'link' : 'prompt'),
         sourceUrl:  extractedUrl ?? null,
       });
     } catch (err) {
