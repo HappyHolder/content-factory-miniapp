@@ -1,14 +1,16 @@
 export type PostStatus = 'new' | 'scheduled' | 'published'
 export type SourceType = 'bot' | 'link' | 'prompt' | 'text' | 'forwarded_post'
-export type Tone = 'expert' | 'calm' | 'founder' | 'crypto' | 'bold' | 'meme'
-export type PostLength = 'short' | 'medium' | 'long'
-export type AddressStyle = 'ты' | 'вы'
+// 'any' = "no preference" — the form shows a "Не важно" pill and the AI is left
+// free on that dimension (the server skips 'any' when building the style prompt).
+export type Tone = 'expert' | 'calm' | 'founder' | 'crypto' | 'bold' | 'meme' | 'any'
+export type PostLength = 'short' | 'medium' | 'long' | 'any'
+export type AddressStyle = 'ты' | 'вы' | 'any'
 export type Language = 'RU' | 'EN'
 export type LinkUsage = 'inline' | 'button' | 'signature' | 'when_relevant' | 'always'
 export type BannerTemplate = 'dark_glass' | 'minimal' | 'branded' | 'news'
 
 // New types for redesigned channel style profile
-export type AuthorRole = 'founder' | 'expert' | 'media' | 'team' | 'personal'
+export type AuthorRole = 'founder' | 'expert' | 'media' | 'team' | 'personal' | 'any'
 export type ParagraphStyle = 'short' | 'medium' | 'long'
 export type ListUsage = 'never' | 'when_relevant' | 'always'
 export type CoverAspectRatio = '16:9' | '4:5' | '1:1' | '9:16'
@@ -71,6 +73,9 @@ export interface VoiceProfile {
   examplePosts: string[]
   favoriteWords: string[]
   forbiddenWords: string[]
+  // Free-text style guidance written by the channel owner. Injected verbatim
+  // into the AI prompt as a hard rule. Optional / may be empty.
+  customNote?: string
 }
 
 
@@ -134,6 +139,9 @@ export interface PostRules {
   listUsage?: ListUsage
   ctaUsage?: 'never' | 'when_relevant' | 'always'
   thingsToAvoid?: string[]
+  // Free-text formatting guidance written by the channel owner. Injected verbatim
+  // into the AI prompt as a hard rule. Optional / may be empty.
+  customNote?: string
 }
 
 export interface BrandKit {

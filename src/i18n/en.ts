@@ -319,6 +319,9 @@ export const en = {
       lengthShort:      'Short',
       lengthMedium:     'Medium',
       lengthLong:       'Long',
+      any:              'No preference',
+      customNote:       'Custom guidance',
+      customNotePlaceholder: 'Anything else the AI should follow for text style (free text)…',
     },
     postFormat: {
       structure:           'Post structure',
@@ -343,6 +346,8 @@ export const en = {
       avoidClickbaitDesc:  'No misleading or sensational headlines',
       useLinks:            'Insert links when relevant',
       useLinksDesc:        'Use links from your link kit when contextually relevant',
+      customNote:          'Custom guidance',
+      customNotePlaceholder:'Anything else the AI should follow for formatting (free text)…',
     },
     words: {
       favoriteWords:       'Favorite words',

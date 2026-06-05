@@ -6,7 +6,8 @@ interface ChannelStyleSummaryProps {
   brandKit: BrandKit
 }
 
-const ROLE_KEY: Record<AuthorRole, TranslationKey> = {
+// Maps exclude 'any' ("no preference") — that value is hidden from the summary.
+const ROLE_KEY: Record<Exclude<AuthorRole, 'any'>, TranslationKey> = {
   founder:  'channelStyle.textVoice.roleFounder',
   expert:   'channelStyle.textVoice.roleExpert',
   media:    'channelStyle.textVoice.roleMedia',
@@ -14,7 +15,7 @@ const ROLE_KEY: Record<AuthorRole, TranslationKey> = {
   personal: 'channelStyle.textVoice.rolePersonal',
 }
 
-const TONE_KEY: Record<Tone, TranslationKey> = {
+const TONE_KEY: Record<Exclude<Tone, 'any'>, TranslationKey> = {
   founder: 'channelStyle.textVoice.toneFounder',
   expert:  'channelStyle.textVoice.toneExpert',
   calm:    'channelStyle.textVoice.toneCalm',
@@ -23,7 +24,7 @@ const TONE_KEY: Record<Tone, TranslationKey> = {
   meme:    'channelStyle.textVoice.toneMeme',
 }
 
-const LENGTH_KEY: Record<PostLength, TranslationKey> = {
+const LENGTH_KEY: Record<Exclude<PostLength, 'any'>, TranslationKey> = {
   short:  'channelStyle.textVoice.lengthShort',
   medium: 'channelStyle.textVoice.lengthMedium',
   long:   'channelStyle.textVoice.lengthLong',
@@ -42,9 +43,9 @@ export function ChannelStyleSummary({ brandKit }: ChannelStyleSummaryProps) {
 
   const hasTopic = !!channelAbout?.topic
 
-  const roleStr   = voiceProfile.authorRole ? t(ROLE_KEY[voiceProfile.authorRole]) : null
-  const toneStr   = t(TONE_KEY[voiceProfile.tone])
-  const lengthStr = t(LENGTH_KEY[voiceProfile.postLength])
+  const roleStr   = voiceProfile.authorRole && voiceProfile.authorRole !== 'any' ? t(ROLE_KEY[voiceProfile.authorRole]) : null
+  const toneStr   = voiceProfile.tone       !== 'any' ? t(TONE_KEY[voiceProfile.tone])       : null
+  const lengthStr = voiceProfile.postLength !== 'any' ? t(LENGTH_KEY[voiceProfile.postLength]) : null
 
   // Deduplicate: role and tone can translate to the same word (e.g. 'Founder' / 'Основатель')
   const traits = [...new Set([

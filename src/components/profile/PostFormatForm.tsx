@@ -26,6 +26,7 @@ export function PostFormatForm({ channelId, initialData }: PostFormatFormProps) 
   const [neverCopy, setNeverCopy]       = useState(initialData.neverCopySource)
   const [noClickbait, setNoClickbait]   = useState(initialData.avoidClickbait)
   const [useLinks, setUseLinks]         = useState(initialData.useLinkKitWhenRelevant)
+  const [customNote, setCustomNote]     = useState(initialData.customNote ?? '')
 
   const handleSave = () => {
     updateBrandKit(channelId, {
@@ -38,6 +39,7 @@ export function PostFormatForm({ channelId, initialData }: PostFormatFormProps) 
         neverCopySource:       neverCopy,
         avoidClickbait:        noClickbait,
         useLinkKitWhenRelevant: useLinks,
+        customNote,
         // Keep legacy boolean fields in sync
         shortParagraphs:  paraStyle === 'short',
         addCtaIfRelevant: ctaUsage !== 'never',
@@ -121,6 +123,19 @@ export function PostFormatForm({ channelId, initialData }: PostFormatFormProps) 
             onChange={setUseLinks}
           />
         </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-1.5">
+          {t('channelStyle.postFormat.customNote')}
+        </p>
+        <textarea
+          value={customNote}
+          onChange={e => setCustomNote(e.target.value)}
+          placeholder={t('channelStyle.postFormat.customNotePlaceholder')}
+          rows={3}
+          className="glass-input w-full px-3 py-2.5 text-sm resize-none"
+        />
       </div>
 
       <Button variant="primary" size="md" onClick={handleSave} fullWidth>

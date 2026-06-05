@@ -88,6 +88,8 @@ interface StyleContext {
   signatureBlock: string | null;
   /** 'always' | 'when_relevant' | 'never' | '' */
   signatureUsage: string;
+  /** Free-text guidance the owner typed (voiceProfile + postRules customNote), or '' */
+  customNote:     string;
 }
 
 /**
@@ -102,13 +104,14 @@ interface StyleContext {
  */
 function buildStyleContext(brandKit: unknown): StyleContext {
   const empty: StyleContext = {
-    context: '', language: '', addressStyle: '', signatureBlock: null, signatureUsage: '',
+    context: '', language: '', addressStyle: '', signatureBlock: null, signatureUsage: '', customNote: '',
   };
 
   if (!brandKit || typeof brandKit !== 'object') return empty;
 
   const bk          = brandKit as Record<string, unknown>;
   const lines:       string[] = [];
+  const customNotes: string[] = [];
   let language       = '';
   let addressStyle   = '';
   let signatureBlock: string | null = null;
@@ -133,9 +136,12 @@ function buildStyleContext(brandKit: unknown): StyleContext {
     if (typeof vp['language']     === 'string' && vp['language'])     language     = vp['language'];
     if (typeof vp['addressStyle'] === 'string' && vp['addressStyle']) addressStyle = vp['addressStyle'];
 
-    if (typeof vp['authorRole']   === 'string' && vp['authorRole'])   lines.push(`Author role: ${vp['authorRole']}`);
-    if (typeof vp['tone']         === 'string' && vp['tone'])         lines.push(`Tone: ${vp['tone']}`);
-    if (typeof vp['postLength']   === 'string' && vp['postLength'])   lines.push(`Post length: ${vp['postLength']}`);
+    // 'any' = owner picked "no preference" — skip so the model is left free.
+    if (typeof vp['authorRole']   === 'string' && vp['authorRole'] && vp['authorRole'] !== 'any')   lines.push(`Author role: ${vp['authorRole']}`);
+    if (typeof vp['tone']         === 'string' && vp['tone']       && vp['tone']       !== 'any')   lines.push(`Tone: ${vp['tone']}`);
+    if (typeof vp['postLength']   === 'string' && vp['postLength'] && vp['postLength'] !== 'any')   lines.push(`Post length: ${vp['postLength']}`);
+
+    if (typeof vp['customNote'] === 'string' && vp['customNote'].trim()) customNotes.push(vp['customNote'].trim());
     const favWords = vp['favoriteWords'];
     if (Array.isArray(favWords) && favWords.length > 0) {
       const words = favWords
@@ -178,6 +184,8 @@ function buildStyleContext(brandKit: unknown): StyleContext {
         .join('; ');
       if (items) lines.push(`Avoid: ${items}`);
     }
+
+    if (typeof pr['customNote'] === 'string' && pr['customNote'].trim()) customNotes.push(pr['customNote'].trim());
   }
 
   // ── linkKit (inline / when_relevant links only) ───────────────────────────
@@ -223,13 +231,13 @@ function buildStyleContext(brandKit: unknown): StyleContext {
     }
   }
 
-  return { context: lines.join('\n'), language, addressStyle, signatureBlock, signatureUsage };
+  return { context: lines.join('\n'), language, addressStyle, signatureBlock, signatureUsage, customNote: customNotes.join('\n') };
 }
 
 async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraft[]> {
   const { input, sourceType, channel, brandKit } = params;
 
-  const { context, language, addressStyle, signatureBlock, signatureUsage } =
+  const { context, language, addressStyle, signatureBlock, signatureUsage, customNote } =
     buildStyleContext(brandKit);
 
   const channelLabel = channel.handle ? `@${channel.handle}` : channel.name;
@@ -278,6 +286,13 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
         `Include this signature at the end of the post when it fits naturally:\n${signatureBlock}`
       );
     }
+  }
+
+  // Owner's free-text guidance — highest-priority hard rule.
+  if (customNote) {
+    systemParts.push(
+      `Additional hard style instructions from the channel owner — follow them EXACTLY:\n${customNote}`
+    );
   }
 
   // Variant diversity contract

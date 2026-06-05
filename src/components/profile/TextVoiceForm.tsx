@@ -40,6 +40,7 @@ export function TextVoiceForm({ channelId, initialVoice }: TextVoiceFormProps) {
         options={[
           { value: 'ты', label: t('channelStyle.textVoice.addressTy') },
           { value: 'вы', label: t('channelStyle.textVoice.addressVy') },
+          { value: 'any', label: t('channelStyle.textVoice.any') },
         ]}
       />
 
@@ -53,6 +54,7 @@ export function TextVoiceForm({ channelId, initialVoice }: TextVoiceFormProps) {
           { value: 'media',   label: t('channelStyle.textVoice.roleMedia')   },
           { value: 'team',    label: t('channelStyle.textVoice.roleTeam')    },
           { value: 'personal',label: t('channelStyle.textVoice.rolePersonal')},
+          { value: 'any',     label: t('channelStyle.textVoice.any')         },
         ]}
       />
 
@@ -67,6 +69,7 @@ export function TextVoiceForm({ channelId, initialVoice }: TextVoiceFormProps) {
           { value: 'bold',    label: t('channelStyle.textVoice.toneBold')    },
           { value: 'crypto',  label: t('channelStyle.textVoice.toneCrypto')  },
           { value: 'meme',    label: t('channelStyle.textVoice.toneMeme')    },
+          { value: 'any',     label: t('channelStyle.textVoice.any')         },
         ]}
       />
 
@@ -78,8 +81,22 @@ export function TextVoiceForm({ channelId, initialVoice }: TextVoiceFormProps) {
           { value: 'short',  label: t('channelStyle.textVoice.lengthShort')  },
           { value: 'medium', label: t('channelStyle.textVoice.lengthMedium') },
           { value: 'long',   label: t('channelStyle.textVoice.lengthLong')   },
+          { value: 'any',    label: t('channelStyle.textVoice.any')          },
         ]}
       />
+
+      <div>
+        <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-1.5">
+          {t('channelStyle.textVoice.customNote')}
+        </p>
+        <textarea
+          value={voice.customNote ?? ''}
+          onChange={e => setV('customNote', e.target.value)}
+          placeholder={t('channelStyle.textVoice.customNotePlaceholder')}
+          rows={3}
+          className="glass-input w-full px-3 py-2.5 text-sm resize-none"
+        />
+      </div>
 
       <Button variant="primary" size="md" onClick={handleSave} fullWidth>
         {t('channelStyle.save.textVoice')}

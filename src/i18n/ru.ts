@@ -319,6 +319,9 @@ export const ru: Dict = {
       lengthShort:      'Короткие',
       lengthMedium:     'Средние',
       lengthLong:       'Длинные',
+      any:              'Не важно',
+      customNote:       'Своя рекомендация',
+      customNotePlaceholder: 'Что ещё AI должен учитывать по стилю текста (свободный текст)…',
     },
     postFormat: {
       structure:           'Структура поста',
@@ -343,6 +346,8 @@ export const ru: Dict = {
       avoidClickbaitDesc:  'Без вводящих в заблуждение заголовков',
       useLinks:            'Вставлять ссылки по контексту',
       useLinksDesc:        'Использовать ссылки из списка, когда уместно',
+      customNote:          'Своя рекомендация',
+      customNotePlaceholder:'Что ещё AI должен учитывать по формату (свободный текст)…',
     },
     words: {
       favoriteWords:      'Любимые слова',

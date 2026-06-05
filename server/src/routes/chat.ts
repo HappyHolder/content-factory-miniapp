@@ -121,10 +121,17 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       if (typeof vp['authorRole'] === 'string' && vp['authorRole']) lines.push(`  Author role: ${vp['authorRole']}`);
       if (typeof vp['postLength'] === 'string' && vp['postLength']) lines.push(`  Post length: ${vp['postLength']}`);
     }
+    if (bk?.voiceProfile && typeof bk.voiceProfile === 'object') {
+      const vp = bk.voiceProfile as Record<string, unknown>;
+      if (typeof vp['customNote'] === 'string' && vp['customNote'].trim())
+        lines.push(`  Owner guidance (text): ${vp['customNote'].trim()}`);
+    }
     if (bk?.postRules && typeof bk.postRules === 'object') {
       const pr = bk.postRules as Record<string, unknown>;
       if (typeof pr['defaultStructure'] === 'string' && pr['defaultStructure'])
         lines.push(`  Structure: ${pr['defaultStructure']}`);
+      if (typeof pr['customNote'] === 'string' && pr['customNote'].trim())
+        lines.push(`  Owner guidance (format): ${pr['customNote'].trim()}`);
     }
     return lines;
   }
