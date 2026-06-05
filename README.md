@@ -50,38 +50,31 @@ The AI applies the user's Brand Kit (voice, tone, emoji rules, link kit, visual 
 
 ---
 
-## What is mocked
+## Current state (live)
 
-Everything. This is a frontend-only prototype with zero real backends.
+This is no longer a frontend-only prototype. The backend is built and deployed; the
+app runs end to end against a real database, Telegram bot, AI, and payments.
 
-| Mocked | Notes |
+| Area | Status |
 |---|---|
-| AI generation | `generationService.ts` — 1.8s delay, templates using Brand Kit data |
-| Telegram bot | No real bot — "From bot" source type uses mock data |
-| Publishing | `postService.ts` — local state only, no real Telegram API |
-| Scheduling | Local state — no cron, no queue |
-| Banner images | CSS/gradient templates — no real image generation |
-| User auth | Hardcoded mock user (`mockData.ts`) |
-| Channel data | 2 mock channels with mock subscriber counts |
+| Backend | Express + Prisma, deployed on **Render** (`content-factory-api.onrender.com`) |
+| Database | **Neon** PostgreSQL, Prisma migrations applied (`server/prisma/migrations/`) |
+| Auth | Real — Telegram `initData` HMAC validation on every request (`server/src/lib/telegram.ts`) |
+| AI text | DeepSeek (`AI_PROVIDER=deepseek`) with a deterministic placeholder fallback |
+| AI images | Replicate → uploaded to Vercel Blob |
+| Telegram bot | Live `@ai_tg_studio_bot` — `/start`, auto-draft from messages, payment webhooks |
+| Publishing | Real Telegram Bot API send (`POST /api/posts/publish`) |
+| Scheduling | In-process 60s poller auto-publishes due posts (`server/src/lib/scheduler.ts`) |
+| Payments | Telegram Stars (XTR) + TON via TonConnect; promo codes; tiered subscriptions |
 
----
+In a plain browser (no Telegram `initData`) the app still runs in **mock mode** with
+`src/data/mockData.ts`, so the UI is developable without Telegram.
 
-## Future backend integration
+### Frontend ↔ backend boundary
 
-The service layer (`src/services/`) is the integration boundary. To wire up real backends:
-
-| Service | Replace with |
-|---|---|
-| `generationService.ts` | `POST /api/generate` → Claude / OpenAI with Brand Kit as system prompt |
-| `postService.ts` | REST or WebSocket API for post CRUD and status |
-| `brandKitService.ts` | User settings API, persisted per channel |
-| `channelService.ts` | Telegram Bot API — channel list from bot subscriptions |
-
-**Telegram Mini App SDK:** wrap `App.tsx` with `@twa-dev/sdk` init call, read `window.Telegram.WebApp.initDataUnsafe` for real user identity.
-
-**Scheduling:** replace local `scheduledAt` state with a queue (e.g. BullMQ) backed by a Telegram Bot `sendMessage` call at the target time.
-
-**Banner generation:** replace CSS templates in `BannerPreview.tsx` with a real image generation service (e.g. html-to-image on a server, or a design API).
+The frontend talks to the backend directly via `fetch` (see `src/lib/api.ts` →
+`VITE_API_BASE_URL`). The `src/services/*` layer holds the in-memory mock-mode state;
+in Telegram mode `AppContext` hydrates from `/api/auth/telegram` and `/api/posts/list`.
 
 ---
 

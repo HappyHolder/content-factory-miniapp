@@ -1,5 +1,22 @@
 # Content Factory — Project Handoff Document
-> Current state as of May 2026. Generated from actual source.
+
+> ⚠️ **OUTDATED (most sections below describe the May 2026 prototype).**
+> As of June 2026 the project is live, not a mock prototype. The corrections in
+> this banner override anything stale further down. See `README.md` →
+> "Current state (live)" for the accurate overview.
+>
+> **What actually changed since this doc was written:**
+> - **Backend is deployed** on Render (`content-factory-api.onrender.com`), not a "scaffold only".
+> - **Prisma migrations ARE run** — see `server/prisma/migrations/` (11 migrations on Neon).
+> - **Real API routes exist:** auth, channels, brandkits, posts (generate/list/publish/
+>   schedule/delete/regenerate/upload), bot webhook, chat, promo, admin, payments.
+> - **Auth is real** — Telegram `initData` HMAC validation on every route.
+> - **AI is real** — DeepSeek for text + chat assistant; Replicate for cover images.
+> - **There IS a FREE tier now** (freemium). Stars/TON prices: Starter 350⭐/3 TON,
+>   Creator 1100⭐/7 TON, Studio Pro 7000⭐/50 TON. Prices live in
+>   `server/src/lib/payments.ts` and `src/lib/payments.ts` (keep in sync).
+> - **Per-post regen caps are 3 text / 3 visual** (`subscriptionLimits.ts`), enforced server-side.
+> - **Deployment:** push to `main` auto-deploys both Render (backend) and Vercel (frontend).
 
 ---
 
