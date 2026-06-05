@@ -229,6 +229,7 @@ export async function createDraftPostForChannel(
       generatedImageUrl = await generateImageForPost({
         prompt:    resolvedImagePrompt,
         visualKit, // brand style tokens (color names, mood) appended as suffix
+        headline:  title, // overlaid as crisp text when visualKit.textOnCover !== false
       });
     } catch (err) {
       console.warn('[draftGenerator] Image generation failed (non-fatal):', (err as Error).message);

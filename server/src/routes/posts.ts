@@ -1113,7 +1113,7 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   // ── 6. Generate new image via Replicate ───────────────────────────────────
   let imageUrl: string | null = null;
   try {
-    imageUrl = await generateImageForPost({ prompt, visualKit });
+    imageUrl = await generateImageForPost({ prompt, visualKit, headline: variant.generatedPost.title });
   } catch (err) {
     console.warn('[posts/regenerate-visual] generateImageForPost threw:', (err as Error).message);
   }

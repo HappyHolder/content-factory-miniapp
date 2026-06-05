@@ -14,9 +14,29 @@
  * No external dependencies — uses Node's built-in fetch (Node 18+).
  */
 
+import fs from 'fs';
+import path from 'path';
 import sharp from 'sharp';
 import { put } from '@vercel/blob';
 import { env } from '../env';
+
+// Bundled Cyrillic-capable font for the headline overlay. Resolved across the
+// possible runtime cwds (dist/lib in prod, src/lib under tsx). Passing an explicit
+// fontfile to sharp's text renderer removes any dependency on system fonts being
+// installed on the host (Render). Null → fall back to the default sans font.
+function resolveFontFile(): string | null {
+  const candidates = [
+    path.resolve(__dirname, '../../assets/DejaVuSans-Bold.ttf'),
+    path.resolve(process.cwd(), 'assets/DejaVuSans-Bold.ttf'),
+    path.resolve(process.cwd(), 'server/assets/DejaVuSans-Bold.ttf'),
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch { /* ignore */ }
+  }
+  console.warn('[imageGenerator] Headline font not found — falling back to system sans');
+  return null;
+}
+const FONT_FILE = resolveFontFile();
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -165,6 +185,13 @@ export function buildVisualKitPromptHints(visualKit: unknown): string {
 export interface GenerateImageInput {
   prompt:     string;
   visualKit?: unknown;
+  /**
+   * Short headline (usually the post title) to overlay on the cover as real,
+   * crisp text via sharp — only applied when visualKit.textOnCover !== false.
+   * The model itself still renders a clean, text-free background (flux-schnell
+   * draws garbled letters), and we composite legible typography on top.
+   */
+  headline?:  string;
 }
 
 /**
@@ -200,6 +227,15 @@ export async function generateImageForPost(
   const logoUrl = typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
     ? vkObj['logoUrl'] as string
     : null;
+
+  // Text-on-cover overlay: honour the visualKit.textOnCover toggle (default on,
+  // matching the UI default). The model keeps producing a clean background; the
+  // headline is drawn on top by sharp so it is always crisp and on-brand.
+  const textOnCover = vkObj?.['textOnCover'] !== false;
+  const headline = textOnCover && typeof input.headline === 'string' && input.headline.trim()
+    ? input.headline.trim()
+    : null;
+  const brandColor = pickBrandColor(vkObj);
 
   // Logo is composited via sharp AFTER generation — never passed to the model
   const prompt = coverStyle
@@ -237,7 +273,7 @@ export async function generateImageForPost(
     // ── Synchronous response: output already present ──────────────────────
     if (prediction.status === 'succeeded' && prediction.output) {
       const url = extractUrl(prediction.output);
-      return url ? compositeLogoIfNeeded(url, logoUrl) : null;
+      return url ? composeCover(url, { logoUrl, headline, brandColor }) : null;
     }
 
     // ── Failed immediately ────────────────────────────────────────────────
@@ -253,7 +289,7 @@ export async function generateImageForPost(
     }
 
     const polledUrl = await pollPrediction(prediction.id, env.REPLICATE_API_TOKEN, env.IMAGE_GENERATION_POLL_TIMEOUT_MS);
-    return polledUrl ? compositeLogoIfNeeded(polledUrl, logoUrl) : null;
+    return polledUrl ? composeCover(polledUrl, { logoUrl, headline, brandColor }) : null;
 
   } catch (err) {
     console.warn('[imageGenerator] Unexpected error:', (err as Error).message);
@@ -261,66 +297,155 @@ export async function generateImageForPost(
   }
 }
 
-// ─── Sharp logo compositing ───────────────────────────────────────────────────
+// ─── Sharp cover compositing (headline text + logo) ───────────────────────────
+
+const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+/** Picks the first valid brand hex color from visualKit (brandColors → primaryColor). */
+function pickBrandColor(vk: Record<string, unknown> | null): string | null {
+  if (!vk) return null;
+  const colors = vk['brandColors'];
+  if (Array.isArray(colors)) {
+    for (const c of colors) {
+      const hex = (c as { hex?: unknown })?.hex;
+      if (typeof hex === 'string' && HEX_RE.test(hex)) return hex;
+    }
+  }
+  const primary = vk['primaryColor'];
+  if (typeof primary === 'string' && HEX_RE.test(primary)) return primary;
+  return null;
+}
+
+/** Escapes the Pango markup special characters in user text. */
+function escapePango(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Collapses whitespace and truncates an over-long headline to ~maxChars (+ ellipsis). */
+function clampHeadline(text: string, maxChars: number): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  if (t.length <= maxChars) return t;
+  return t.slice(0, maxChars - 1).replace(/[\s.,;:!?]*$/, '') + '…';
+}
 
 /**
- * Downloads the generated cover and overlays the brand logo in the top-right
- * corner using sharp. Falls back to the original URL on any error so image
- * generation always returns something.
+ * Renders the headline to a transparent PNG via sharp's native (Pango) text
+ * engine, using the bundled fontfile so it never depends on host fonts. Wraps to
+ * `wrapWidth` and is clamped to roughly three lines. Returns the buffer + height.
  */
-async function compositeLogoIfNeeded(
+async function renderHeadline(
+  text: string,
+  W: number,
+  H: number,
+  padX: number,
+): Promise<{ buf: Buffer; h: number; fontSize: number } | null> {
+  const fontSize  = Math.max(28, Math.round(H * 0.072));
+  const wrapWidth = W - padX * 2;
+  const maxChars  = Math.floor((wrapWidth / (fontSize * 0.52)) * 3); // ~3 lines worth
+  const safe      = escapePango(clampHeadline(text, maxChars));
+  if (!safe) return null;
+
+  const textInput: sharp.CreateText = {
+    text:  `<span foreground="#FFFFFF">${safe}</span>`,
+    font:  `${FONT_FILE ? 'DejaVu Sans' : 'sans-serif'} Bold ${fontSize}`,
+    rgba:  true,
+    width: wrapWidth,
+    align: 'left',
+  };
+  if (FONT_FILE) textInput.fontfile = FONT_FILE;
+
+  const buf  = await sharp({ text: textInput }).png().toBuffer();
+  const meta = await sharp(buf).metadata();
+  return { buf, h: meta.height ?? fontSize, fontSize };
+}
+
+/**
+ * Downloads the generated cover and composites an optional headline (crisp text
+ * drawn by us, never by the model) and the brand logo (top-right) via sharp, then
+ * uploads the result to Vercel Blob. Falls back to the original URL on any error
+ * (or when there's nothing to add / no blob token) so generation always returns.
+ */
+async function composeCover(
   coverUrl: string,
-  logoUrl:  string | null,
+  opts: { logoUrl: string | null; headline: string | null; brandColor: string | null },
 ): Promise<string> {
-  if (!logoUrl || !env.BLOB_READ_WRITE_TOKEN) return coverUrl;
+  const { logoUrl, headline, brandColor } = opts;
+  const needsText = !!headline;
+  const needsLogo = !!logoUrl;
+
+  // Nothing to add, or no blob token to re-host the result → keep the original.
+  if ((!needsText && !needsLogo) || !env.BLOB_READ_WRITE_TOKEN) return coverUrl;
 
   try {
-    // Download cover and logo in parallel
-    const [coverBuf, logoBuf] = await Promise.all([
-      fetch(coverUrl).then(r => r.arrayBuffer()).then(b => Buffer.from(b)),
-      fetch(logoUrl).then(r => r.arrayBuffer()).then(b => Buffer.from(b)),
-    ]);
-
-    // Get cover dimensions
+    const coverBuf = await fetch(coverUrl).then(r => r.arrayBuffer()).then(b => Buffer.from(b));
     const coverMeta = await sharp(coverBuf).metadata();
-    const coverSize = coverMeta.width ?? 1024;
+    const W = coverMeta.width  ?? 1024;
+    const H = coverMeta.height ?? 1024;
 
-    // Resize logo to ~18% of cover width, preserve aspect ratio
-    const logoSize  = Math.round(coverSize * 0.18);
-    const logoPng   = await sharp(logoBuf)
-      .resize(logoSize, logoSize, { fit: 'inside', withoutEnlargement: false })
-      .png()
-      .toBuffer();
+    const layers: sharp.OverlayOptions[] = [];
 
-    const logoMeta  = await sharp(logoPng).metadata();
-    const logoW     = logoMeta.width  ?? logoSize;
-    const logoH     = logoMeta.height ?? logoSize;
-    const margin    = Math.round(coverSize * 0.04);
+    // Headline: scrim + brand accent bar (SVG shapes, no fonts) + text image.
+    if (needsText) {
+      const padX      = Math.round(W * 0.06);
+      const padBottom = Math.round(H * 0.07);
+      const rendered  = await renderHeadline(headline!, W, H, padX);
+      if (rendered) {
+        const { buf: textBuf, h: th, fontSize } = rendered;
+        const textTop  = Math.max(0, H - padBottom - th);
+        const barH     = Math.max(4, Math.round(fontSize * 0.22));
+        const barW     = Math.round(W * 0.11);
+        const barGap   = Math.round(fontSize * 0.5);
+        const barY     = Math.max(0, textTop - barGap - barH);
+        const scrimTop = Math.max(0, barY - Math.round(H * 0.05));
+        const accent   = brandColor && HEX_RE.test(brandColor) ? brandColor : '#FF6A00';
 
-    // Composite: top-right corner
-    const composited = await sharp(coverBuf)
-      .composite([{
-        input:     logoPng,
-        top:       margin,
-        left:      coverSize - logoW - margin,
-        blend:     'over',
-      }])
-      .jpeg({ quality: 92 })
-      .toBuffer();
+        const scrimBar = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+  <defs><linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="${(scrimTop / H).toFixed(3)}" stop-color="#000000" stop-opacity="0"/>
+    <stop offset="1" stop-color="#000000" stop-opacity="0.82"/>
+  </linearGradient></defs>
+  <rect x="0" y="0" width="${W}" height="${H}" fill="url(#scrim)"/>
+  <rect x="${padX}" y="${barY}" width="${barW}" height="${barH}" rx="${Math.round(barH / 2)}" fill="${accent}"/>
+</svg>`;
 
-    // Upload to Vercel Blob
-    const filename  = `covers/cover-${Date.now()}.jpg`;
-    const blob      = await put(filename, composited, {
+        layers.push({ input: Buffer.from(scrimBar), top: 0, left: 0 });
+        layers.push({ input: textBuf, top: textTop, left: padX });
+      }
+    }
+
+    // Brand logo, top-right (non-fatal — skip if it can't be fetched).
+    if (needsLogo) {
+      try {
+        const logoBuf = await fetch(logoUrl!).then(r => r.arrayBuffer()).then(b => Buffer.from(b));
+        const logoSize = Math.round(W * 0.18);
+        const logoPng  = await sharp(logoBuf)
+          .resize(logoSize, logoSize, { fit: 'inside', withoutEnlargement: false })
+          .png()
+          .toBuffer();
+        const logoMeta = await sharp(logoPng).metadata();
+        const logoW = logoMeta.width ?? logoSize;
+        const margin = Math.round(W * 0.04);
+        layers.push({ input: logoPng, top: margin, left: W - logoW - margin, blend: 'over' });
+      } catch (err) {
+        console.warn('[imageGenerator] Logo fetch/resize failed (skipping logo):', (err as Error).message);
+      }
+    }
+
+    if (layers.length === 0) return coverUrl;
+
+    const composited = await sharp(coverBuf).composite(layers).jpeg({ quality: 90 }).toBuffer();
+
+    const blob = await put(`covers/cover-${Date.now()}.jpg`, composited, {
       access: 'public',
       token:  env.BLOB_READ_WRITE_TOKEN,
       contentType: 'image/jpeg',
     });
 
-    console.log(`[imageGenerator] Logo composited → ${blob.url}`);
+    console.log(`[imageGenerator] Cover composed (text=${needsText} logo=${needsLogo}) → ${blob.url}`);
     return blob.url;
 
   } catch (err) {
-    console.warn('[imageGenerator] Logo composite failed (returning original):', (err as Error).message);
+    console.warn('[imageGenerator] Cover compose failed (returning original):', (err as Error).message);
     return coverUrl;
   }
 }
