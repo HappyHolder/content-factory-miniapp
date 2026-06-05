@@ -7,6 +7,7 @@ import { sendBotMessage, sendBotPhotoFile, answerPreCheckoutQuery, TelegramWebAp
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { isPostsLimitReached, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
 import { isPaidTier, grantSubscription } from '../lib/payments';
+import { fetchArticle } from '../lib/urlContentExtractor';
 
 // ─── /start welcome ─────────────────────────────────────────────────────────
 const WELCOME_TEXT =
@@ -402,11 +403,27 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // For link sources, fetch the page and extract the real article text so the
+    // AI rewrites actual content instead of just seeing a bare URL. Any failure
+    // falls back to the original message text — generation never blocks on this.
+    let genInput = sourceText;
+    if (extractedUrl) {
+      try {
+        const article = await fetchArticle(extractedUrl);
+        if (article?.text) {
+          const commentary = sourceText.replace(extractedUrl, '').trim();
+          genInput = commentary ? `${commentary}\n\n${article.text}` : article.text;
+        }
+      } catch (err) {
+        console.error('[bot/webhook] Article extraction failed (using raw text):', (err as Error).message);
+      }
+    }
+
     let draftCreated = false;
     try {
       await createDraftPostForChannel({
         channelId:  targetChannel.id,
-        input:      sourceText,
+        input:      genInput,
         sourceType: extractedUrl ? 'link' : 'prompt',
         sourceUrl:  extractedUrl ?? null,
       });
