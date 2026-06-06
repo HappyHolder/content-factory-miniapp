@@ -284,13 +284,15 @@ export async function createDraftPostForChannel(
           }
 
           if (refHtml) {
-            // Claude Haiku generates a unique cover in the channel's visual style
+            // Claude generates a unique cover in the channel's visual style
+            // Pass the full post input so the model uses real facts, not invented text
             const generatedHtml = await generateHtmlCover({
               referenceHtml: refHtml,
               headline:      classification.headline || finalTitle,
               subheadline:   classification.subheadline,
               stat:          classification.stat,
               category:      classification.category,
+              postContent:   input || undefined,
               logoUrl:       brand.logoUrl ?? undefined,
               primaryColor:  brand.primaryColor,
               bgColor:       brand.bgColor,

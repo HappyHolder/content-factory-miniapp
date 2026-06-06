@@ -19,6 +19,8 @@ export interface HtmlCoverInput {
   subheadline?:   string;
   stat?:          string;
   category?:      string;
+  /** Full post body text — lets the model extract real facts for feature cards */
+  postContent?:   string;
   logoUrl?:       string;
   primaryColor:   string;
   bgColor:        string;
@@ -42,7 +44,7 @@ function extractCss(html: string): string {
   return m ? m[1].trim() : '';
 }
 
-/** Extracts the <body> content, strips canvas/script tags (keep static structure) */
+/** Extracts the <body> content, strips canvas/script tags */
 function extractBodyStructure(html: string): string {
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   if (!bodyMatch) return '';
@@ -50,6 +52,15 @@ function extractBodyStructure(html: string): string {
     .replace(/<canvas[^>]*>[\s\S]*?<\/canvas>/gi, '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .trim();
+}
+
+/** Extracts unique CSS class names used in the body — gives model the component vocabulary */
+function extractClassPalette(html: string): string {
+  const classes = new Set<string>();
+  for (const m of html.matchAll(/class="([^"]+)"/g)) {
+    m[1].split(/\s+/).filter(Boolean).forEach(c => classes.add(c));
+  }
+  return Array.from(classes).join(' ');
 }
 
 // ─── Replicate polling ────────────────────────────────────────────────────────
@@ -104,37 +115,46 @@ export async function generateHtmlCover(input: HtmlCoverInput): Promise<string |
     return null;
   }
   const bodyStructure = extractBodyStructure(input.referenceHtml);
+  const classPalette   = extractClassPalette(bodyStructure);
 
   const contentLines = [`Headline: "${input.headline}"`];
   if (input.subheadline) contentLines.push(`Subheadline: "${input.subheadline}"`);
   if (input.stat)        contentLines.push(`Key metric: "${input.stat}"`);
   if (input.category)    contentLines.push(`Category: "${input.category}"`);
+  const postBodyBlock = input.postContent
+    ? `\nFULL POST TEXT:\n${input.postContent.slice(0, 2000)}`
+    : '';
 
-  const systemPrompt = `You are an expert HTML/CSS web designer specializing in social media cover images. You write clean, valid HTML that renders pixel-perfectly in a headless browser. Return ONLY raw HTML — no markdown, no explanation, no code fences.`;
+  const systemPrompt = `You are a creative art director and HTML/CSS designer. You create unique, original social media cover images. Each cover you design is a fresh composition tailored to the specific post — never a copy of a template. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
 
-  const userPrompt = `You are editing an HTML cover image. Your ONLY job is to update text content for a new post. Keep everything else exactly as-is.
+  const userPrompt = `Design an original social media cover image for the post below.
 
-ORIGINAL HTML (complete file to edit):
-<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><style>
+━━━ DESIGN SYSTEM (CSS — defines colors, fonts, visual effects) ━━━
 ${css}
-</style></head><body>
-${bodyStructure}
-</body></html>
 
-NEW POST CONTENT:
+━━━ AVAILABLE CSS CLASSES ━━━
+${classPalette}
+
+━━━ REFERENCE LAYOUT (shows component structure — for inspiration only) ━━━
+${bodyStructure}
+
+━━━ THIS POST ━━━
 ${contentLines.join('\n')}
 ${input.logoUrl ? `Logo URL: ${input.logoUrl}` : ''}
+${postBodyBlock}
 
-INSTRUCTIONS — follow these EXACTLY:
-1. Keep ALL HTML tags, attributes, CSS classes, and structure identical to the original
-2. Keep ALL SVG icons exactly as they are — do not modify any <svg> elements
-3. Keep ALL CSS class names — do not add or remove any classes
-4. ONLY change visible text content inside elements to reflect the new post
-5. Update: headlines, taglines, stat numbers, labels, descriptions, badge text, bottom text
-6. Remove <canvas> elements and <script> tags if present
-7. body must be ${w}px × ${h}px, overflow:hidden (already set in CSS — do not change)
-8. Return the complete modified HTML file starting with <!DOCTYPE html>
-9. NO markdown fences, NO explanation — raw HTML only`;
+━━━ YOUR CREATIVE BRIEF ━━━
+Create a COMPLETELY ORIGINAL cover for this specific post. Rules:
+1. Use the CSS design system above — same colors, fonts, effects (do not change the <style>)
+2. Build a FRESH composition that visually tells the story of THIS post — not a copy of the reference
+3. Choose what to emphasize based on the post content: big stat? key idea? step-by-step? quote?
+4. Use the available CSS classes to build components, but arrange them in a way that fits this post
+5. ALL text must come from the post content — no placeholder phrases, no invented features
+6. Keep any SVG icons you use from the reference — don't modify SVG markup
+7. Remove <canvas> and <script> tags
+8. The <body> must be ${w}px × ${h}px, overflow:hidden (CSS already handles this)
+9. Return the complete HTML file starting with <!DOCTYPE html>
+10. NO markdown fences, NO explanation — raw HTML only`;
 
   try {
     const createRes = await fetch(
