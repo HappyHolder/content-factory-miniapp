@@ -17,7 +17,6 @@ import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
 import { renderHtmlTemplate, renderHtmlString } from './playwrightRenderer';
 import { generateHtmlCover } from './claudeHtmlGenerator';
-import { env } from '../env';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -234,28 +233,26 @@ export async function createDraftPostForChannel(
     : undefined;
 
   // ── Cover generation ─────────────────────────────────────────────────────
-  // Priority:
-  //   1. Template engine (Satori — free, instant, brand-perfect)
-  //      when COVER_ENGINE is 'template' or 'auto' and brand kit is present
-  //   2. Flux / Replicate — AI-generated artistic image
-  //      when COVER_ENGINE is 'flux', or template is unavailable/fails
-
+  // Two modes, driven by visualKit.coverMode (chosen in the UI):
+  //   'ai'   — Flux neural image via Replicate (same engine as "Regenerate visual")
+  //   'html' — user's HTML style templates → Sonnet composes a unique cover,
+  //            Playwright renders it (Satori only as an internal fallback)
   let cover: GeneratedCover | null = null;
-  const useTemplate =
-    useBrandKit &&
-    visualKit &&
-    env.COVER_ENGINE !== 'flux';
 
-  if (useTemplate) {
+  const vkObj = (visualKit && typeof visualKit === 'object')
+    ? visualKit as Record<string, unknown>
+    : null;
+  const coverMode = typeof vkObj?.['coverMode'] === 'string'
+    ? vkObj['coverMode'] as string : 'ai';
+  const aspectRatio = (typeof vkObj?.['aspectRatio'] === 'string'
+    ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
+
+  // ── HTML mode: user templates + Sonnet ────────────────────────────────────
+  if (coverMode === 'html' && useBrandKit && vkObj) {
     try {
-      const brand       = extractBrand(visualKit);
-      const vkObj       = visualKit as Record<string, unknown>;
-      const aspectRatio = (typeof vkObj['aspectRatio'] === 'string'
-        ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
-      const coverMode = typeof vkObj['coverMode'] === 'string'
-        ? vkObj['coverMode'] as string : 'ai';
+      const brand = extractBrand(visualKit);
 
-      // Load named HTML templates (new multi-template system)
+      // Load named HTML templates (multi-template system)
       const rawTemplates = vkObj['htmlTemplates'];
       const htmlTemplates: { name: string; url: string }[] =
         Array.isArray(rawTemplates)
@@ -264,14 +261,11 @@ export async function createDraftPostForChannel(
                 !!t && typeof t === 'object' &&
                 typeof (t as Record<string, unknown>)['name'] === 'string' &&
                 typeof (t as Record<string, unknown>)['url']  === 'string' &&
-                // skip templates where the file hasn't been uploaded yet
                 !!(t as Record<string, unknown>)['url'])
           : [];
 
-      const classification = await classifyPostForTemplate(title, sourceSummary);
-
-      // Priority 1: user HTML templates → AI picks best match → Claude generates unique HTML → Playwright renders
-      if (!cover && coverMode === 'html' && htmlTemplates.length > 0) {
+      if (htmlTemplates.length > 0) {
+        const classification = await classifyPostForTemplate(title, sourceSummary);
         const chosen = await selectHtmlTemplate(htmlTemplates, title, sourceSummary);
         if (chosen) {
           // Fetch the reference HTML from Blob
@@ -284,8 +278,8 @@ export async function createDraftPostForChannel(
           }
 
           if (refHtml) {
-            // Claude generates a unique cover in the channel's visual style
-            // Pass the full post input so the model uses real facts, not invented text
+            // Sonnet composes a unique cover in the channel's visual style.
+            // Pass the full post input so it uses real facts, not invented text.
             const generatedHtml = await generateHtmlCover({
               referenceHtml: refHtml,
               headline:      classification.headline || finalTitle,
@@ -303,7 +297,8 @@ export async function createDraftPostForChannel(
             }
           }
 
-          // Fallback: slot-based render if Claude failed or key not set
+          // Internal fallbacks so HTML mode still yields a cover:
+          // slot-based render of the chosen template, then Satori.
           if (!cover) {
             cover = await renderHtmlTemplate({
               htmlTemplateUrl: chosen.url,
@@ -313,33 +308,30 @@ export async function createDraftPostForChannel(
               aspectRatio,
             });
           }
+          if (!cover) {
+            console.warn('[draftGenerator] HTML cover attempts failed — falling back to Satori');
+            cover = await renderTemplateCover({
+              template:    classification.template,
+              headline:    classification.headline || finalTitle,
+              subheadline: classification.subheadline,
+              stat:        classification.stat,
+              statCards:   classification.statCards,
+              category:    classification.category,
+              brand,
+              aspectRatio,
+            });
+          }
         }
-      }
-
-      // Priority 2: built-in Satori templates
-      if (!cover) {
-        if (coverMode === 'html') {
-          console.warn('[draftGenerator] All HTML cover attempts failed — falling back to Satori templates');
-        }
-        cover = await renderTemplateCover({
-          template:     classification.template,
-          headline:     classification.headline || finalTitle,
-          subheadline:  classification.subheadline,
-          stat:         classification.stat,
-          statCards:    classification.statCards,
-          category:     classification.category,
-          brand,
-          aspectRatio,
-        });
       }
     } catch (err) {
-      console.warn('[draftGenerator] Template render failed (non-fatal):', (err as Error).message);
+      console.warn('[draftGenerator] HTML cover render failed (non-fatal):', (err as Error).message);
     }
   }
 
-  // Flux fallback: used when COVER_ENGINE='flux', template render failed,
-  // or no brand kit available
-  if (!cover && env.COVER_ENGINE !== 'template') {
+  // ── AI mode (default): Flux neural image via Replicate ─────────────────────
+  // Same engine as POST /api/posts/regenerate-visual. Also the fallback when
+  // HTML mode produced nothing.
+  if (!cover) {
     let resolvedImagePrompt: string | null = imagePrompt?.trim() || null;
 
     if (!resolvedImagePrompt && useBrandKit) {
