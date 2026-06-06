@@ -25,6 +25,16 @@ const upload = multer({
   },
 });
 
+// Separate multer for HTML template uploads (text/html, max 500 KB)
+const uploadHtml = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 500 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = file.mimetype === 'text/html' || file.originalname.endsWith('.html');
+    ok ? cb(null, true) : cb(new Error('Only .html files are accepted for cover templates.'));
+  },
+});
+
 /** Strips non-safe characters from an original filename and caps length. */
 function safeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 50);
@@ -159,6 +169,66 @@ router.post(
       res.json({ url: blobUrl, description: description ?? undefined });
     } else {
       res.json({ url: blobUrl });
+    }
+  },
+);
+
+// ─── POST /api/brandkits/upload-html-template ────────────────────────────────
+//
+// Uploads a user-designed HTML cover template to Vercel Blob.
+// The HTML is stored as-is; the renderer fetches it at cover-generation time
+// and replaces {{slot}} placeholders with actual post content.
+//
+// Request: multipart/form-data
+//   initData  — Telegram WebApp initData string
+//   channelId — channel the template belongs to
+//   file      — .html file (max 500 KB)
+//
+// Response 200: { url: string }
+// Response 400/401/403/404/503/500: error
+
+router.post(
+  '/upload-html-template',
+  uploadHtml.single('file'),
+  async (req: Request, res: Response): Promise<void> => {
+    if (!env.BLOB_READ_WRITE_TOKEN) {
+      res.status(503).json({ error: 'File upload is not configured on this server.' }); return;
+    }
+
+    const initData  = req.body['initData']  as unknown;
+    const channelId = req.body['channelId'] as unknown;
+    const file      = req.file;
+
+    if (typeof initData  !== 'string' || !initData.trim())  { res.status(400).json({ error: 'initData is required' });  return; }
+    if (typeof channelId !== 'string' || !channelId.trim()) { res.status(400).json({ error: 'channelId is required' }); return; }
+    if (!file) { res.status(400).json({ error: 'file is required' }); return; }
+
+    let parsed;
+    try {
+      parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+    } catch (err) {
+      res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+    }
+
+    const telegramId = String(parsed.user.id);
+    const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+    if (!dbUser) { res.status(401).json({ error: 'User not found.' }); return; }
+
+    const channel = await prisma.channel.findUnique({ where: { id: channelId as string }, select: { userId: true } }).catch(() => null);
+    if (!channel)                    { res.status(404).json({ error: 'Channel not found.' }); return; }
+    if (channel.userId !== dbUser.id) { res.status(403).json({ error: 'Access denied.' }); return; }
+
+    try {
+      const safeName = safeFileName(file.originalname);
+      const blob = await put(
+        `brandkits/${channelId}/templates/cover-${Date.now()}-${safeName}`,
+        file.buffer,
+        { access: 'public', token: env.BLOB_READ_WRITE_TOKEN, contentType: 'text/html; charset=utf-8' },
+      );
+      res.json({ url: blob.url });
+    } catch (err) {
+      console.error('[brandkits/upload-html-template] Blob upload failed:', (err as Error).message);
+      res.status(500).json({ error: 'Upload failed. Try again.' });
     }
   },
 );

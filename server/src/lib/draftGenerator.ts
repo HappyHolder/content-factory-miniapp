@@ -15,6 +15,7 @@ import { prisma } from '../db';
 import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate } from './aiGenerator';
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
+import { renderHtmlTemplate } from './playwrightRenderer';
 import { env } from '../env';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -250,19 +251,35 @@ export async function createDraftPostForChannel(
       const vkObj       = visualKit as Record<string, unknown>;
       const aspectRatio = (typeof vkObj['aspectRatio'] === 'string'
         ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
+      const htmlTemplate = typeof vkObj['htmlTemplate'] === 'string'
+        ? vkObj['htmlTemplate'] as string : null;
 
       const classification = await classifyPostForTemplate(title, sourceSummary);
 
-      cover = await renderTemplateCover({
-        template:     classification.template,
-        headline:     classification.headline || finalTitle,
-        subheadline:  classification.subheadline,
-        stat:         classification.stat,
-        statCards:    classification.statCards,
-        category:     classification.category,
-        brand,
-        aspectRatio,
-      });
+      // Priority 1: user's custom HTML template → Playwright render
+      if (htmlTemplate) {
+        cover = await renderHtmlTemplate({
+          htmlTemplateUrl: htmlTemplate,
+          brand,
+          classification,
+          headline: classification.headline || finalTitle,
+          aspectRatio,
+        });
+      }
+
+      // Priority 2: built-in Satori templates
+      if (!cover) {
+        cover = await renderTemplateCover({
+          template:     classification.template,
+          headline:     classification.headline || finalTitle,
+          subheadline:  classification.subheadline,
+          stat:         classification.stat,
+          statCards:    classification.statCards,
+          category:     classification.category,
+          brand,
+          aspectRatio,
+        });
+      }
     } catch (err) {
       console.warn('[draftGenerator] Template render failed (non-fatal):', (err as Error).message);
     }

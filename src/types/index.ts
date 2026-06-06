@@ -124,6 +124,9 @@ export interface VisualKit {
   visualFontRules?: string
   // Master visual style for all covers — used as base of every image prompt
   visualCoverStyle?: string
+  // User-uploaded HTML cover template (Blob URL). When set, Playwright renders
+  // it directly instead of using Satori built-in templates.
+  htmlTemplate?: string
 }
 
 export interface Signature {

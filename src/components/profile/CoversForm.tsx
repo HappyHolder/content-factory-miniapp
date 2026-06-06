@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Upload, X, Loader2, Image as ImageIcon } from 'lucide-react'
+import { Upload, X, Loader2, Image as ImageIcon, FileCode } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
@@ -63,9 +63,11 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   const [avoidInput, setAvoidInput] = useState('')
   const [isUploadingLogo, setIsUploadingLogo]     = useState(false)
   const [isUploadingRef,  setIsUploadingRef]      = useState(false)
+  const [isUploadingHtml, setIsUploadingHtml]     = useState(false)
   const [isGeneratingStyle, setIsGeneratingStyle] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
   const refInputRef  = useRef<HTMLInputElement>(null)
+  const htmlInputRef = useRef<HTMLInputElement>(null)
 
   const set = <K extends keyof VisualKit>(key: K, val: VisualKit[K]) =>
     setData(prev => ({ ...prev, [key]: val }))
@@ -138,6 +140,33 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   }
   const removeAvoid = (v: string) =>
     set('avoidList', (data.avoidList ?? []).filter(x => x !== v))
+
+  const uploadHtmlTemplate = async (file: File) => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast(t('channelStyle.covers.uploadFailed'), 'error'); return }
+    setIsUploadingHtml(true)
+    try {
+      const form = new FormData()
+      form.append('initData', initData)
+      form.append('channelId', channelId)
+      form.append('file', file)
+      const res = await fetch(`${API_BASE}/api/brandkits/upload-html-template`, {
+        method: 'POST', body: form,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string }
+        showToast(err.error ?? t('channelStyle.covers.uploadFailed'), 'error')
+        return
+      }
+      const { url } = await res.json() as { url: string }
+      set('htmlTemplate', url)
+      showToast(t('channelStyle.covers.uploadDone'))
+    } catch {
+      showToast(t('channelStyle.covers.uploadFailed'), 'error')
+    } finally {
+      setIsUploadingHtml(false)
+    }
+  }
 
   const uploadAsset = async (file: File, assetType: 'logo' | 'reference') => {
     const initData = getTelegramInitData()
@@ -588,6 +617,85 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           rows={4}
           className="glass-input w-full px-3 py-2 text-sm resize-none mt-2"
         />
+      </div>
+
+      {/* HTML Cover Template */}
+      <div>
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <div>
+            <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider">
+              {language === 'ru' ? 'HTML шаблон обложки' : 'HTML Cover Template'}
+            </p>
+            <p className="text-[11px] text-[#55555D] mt-0.5">
+              {language === 'ru'
+                ? 'Загрузи свой .html файл — система подставит {{headline}}, {{stat}}, {{logo}} и CSS переменные --primary, --bg'
+                : 'Upload your .html file — the system injects {{headline}}, {{stat}}, {{logo}} and CSS vars --primary, --bg'}
+            </p>
+          </div>
+        </div>
+
+        {/* Hidden file input */}
+        <input
+          ref={htmlInputRef}
+          type="file"
+          accept=".html,text/html"
+          className="hidden"
+          onChange={e => {
+            const file = e.target.files?.[0]
+            if (file) uploadHtmlTemplate(file)
+            e.target.value = ''
+          }}
+        />
+
+        {data.htmlTemplate ? (
+          <div className="flex items-center gap-2 p-3 rounded-[14px] bg-white/[0.03] border border-white/[0.06] mb-2">
+            <FileCode size={16} className="text-[#FF6A00] shrink-0" />
+            <span className="flex-1 text-[12px] text-[#A1A1AA] truncate">
+              {data.htmlTemplate.split('/').pop()?.split('?')[0] ?? 'template.html'}
+            </span>
+            <button
+              onClick={() => set('htmlTemplate', undefined)}
+              className="text-[#55555D] hover:text-red-400 transition-colors shrink-0"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 p-3 rounded-[14px] bg-white/[0.02] border border-white/[0.06] border-dashed mb-2">
+            <FileCode size={16} className="text-[#44444C] shrink-0" />
+            <p className="text-[12px] text-[#44444C]">
+              {language === 'ru' ? 'Шаблон не загружен - используются встроенные шаблоны' : 'No template - built-in templates are used'}
+            </p>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => htmlInputRef.current?.click()}
+            disabled={isUploadingHtml || authStatus !== 'authenticated'}
+            className="flex-1"
+          >
+            {isUploadingHtml
+              ? <><Loader2 size={12} className="animate-spin" />{language === 'ru' ? 'Загрузка...' : 'Uploading...'}</>
+              : <><Upload size={12} />{language === 'ru' ? 'Загрузить .html' : 'Upload .html'}</>
+            }
+          </Button>
+          {data.htmlTemplate && (
+            <Button variant="ghost" size="sm" onClick={() => window.open(data.htmlTemplate, '_blank')}>
+              {language === 'ru' ? 'Открыть' : 'View'}
+            </Button>
+          )}
+        </div>
+
+        {/* Slot reference */}
+        <div className="mt-2 p-2.5 rounded-[10px] bg-white/[0.02] border border-white/[0.04]">
+          <p className="text-[10px] font-mono text-[#44444C] leading-relaxed">
+            {'{{headline}}'} {'{{subheadline}}'} {'{{stat}}'} {'{{category}}'} {'{{logo}}'}<br/>
+            {'--primary'} {'--bg'} {'--accent'}
+          </p>
+        </div>
       </div>
 
       <Button variant="primary" size="md" onClick={handleSave} fullWidth>
