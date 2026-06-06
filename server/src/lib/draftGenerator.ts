@@ -12,8 +12,10 @@
  */
 
 import { prisma } from '../db';
-import { generatePostVariants, generateImagePromptWithAI } from './aiGenerator';
+import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate } from './aiGenerator';
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
+import { renderTemplateCover, extractBrand } from './templateRenderer';
+import { env } from '../env';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -229,56 +231,89 @@ export async function createDraftPostForChannel(
     ? (brandKit as Record<string, unknown>)['visualKit'] ?? undefined
     : undefined;
 
-  // Resolve final image prompt
-  let resolvedImagePrompt: string | null = imagePrompt?.trim() || null;
+  // ── Cover generation ─────────────────────────────────────────────────────
+  // Priority:
+  //   1. Template engine (Satori — free, instant, brand-perfect)
+  //      when COVER_ENGINE is 'template' or 'auto' and brand kit is present
+  //   2. Flux / Replicate — AI-generated artistic image
+  //      when COVER_ENGINE is 'flux', or template is unavailable/fails
 
-  if (!resolvedImagePrompt && useBrandKit) {
-    // Auto-generate a clean visual prompt using DeepSeek
+  let cover: GeneratedCover | null = null;
+  const useTemplate =
+    useBrandKit &&
+    visualKit &&
+    env.COVER_ENGINE !== 'flux';
+
+  if (useTemplate) {
     try {
-      resolvedImagePrompt = await generateImagePromptWithAI({
-        title,
-        excerpt: sourceSummary,
-        visualKit,
+      const brand       = extractBrand(visualKit);
+      const vkObj       = visualKit as Record<string, unknown>;
+      const aspectRatio = (typeof vkObj['aspectRatio'] === 'string'
+        ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
+
+      const classification = await classifyPostForTemplate(title, sourceSummary);
+
+      cover = await renderTemplateCover({
+        template:     classification.template,
+        headline:     classification.headline || finalTitle,
+        subheadline:  classification.subheadline,
+        stat:         classification.stat,
+        brand,
+        aspectRatio,
       });
     } catch (err) {
-      console.warn('[draftGenerator] Auto image prompt generation failed:', (err as Error).message);
+      console.warn('[draftGenerator] Template render failed (non-fatal):', (err as Error).message);
     }
   }
 
-  if (resolvedImagePrompt) {
-    // Step 1: generate image (non-fatal)
-    let cover: GeneratedCover | null = null;
-    try {
-      cover = await generateImageForPost({
-        prompt:    resolvedImagePrompt,
-        visualKit, // brand style tokens (color names, mood) appended as suffix
-        headline:  finalTitle, // AI-written headline overlaid as crisp text (textOnCover)
-      });
-    } catch (err) {
-      console.warn('[draftGenerator] Image generation failed (non-fatal):', (err as Error).message);
+  // Flux fallback: used when COVER_ENGINE='flux', template render failed,
+  // or no brand kit available
+  if (!cover && env.COVER_ENGINE !== 'template') {
+    let resolvedImagePrompt: string | null = imagePrompt?.trim() || null;
+
+    if (!resolvedImagePrompt && useBrandKit) {
+      try {
+        resolvedImagePrompt = await generateImagePromptWithAI({
+          title,
+          excerpt: sourceSummary,
+          visualKit,
+        });
+      } catch (err) {
+        console.warn('[draftGenerator] Auto image prompt generation failed:', (err as Error).message);
+      }
     }
 
-    // Step 2: persist bannerUrl to ALL variants — cover is a post-level asset,
-    // not tied to a specific text variant. This way switching variants keeps the visual.
-    // Also persist the clean base so the headline can be re-edited later.
-    if (cover?.bannerUrl) {
-      const variantIds = dbPost.variants.map(v => v.id);
-      if (variantIds.length > 0) {
-        try {
-          await prisma.postVariant.updateMany({
-            where: { id: { in: variantIds } },
-            data:  { bannerUrl: cover.bannerUrl },
-          });
-          firstVariantBannerUrl = cover.bannerUrl;
-          if (cover.coverBaseUrl) {
-            await prisma.generatedPost.update({
-              where: { id: dbPost.id },
-              data:  { coverBaseUrl: cover.coverBaseUrl },
-            }).catch(() => { /* non-fatal: text editing just won't be available */ });
-          }
-        } catch (err) {
-          console.error('[draftGenerator] Failed to persist bannerUrl to DB — clearing from response:', (err as Error).message);
+    if (resolvedImagePrompt) {
+      try {
+        cover = await generateImageForPost({
+          prompt:   resolvedImagePrompt,
+          visualKit,
+          headline: finalTitle,
+        });
+      } catch (err) {
+        console.warn('[draftGenerator] Image generation failed (non-fatal):', (err as Error).message);
+      }
+    }
+  }
+
+  // Persist cover URLs to DB (non-fatal)
+  if (cover?.bannerUrl) {
+    const variantIds = dbPost.variants.map(v => v.id);
+    if (variantIds.length > 0) {
+      try {
+        await prisma.postVariant.updateMany({
+          where: { id: { in: variantIds } },
+          data:  { bannerUrl: cover.bannerUrl },
+        });
+        firstVariantBannerUrl = cover.bannerUrl;
+        if (cover.coverBaseUrl) {
+          await prisma.generatedPost.update({
+            where: { id: dbPost.id },
+            data:  { coverBaseUrl: cover.coverBaseUrl },
+          }).catch(() => { /* non-fatal: text editing just won't be available */ });
         }
+      } catch (err) {
+        console.error('[draftGenerator] Failed to persist bannerUrl to DB:', (err as Error).message);
       }
     }
   }

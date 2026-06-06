@@ -596,6 +596,97 @@ export async function generateImagePromptWithAI(
   }
 }
 
+// ─── Template classifier ─────────────────────────────────────────────────────
+
+export interface TemplateClassification {
+  template:     'atmospheric' | 'milestone';
+  headline:     string;
+  subheadline?: string;
+  stat?:        string;  // big metric number, e.g. "1,500+"
+}
+
+/**
+ * Uses DeepSeek to classify the post into a cover template type and extract
+ * key content (headline, stat number, subtitle). Falls back to heuristics
+ * when DeepSeek is unavailable.
+ *
+ * milestone  — post celebrates a number/growth/achievement
+ * atmospheric — everything else (news, updates, announcements)
+ */
+export async function classifyPostForTemplate(
+  title:   string,
+  excerpt: string,
+): Promise<TemplateClassification> {
+
+  // Heuristic fallback (used when DeepSeek is unavailable or fails)
+  function heuristic(): TemplateClassification {
+    const text = `${title} ${excerpt}`;
+    const numMatch = text.match(/[\d][,\d]*\+?/);
+    const isMilestone = numMatch !== null &&
+      /пользовател|юзер|user|подписчик|subscriber|клиент|client|рост|growth|достиг|milestone|crossed|viber/i.test(text);
+    if (isMilestone && numMatch) {
+      return {
+        template:    'milestone',
+        headline:    title.slice(0, 60),
+        stat:        numMatch[0].includes('+') ? numMatch[0] : numMatch[0] + '+',
+        subheadline: /user|юзер|пользовател|viber/i.test(text) ? 'users' : undefined,
+      };
+    }
+    return { template: 'atmospheric', headline: title.slice(0, 60) };
+  }
+
+  if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return heuristic();
+
+  const systemPrompt =
+    'You classify a Telegram post to choose a cover template. Respond with ONLY valid JSON, no markdown.\n\n' +
+    'Templates:\n' +
+    '  "milestone" — post celebrates a metric/number/achievement (users, growth, revenue, etc.)\n' +
+    '  "atmospheric" — news, updates, announcements, anything else\n\n' +
+    'Required JSON fields:\n' +
+    '  template: "milestone" | "atmospheric"\n' +
+    '  headline: punchy cover headline, max 8 words, same language as post\n' +
+    'Optional (milestone only):\n' +
+    '  stat: key metric as formatted string, e.g. "1,500+" or "10K"\n' +
+    '  subheadline: 1-3 words describing the metric, e.g. "users" or "active miners"';
+
+  const userPrompt = `Post title: ${title}\nExcerpt: ${excerpt.slice(0, 300)}`;
+
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
+      method:  'POST',
+      signal:  controller.signal,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
+      body: JSON.stringify({
+        model:       env.DEEPSEEK_MODEL,
+        messages:    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        max_tokens:  120,
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    if (!response.ok) return heuristic();
+
+    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const raw  = data.choices?.[0]?.message?.content?.trim() ?? '';
+    const parsed = JSON.parse(raw) as Partial<TemplateClassification>;
+
+    return {
+      template:    parsed.template === 'milestone' ? 'milestone' : 'atmospheric',
+      headline:    typeof parsed.headline    === 'string' ? parsed.headline    : title.slice(0, 60),
+      subheadline: typeof parsed.subheadline === 'string' ? parsed.subheadline : undefined,
+      stat:        typeof parsed.stat        === 'string' ? parsed.stat        : undefined,
+    };
+  } catch {
+    return heuristic();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 /**

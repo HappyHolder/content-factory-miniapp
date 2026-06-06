@@ -74,4 +74,9 @@ export const env = {
   TONCENTER_API_KEY:    process.env['TONCENTER_API_KEY']    ?? '',
   // Web search for the AI assistant (Tavily). Optional — search is disabled if absent.
   TAVILY_API_KEY:       process.env['TAVILY_API_KEY']       ?? '',
+  // Cover generation engine:
+  //   'template' — always use HTML/Satori templates (free, instant, brand-perfect)
+  //   'flux'     — always use Flux via Replicate (AI-generated artistic images)
+  //   'auto'     — use template when brand kit is complete, fall back to flux
+  COVER_ENGINE: (process.env['COVER_ENGINE'] ?? 'auto') as 'template' | 'flux' | 'auto',
 } as const;
