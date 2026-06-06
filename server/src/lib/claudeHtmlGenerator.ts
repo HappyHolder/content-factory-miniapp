@@ -147,15 +147,21 @@ ${postBodyBlock}
 
 ━━━ YOUR CREATIVE BRIEF ━━━
 Create a COMPLETELY ORIGINAL cover for this specific post:
-1. Use the CSS design system above — same colors, fonts, visual effects (embed it in <style>)
-2. Build a FRESH composition suited to this post's message — not a copy of any reference
-3. Choose layout based on content: big number/stat → hero layout; list of ideas → card grid; announcement → bold typography
-4. ALL text must come from the post — no placeholder phrases, no invented content
-5. If the post has specific numbers or facts, make them visually prominent
-6. Remove <canvas> and <script> tags
-7. <body> must be ${w}px × ${h}px, overflow:hidden
-8. Return complete HTML starting with <!DOCTYPE html>
-9. NO markdown fences, NO explanation — raw HTML only`;
+1. Use the CSS design system above — same colors, fonts, visual effects, icons (embed the CSS in <style>)
+2. The reference layout is ONLY a style sample. Do NOT reuse its structure, element order, or section arrangement. Invent a genuinely different composition for THIS post.
+3. Pick a layout archetype that fits the content, and vary it:
+   • big number / metric → hero layout with the number dominating
+   • list of ideas / features → card grid or numbered stack
+   • announcement / quote → bold oversized typography, lots of negative space
+   • story / analysis → asymmetric editorial layout
+4. Vary the focal point, alignment (left / center / asymmetric), and visual hierarchy between covers — never default to the same arrangement twice.
+5. ALL text must come from the post — no placeholder phrases, no invented content
+6. If the post has specific numbers or facts, make them visually prominent
+7. Reuse the icon/SVG components from the design system where they reinforce the message
+8. Remove <canvas> and <script> tags
+9. <body> must be ${w}px × ${h}px, overflow:hidden
+10. Return complete HTML starting with <!DOCTYPE html>
+11. NO markdown fences, NO explanation — raw HTML only`;
 
   try {
     const createRes = await fetch(
@@ -171,6 +177,9 @@ Create a COMPLETELY ORIGINAL cover for this specific post:
             prompt:        userPrompt,
             system_prompt: systemPrompt,
             max_tokens:    4096,
+            // High temperature so two similar posts don't collapse to the same
+            // layout — pushes the model to vary the composition each time.
+            temperature:   1,
           },
         }),
       },

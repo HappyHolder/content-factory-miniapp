@@ -75,8 +75,9 @@ export const env = {
   // Web search for the AI assistant (Tavily). Optional — search is disabled if absent.
   TAVILY_API_KEY:       process.env['TAVILY_API_KEY']       ?? '',
   // Replicate text model for AI-generated HTML covers in user's brand style.
-  // Must support system_prompt + prompt input schema (e.g. Llama 3.1 instruct).
-  COVER_HTML_MODEL: process.env['COVER_HTML_MODEL'] ?? 'anthropic/claude-4.5-haiku',
+  // Sonnet (not Haiku): strong enough to genuinely re-compose a fresh layout per
+  // post from the CSS design system, instead of cloning the reference structure.
+  COVER_HTML_MODEL: process.env['COVER_HTML_MODEL'] ?? 'anthropic/claude-4.5-sonnet',
   // Cover generation engine:
   //   'template' — always use HTML/Satori templates (free, instant, brand-perfect)
   //   'flux'     — always use Flux via Replicate (AI-generated artistic images)
