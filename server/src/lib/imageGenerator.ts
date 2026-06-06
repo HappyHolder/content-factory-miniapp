@@ -379,7 +379,9 @@ async function renderHeadline(
 ): Promise<{ buf: Buffer; h: number; fontSize: number } | null> {
   const fontSize  = Math.max(28, Math.round(H * 0.072));
   const wrapWidth = W - padX * 2;
-  const maxChars  = Math.floor((wrapWidth / (fontSize * 0.52)) * 3); // ~3 lines worth
+  // Cap to ~2 lines so the overlaid headline sits at the bottom and never climbs
+  // up into the picture/subject. Over-long titles are truncated with an ellipsis.
+  const maxChars  = Math.floor((wrapWidth / (fontSize * 0.52)) * 2);
   const safe      = escapePango(clampHeadline(text, maxChars));
   if (!safe) return null;
 

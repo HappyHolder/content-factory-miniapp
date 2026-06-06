@@ -545,13 +545,15 @@ export async function generateImagePromptWithAI(
     'You are a visual art director writing prompts for AI image generation models. ' +
     'Given a post topic and brand style, write a short visual description (40-70 words) ' +
     'for a square Telegram post cover image. ' +
-    'Center the image on ONE concrete, recognizable subject or visual metaphor that directly relates to the post topic ' +
-    '(an object, device, app interface, person, place, or symbol) — not pure abstraction. ' +
-    'Place that subject in an atmospheric, on-brand background (colors, lighting, mood). ' +
-    'Avoid empty abstract gradients, nebulae, or galaxies unless the brand style explicitly calls for them. ' +
-    'Write ONLY what should be visually present in the image: the subject, scene, atmosphere, colors, lighting, mood. ' +
-    'Do NOT include any instructions, rules, or "do not" phrases. ' +
-    'Do NOT mention text, typography, labels, or design specs. ' +
+    'Depict a real scene or visual metaphor that conveys the topic (people, places, objects, devices, nature, technology). ' +
+    'NEVER depict text, numbers, letters, digits, UI copy, or written words — the image must be purely pictorial, ' +
+    'because a headline is overlaid on top afterwards. ' +
+    'If the topic is a metric or abstract idea (user growth, a milestone, an announcement), express it through a metaphor ' +
+    '(a crowd of people, a network of glowing nodes, a rising cityscape, a growing structure) rather than showing the number itself. ' +
+    'Keep the lower third of the image calmer and less busy so the overlaid headline stays readable. ' +
+    'Use an atmospheric, on-brand background (colors, lighting, mood); avoid empty abstract gradients, nebulae, or galaxies ' +
+    'unless the brand style explicitly calls for them. ' +
+    'Do NOT include any instructions, rules, or "do not" phrases in the output. ' +
     'Write in English. Output ONLY the visual description, nothing else.';
 
   const userPrompt =
