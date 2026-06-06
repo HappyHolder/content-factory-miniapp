@@ -42,6 +42,16 @@ function extractCss(html: string): string {
   return m ? m[1].trim() : '';
 }
 
+/** Extracts the <body> content, strips canvas/script tags (keep static structure) */
+function extractBodyStructure(html: string): string {
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (!bodyMatch) return '';
+  return bodyMatch[1]
+    .replace(/<canvas[^>]*>[\s\S]*?<\/canvas>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .trim();
+}
+
 // ─── Replicate polling ────────────────────────────────────────────────────────
 
 interface Prediction {
@@ -93,6 +103,7 @@ export async function generateHtmlCover(input: HtmlCoverInput): Promise<string |
     console.warn('[htmlCoverGenerator] No <style> block found in reference HTML');
     return null;
   }
+  const bodyStructure = extractBodyStructure(input.referenceHtml);
 
   const contentLines = [`Headline: "${input.headline}"`];
   if (input.subheadline) contentLines.push(`Subheadline: "${input.subheadline}"`);
@@ -103,25 +114,31 @@ export async function generateHtmlCover(input: HtmlCoverInput): Promise<string |
 
   const userPrompt = `Create a ${w}×${h}px social media cover image as a complete HTML file.
 
-USE THIS EXACT CSS — do not modify any colors, sizes, effects, or class names:
+USE THIS EXACT CSS — do not change any colors, sizes, or class names:
 <style>
 ${css}
 </style>
 
-POST CONTENT to feature:
+REFERENCE BODY STRUCTURE (shows how components are assembled — use this as your layout blueprint, adapt content):
+${bodyStructure.slice(0, 4000)}
+
+NEW POST CONTENT to feature:
 ${contentLines.join('\n')}
 ${input.logoUrl ? `Logo image URL: ${input.logoUrl}` : ''}
 
-TASK: Write a new <body> for this specific post content. You can use any CSS classes defined above. Create a composition that fits the content — layout can be different from any template you've seen, but it must use the same visual components and design language defined in the CSS.
+TASK:
+- Use the SAME multi-section layout structure as the reference body above
+- Replace text content with the new post content
+- Keep ALL visual components: badges, logo block, dividers, feature grids, banner cards, bottom attribution
+- The result must be as rich and detailed as the reference — not a simplified version
+- Adapt section content to fit the post topic (change labels, descriptions, icons purpose — but keep the structure)
 
 RULES:
-1. Return a complete HTML file: <!DOCTYPE html><html><head><meta charset="UTF-8"><style>[the exact CSS above]</style></head><body>[your new layout]</body></html>
-2. body is exactly ${w}px × ${h}px, margin:0, overflow:hidden — already set in CSS
-3. Use ONLY classes and properties already defined in the <style> above — no new CSS
-4. NO JavaScript, NO canvas animations — static HTML only (screenshot = frame 0)
-5. Headline must be large and prominent — it is the most important element
-6. Fill the entire canvas — no empty white space
-7. If a logo URL is provided, show it as <img> in an appropriate position`;
+1. Return complete HTML: <!DOCTYPE html><html><head><meta charset="UTF-8"><style>[exact CSS]</style></head><body>[adapted layout]</body></html>
+2. body is exactly ${w}px × ${h}px, overflow:hidden
+3. Use ONLY CSS classes already defined above
+4. NO JavaScript, NO canvas, NO animations — static only
+5. Fill the entire canvas — no empty space`;
 
   try {
     const createRes = await fetch(
