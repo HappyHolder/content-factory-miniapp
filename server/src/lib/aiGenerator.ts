@@ -454,16 +454,15 @@ function buildVisualStyleDescription(visualKit: unknown): string {
   const vk = visualKit as Record<string, unknown>;
   const parts: string[] = [];
 
-  // visualCoverStyle — master brand style guide. Included first so DeepSeek
-  // can translate / distil it into image-model-friendly language.
-  // Truncated to 400 chars to keep the DeepSeek context manageable.
+  // visualCoverStyle — collapse newlines/bullets into a single clean line so
+  // DeepSeek receives readable prose, not a bullet-pointed design spec.
   const coverStyleRaw = vk['visualCoverStyle'];
   if (typeof coverStyleRaw === 'string' && coverStyleRaw.trim()) {
-    parts.push(`brand visual style guide: ${coverStyleRaw.trim().slice(0, 400)}`);
+    const cleaned = coverStyleRaw.trim().replace(/\s+/g, ' ').slice(0, 500);
+    parts.push(`brand visual style guide: ${cleaned}`);
   }
 
   // Reference image descriptions — analysed by vision model on upload.
-  // Each description tells DeepSeek what visual style to replicate.
   const refs = vk['references'];
   if (Array.isArray(refs)) {
     const descs: string[] = [];
@@ -474,15 +473,28 @@ function buildVisualStyleDescription(visualKit: unknown): string {
     if (descs.length > 0) parts.push(`visual reference style: ${descs.join(' | ')}`);
   }
 
-  // Colors as natural names
+  // Brand colors — use "AI эпитеты" from usage field when present (these are
+  // explicit image-generation keywords the user wrote for this purpose).
+  // Fall back to brand color name, then generic hex→name conversion.
   const rawColors = vk['brandColors'];
   if (Array.isArray(rawColors) && rawColors.length > 0) {
-    const names: string[] = [];
-    for (const c of (rawColors as { hex?: unknown }[]).slice(0, 5)) {
+    const colorDescs: string[] = [];
+    for (const c of (rawColors as { hex?: unknown; name?: unknown; usage?: unknown }[]).slice(0, 4)) {
       if (typeof c.hex !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(c.hex)) continue;
-      names.push(hexToColorName(c.hex));
+      const usage = typeof c.usage === 'string' ? c.usage : '';
+      // Extract AI epithets block: "AI эпитеты: foo, bar" or "AI adjectives: foo"
+      const epithetsMatch = usage.match(/AI\s+(?:эпитеты|adjectives?)\s*[:：]\s*([^.;\n]+)/i);
+      let label: string;
+      if (epithetsMatch) {
+        label = epithetsMatch[1].trim().slice(0, 80);
+      } else if (typeof c.name === 'string' && c.name.trim()) {
+        label = c.name.trim().slice(0, 40);
+      } else {
+        label = hexToColorName(c.hex);
+      }
+      colorDescs.push(`${c.hex} (${label})`);
     }
-    if (names.length > 0) parts.push(`brand color palette: ${names.join(', ')}`);
+    if (colorDescs.length > 0) parts.push(`brand colors: ${colorDescs.join(', ')}`);
   }
 
   // Font preset as mood word
