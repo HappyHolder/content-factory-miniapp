@@ -112,33 +112,29 @@ export async function generateHtmlCover(input: HtmlCoverInput): Promise<string |
 
   const systemPrompt = `You are an expert HTML/CSS web designer specializing in social media cover images. You write clean, valid HTML that renders pixel-perfectly in a headless browser. Return ONLY raw HTML — no markdown, no explanation, no code fences.`;
 
-  const userPrompt = `Create a ${w}×${h}px social media cover image as a complete HTML file.
+  const userPrompt = `You are editing an HTML cover image. Your ONLY job is to update text content for a new post. Keep everything else exactly as-is.
 
-USE THIS EXACT CSS — do not change any colors, sizes, or class names:
-<style>
+ORIGINAL HTML (complete file to edit):
+<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><style>
 ${css}
-</style>
+</style></head><body>
+${bodyStructure}
+</body></html>
 
-REFERENCE BODY STRUCTURE (shows how components are assembled — use this as your layout blueprint, adapt content):
-${bodyStructure.slice(0, 4000)}
-
-NEW POST CONTENT to feature:
+NEW POST CONTENT:
 ${contentLines.join('\n')}
-${input.logoUrl ? `Logo image URL: ${input.logoUrl}` : ''}
+${input.logoUrl ? `Logo URL: ${input.logoUrl}` : ''}
 
-TASK:
-- Use the SAME multi-section layout structure as the reference body above
-- Replace text content with the new post content
-- Keep ALL visual components: badges, logo block, dividers, feature grids, banner cards, bottom attribution
-- The result must be as rich and detailed as the reference — not a simplified version
-- Adapt section content to fit the post topic (change labels, descriptions, icons purpose — but keep the structure)
-
-RULES:
-1. Return complete HTML: <!DOCTYPE html><html><head><meta charset="UTF-8"><style>[exact CSS]</style></head><body>[adapted layout]</body></html>
-2. body is exactly ${w}px × ${h}px, overflow:hidden
-3. Use ONLY CSS classes already defined above
-4. NO JavaScript, NO canvas, NO animations — static only
-5. Fill the entire canvas — no empty space`;
+INSTRUCTIONS — follow these EXACTLY:
+1. Keep ALL HTML tags, attributes, CSS classes, and structure identical to the original
+2. Keep ALL SVG icons exactly as they are — do not modify any <svg> elements
+3. Keep ALL CSS class names — do not add or remove any classes
+4. ONLY change visible text content inside elements to reflect the new post
+5. Update: headlines, taglines, stat numbers, labels, descriptions, badge text, bottom text
+6. Remove <canvas> elements and <script> tags if present
+7. body must be ${w}px × ${h}px, overflow:hidden (already set in CSS — do not change)
+8. Return the complete modified HTML file starting with <!DOCTYPE html>
+9. NO markdown fences, NO explanation — raw HTML only`;
 
   try {
     const createRes = await fetch(
