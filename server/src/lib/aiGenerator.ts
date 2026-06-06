@@ -598,20 +598,29 @@ export async function generateImagePromptWithAI(
 
 // ─── Template classifier ─────────────────────────────────────────────────────
 
+export interface StatCard {
+  label: string;
+  value: string;
+  desc?: string;
+}
+
 export interface TemplateClassification {
-  template:     'atmospheric' | 'milestone';
+  template:     'atmospheric' | 'milestone' | 'news';
   headline:     string;
   subheadline?: string;
-  stat?:        string;  // big metric number, e.g. "1,500+"
+  stat?:        string;       // big metric number, e.g. "1,500+"
+  statCards?:   StatCard[];   // up to 4 cards for milestone stats grid
+  category?:    string;       // short category label for news template, e.g. "UPDATE"
 }
 
 /**
  * Uses DeepSeek to classify the post into a cover template type and extract
- * key content (headline, stat number, subtitle). Falls back to heuristics
- * when DeepSeek is unavailable.
+ * key content (headline, stat number, subtitle, stat cards). Falls back to
+ * heuristics when DeepSeek is unavailable.
  *
- * milestone  — post celebrates a number/growth/achievement
- * atmospheric — everything else (news, updates, announcements)
+ * milestone   — post celebrates a metric/number/achievement
+ * news        — breaking news, time-sensitive announcement, event report
+ * atmospheric — everything else (opinion, story, long-form update)
  */
 export async function classifyPostForTemplate(
   title:   string,
@@ -632,24 +641,36 @@ export async function classifyPostForTemplate(
         subheadline: /user|юзер|пользовател|viber/i.test(text) ? 'users' : undefined,
       };
     }
+    const isNews =
+      /срочно|breaking|новость|новости|сообщает|announce|вышел|вышла|запущен|launch|update|обновление/i.test(text);
+    if (isNews) {
+      return { template: 'news', headline: title.slice(0, 60), category: 'NEWS' };
+    }
     return { template: 'atmospheric', headline: title.slice(0, 60) };
   }
 
   if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return heuristic();
 
   const systemPrompt =
-    'You classify a Telegram post to choose a cover template. Respond with ONLY valid JSON, no markdown.\n\n' +
+    'You classify a Telegram post to choose a cover template and extract cover content. ' +
+    'Respond with ONLY valid JSON, no markdown.\n\n' +
     'Templates:\n' +
-    '  "milestone" — post celebrates a metric/number/achievement (users, growth, revenue, etc.)\n' +
-    '  "atmospheric" — news, updates, announcements, anything else\n\n' +
+    '  "milestone" — celebrates a metric/number/achievement (users, growth, revenue, records)\n' +
+    '  "news"      — breaking news, launch announcement, time-sensitive event, product release\n' +
+    '  "atmospheric" — opinion, story, analysis, general update (everything else)\n\n' +
     'Required JSON fields:\n' +
-    '  template: "milestone" | "atmospheric"\n' +
-    '  headline: punchy cover headline, max 8 words, same language as post\n' +
-    'Optional (milestone only):\n' +
-    '  stat: key metric as formatted string, e.g. "1,500+" or "10K"\n' +
-    '  subheadline: 1-3 words describing the metric, e.g. "users" or "active miners"';
+    '  template: "milestone" | "news" | "atmospheric"\n' +
+    '  headline: punchy cover headline, max 8 words, same language as post\n\n' +
+    'Optional by template:\n' +
+    '  (milestone) stat: key metric as string, e.g. "1,500+" or "10K"\n' +
+    '  (milestone) subheadline: 1-3 words describing the metric, e.g. "users"\n' +
+    '  (milestone) statCards: array of up to 4 objects {label,value,desc?} — extract key stats from the post. ' +
+    'label is short uppercase name (e.g. "USERS"), value is numeric (e.g. "1,500"), desc is optional short context\n' +
+    '  (news) category: very short uppercase label, e.g. "BREAKING", "UPDATE", "LAUNCH", "АНОНС", "НОВОСТЬ"\n' +
+    '  (news) subheadline: 1 sentence summary, max 15 words, same language as post\n' +
+    '  (atmospheric) subheadline: optional 1-sentence teaser, same language as post';
 
-  const userPrompt = `Post title: ${title}\nExcerpt: ${excerpt.slice(0, 300)}`;
+  const userPrompt = `Post title: ${title}\nExcerpt: ${excerpt.slice(0, 400)}`;
 
   const controller = new AbortController();
   const timeoutId  = setTimeout(() => controller.abort(), 10_000);
@@ -662,7 +683,7 @@ export async function classifyPostForTemplate(
       body: JSON.stringify({
         model:       env.DEEPSEEK_MODEL,
         messages:    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens:  120,
+        max_tokens:  300,
         temperature: 0.2,
         response_format: { type: 'json_object' },
       }),
@@ -672,13 +693,33 @@ export async function classifyPostForTemplate(
 
     const data = await response.json() as { choices?: { message?: { content?: string } }[] };
     const raw  = data.choices?.[0]?.message?.content?.trim() ?? '';
-    const parsed = JSON.parse(raw) as Partial<TemplateClassification>;
+    const parsed = JSON.parse(raw) as Partial<TemplateClassification> & { statCards?: unknown[] };
+
+    // Validate and sanitize statCards
+    let statCards: StatCard[] | undefined;
+    if (Array.isArray(parsed.statCards) && parsed.statCards.length > 0) {
+      statCards = (parsed.statCards as unknown[])
+        .slice(0, 4)
+        .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+        .map(c => ({
+          label: typeof c['label'] === 'string' ? c['label'] : '',
+          value: typeof c['value'] === 'string' ? c['value'] : String(c['value'] ?? ''),
+          desc:  typeof c['desc']  === 'string' ? c['desc']  : undefined,
+        }))
+        .filter(c => c.label && c.value);
+    }
+
+    const tmpl = parsed.template === 'milestone' ? 'milestone'
+               : parsed.template === 'news'      ? 'news'
+               : 'atmospheric';
 
     return {
-      template:    parsed.template === 'milestone' ? 'milestone' : 'atmospheric',
+      template:    tmpl,
       headline:    typeof parsed.headline    === 'string' ? parsed.headline    : title.slice(0, 60),
       subheadline: typeof parsed.subheadline === 'string' ? parsed.subheadline : undefined,
       stat:        typeof parsed.stat        === 'string' ? parsed.stat        : undefined,
+      statCards:   statCards,
+      category:    typeof parsed.category    === 'string' ? parsed.category    : undefined,
     };
   } catch {
     return heuristic();

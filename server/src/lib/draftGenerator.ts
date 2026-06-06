@@ -258,6 +258,8 @@ export async function createDraftPostForChannel(
         headline:     classification.headline || finalTitle,
         subheadline:  classification.subheadline,
         stat:         classification.stat,
+        statCards:    classification.statCards,
+        category:     classification.category,
         brand,
         aspectRatio,
       });
