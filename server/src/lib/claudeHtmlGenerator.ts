@@ -132,10 +132,9 @@ Return ONLY the raw HTML starting with <!DOCTYPE html>.`;
         },
         body: JSON.stringify({
           input: {
-            prompt:         userPrompt,
-            system_prompt:  systemPrompt,
-            max_new_tokens: 4096,
-            temperature:    0.5,
+            prompt:      userPrompt,
+            system:      systemPrompt,
+            max_tokens:  4096,
           },
         }),
       },
