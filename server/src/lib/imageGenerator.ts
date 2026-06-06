@@ -139,7 +139,8 @@ function extractReferenceImage(visualKit: unknown): string | null {
   const refs = vk['references'];
   if (Array.isArray(refs)) {
     for (const r of refs) {
-      if (typeof r === 'string' && r.startsWith('http')) return r;
+      const url = typeof r === 'string' ? r : (r as Record<string, unknown>)?.['url'];
+      if (typeof url === 'string' && url.startsWith('http')) return url;
     }
   }
 
@@ -228,11 +229,14 @@ export async function generateImageForPost(
   if (!userPrompt) return null;
 
   // ── Prompt assembly ───────────────────────────────────────────────────────
-  // Priority: visualCoverStyle (master brand style) → user prompt → mood token → negatives
+  // visualCoverStyle is intentionally NOT prepended raw here — it is passed
+  // as context to DeepSeek (generateImagePromptWithAI → buildVisualStyleDescription)
+  // which distils it into a clean English image description. Prepending a raw
+  // style spec (possibly in Russian, multi-line, bullet-pointed) confuses the
+  // image model and degrades output quality.
   const vkObj = (input.visualKit && typeof input.visualKit === 'object')
     ? input.visualKit as Record<string, unknown>
     : null;
-  const coverStyle  = typeof vkObj?.['visualCoverStyle'] === 'string' ? vkObj['visualCoverStyle'].trim() : '';
   const brandTokens = buildVisualKitPromptHints(input.visualKit);
   const logoUrl = typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
     ? vkObj['logoUrl'] as string
@@ -248,17 +252,30 @@ export async function generateImageForPost(
   const brandColor = pickBrandColor(vkObj);
 
   // Logo is composited via sharp AFTER generation — never passed to the model
-  const prompt = coverStyle
-    ? `${coverStyle}. ${userPrompt}${brandTokens}${NEGATIVE_SUFFIX}`
-    : `${userPrompt}${brandTokens}${NEGATIVE_SUFFIX}`;
+  const prompt = `${userPrompt}${brandTokens}${NEGATIVE_SUFFIX}`;
+
+  // Reference image: first uploaded reference from visualKit (or logo as fallback).
+  // Passed as img2img input so the model inherits the brand's color palette and
+  // visual atmosphere. prompt_strength 0.35 — low enough to keep creative freedom,
+  // high enough to pull in dark/neon/color mood from the reference.
+  const refImageUrl = extractReferenceImage(input.visualKit);
 
   // ── Build model input ─────────────────────────────────────────────────────
   const isGptImage = model.includes('gpt-image');
   const modelInput: Record<string, unknown> = isGptImage
-    ? { prompt, size: '1024x1024', quality: 'high' }
-    : { prompt, aspect_ratio: '1:1' };
+    ? {
+        prompt,
+        size:    '1024x1024',
+        quality: 'high',
+        ...(refImageUrl ? { image: refImageUrl } : {}),
+      }
+    : {
+        prompt,
+        aspect_ratio: '1:1',
+        ...(refImageUrl ? { image: refImageUrl, prompt_strength: 0.35 } : {}),
+      };
 
-  console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} coverStyle=${coverStyle ? 'yes' : 'no'} coverStyleLen=${coverStyle.length}`);
+  console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} ref=${refImageUrl ? 'yes' : 'no'} promptLen=${prompt.length}`);
 
   try {
     const createRes = await fetch(

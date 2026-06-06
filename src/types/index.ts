@@ -92,6 +92,11 @@ export interface LinkKit {
   links: LinkItem[]
 }
 
+export interface ReferenceItem {
+  url: string
+  description?: string
+}
+
 export interface BrandColor {
   name:   string
   hex:    string
@@ -110,7 +115,7 @@ export interface VisualKit {
   aspectRatio?: CoverAspectRatio
   textOnCover?: boolean
   logoUsage?: LogoUsage
-  references?: string[]
+  references?: ReferenceItem[]
   avoidList?: string[]
   // Named color tokens replacing primaryColor/secondaryColor swatch UI
   brandColors?: BrandColor[]

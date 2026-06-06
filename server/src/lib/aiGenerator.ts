@@ -454,6 +454,26 @@ function buildVisualStyleDescription(visualKit: unknown): string {
   const vk = visualKit as Record<string, unknown>;
   const parts: string[] = [];
 
+  // visualCoverStyle — master brand style guide. Included first so DeepSeek
+  // can translate / distil it into image-model-friendly language.
+  // Truncated to 400 chars to keep the DeepSeek context manageable.
+  const coverStyleRaw = vk['visualCoverStyle'];
+  if (typeof coverStyleRaw === 'string' && coverStyleRaw.trim()) {
+    parts.push(`brand visual style guide: ${coverStyleRaw.trim().slice(0, 400)}`);
+  }
+
+  // Reference image descriptions — analysed by vision model on upload.
+  // Each description tells DeepSeek what visual style to replicate.
+  const refs = vk['references'];
+  if (Array.isArray(refs)) {
+    const descs: string[] = [];
+    for (const r of refs) {
+      const desc = typeof r === 'string' ? null : (r as Record<string, unknown>)?.['description'];
+      if (typeof desc === 'string' && desc.trim()) descs.push(desc.trim());
+    }
+    if (descs.length > 0) parts.push(`visual reference style: ${descs.join(' | ')}`);
+  }
+
   // Colors as natural names
   const rawColors = vk['brandColors'];
   if (Array.isArray(rawColors) && rawColors.length > 0) {

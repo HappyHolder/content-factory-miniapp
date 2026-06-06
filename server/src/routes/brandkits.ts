@@ -4,6 +4,7 @@ import { put } from '@vercel/blob';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
+import { analyzeReferenceStyle } from '../lib/visionExtractor';
 
 // ─── Multer setup ─────────────────────────────────────────────────────────────
 // Memory storage: file lives only in RAM (req.file.buffer), never on disk.
@@ -153,7 +154,12 @@ router.post(
       res.status(500).json({ error: 'File upload failed. Try again.' }); return;
     }
 
-    res.json({ url: blobUrl });
+    if (assetType === 'reference') {
+      const description = await analyzeReferenceStyle(blobUrl);
+      res.json({ url: blobUrl, description: description ?? undefined });
+    } else {
+      res.json({ url: blobUrl });
+    }
   },
 );
 

@@ -439,6 +439,8 @@ export const en = {
       referenceAdd:     'Add link…',
       uploadReference:  'Upload image',
       uploading:        'Uploading…',
+      analyzing:        'Analysing style…',
+      refDescription:   'Style description',
       uploadDone:       'Upload complete',
       uploadFailed:     'Upload failed. Try again.',
       avoidList:        'What to avoid',

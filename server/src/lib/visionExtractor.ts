@@ -19,6 +19,11 @@ const POLL_TIMEOUT_MS = 60_000;
 const POLL_INTERVAL_MS = 2_000;
 const MAX_OUT_CHARS = 3_000;
 
+const STYLE_PROMPT =
+  'Опиши визуальный стиль этого изображения как референса для обложек Telegram-канала. ' +
+  '2-3 предложения: цветовая палитра, визуальное настроение, ключевые дизайн-элементы, общая эстетика. ' +
+  'Конкретно и лаконично.';
+
 const EXTRACT_PROMPT =
   'Извлеки содержимое этого изображения для создания поста в Telegram-канал. ' +
   'Если на картинке есть текст — приведи его дословно. Опиши ключевые объекты, ' +
@@ -54,6 +59,63 @@ async function downloadTelegramFile(fileId: string): Promise<{ buf: Buffer; mime
   const ext = (filePath.split('.').pop() ?? 'jpg').toLowerCase();
   const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
   return { buf, mime };
+}
+
+/**
+ * Fetches an image from a public URL and returns a visual style description,
+ * or null on failure / when vision isn't configured.
+ */
+export async function analyzeReferenceStyle(imageUrl: string): Promise<string | null> {
+  if (!env.REPLICATE_API_TOKEN || !env.VISION_MODEL) return null;
+
+  try {
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) return null;
+    const buf = Buffer.from(await imgRes.arrayBuffer());
+    const contentType = imgRes.headers.get('content-type') ?? 'image/jpeg';
+    const mime = (['image/jpeg', 'image/png', 'image/webp'].includes(contentType))
+      ? contentType
+      : 'image/jpeg';
+    const dataUri = `data:${mime};base64,${buf.toString('base64')}`;
+
+    const createRes = await fetch(`${REPLICATE_API}/models/${env.VISION_MODEL}/predictions`, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Token ${env.REPLICATE_API_TOKEN}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        input: {
+          prompt:                STYLE_PROMPT,
+          image_input:           [dataUri],
+          max_completion_tokens: 300,
+        },
+      }),
+    });
+
+    if (!createRes.ok) return null;
+
+    let prediction = await createRes.json() as ReplicatePrediction;
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    while (
+      (prediction.status === 'starting' || prediction.status === 'processing') &&
+      Date.now() < deadline
+    ) {
+      await sleep(POLL_INTERVAL_MS);
+      const pollRes = await fetch(`${REPLICATE_API}/predictions/${prediction.id}`, {
+        headers: { 'Authorization': `Token ${env.REPLICATE_API_TOKEN}` },
+      });
+      if (!pollRes.ok) return null;
+      prediction = await pollRes.json() as ReplicatePrediction;
+    }
+
+    if (prediction.status !== 'succeeded') return null;
+    const text = outputToText(prediction.output).trim().slice(0, 500);
+    return text || null;
+  } catch (err) {
+    console.warn('[visionExtractor] analyzeReferenceStyle failed:', (err as Error).message);
+    return null;
+  }
 }
 
 /**

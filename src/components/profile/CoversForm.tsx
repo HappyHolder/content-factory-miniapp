@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
 import { useApp } from '@/context/AppContext'
-import type { VisualKit, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage } from '@/types'
+import type { VisualKit, ReferenceItem, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage } from '@/types'
 import { cn } from '@/lib/utils'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
@@ -110,15 +110,24 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
     updateBrandKit(channelId, { visualKit: saveData })
   }
 
+  const normalizeRef = (r: unknown): ReferenceItem =>
+    typeof r === 'string' ? { url: r } : (r as ReferenceItem)
+
+  const refs = (): ReferenceItem[] =>
+    (data.references ?? []).map(normalizeRef)
+
   const addRef = () => {
     const val = refInput.trim()
     if (val) {
-      set('references', [...(data.references ?? []), val])
+      set('references', [...refs(), { url: val }])
       setRefInput('')
     }
   }
   const removeRef = (i: number) =>
-    set('references', (data.references ?? []).filter((_, idx) => idx !== i))
+    set('references', refs().filter((_, idx) => idx !== i))
+
+  const updateRefDescription = (i: number, description: string) =>
+    set('references', refs().map((r, idx) => idx === i ? { ...r, description } : r))
 
   const addAvoid = () => {
     const val = avoidInput.trim()
@@ -158,12 +167,12 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         return
       }
 
-      const { url } = await res.json() as { url: string }
+      const result = await res.json() as { url: string; description?: string }
 
       if (isLogo) {
-        set('logoUrl', url)
+        set('logoUrl', result.url)
       } else {
-        set('references', [...(data.references ?? []), url])
+        set('references', [...refs(), { url: result.url, description: result.description }])
       }
       showToast(t('channelStyle.covers.uploadDone'))
     } catch {
@@ -456,24 +465,35 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           }}
         />
 
-        {(data.references ?? []).length > 0 && (
-          <div className="space-y-1.5 mb-2">
-            {(data.references ?? []).map((ref, i) => (
-              <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-[10px] bg-white/[0.03] border border-white/[0.05]">
-                {isImageUrl(ref) ? (
-                  <img
-                    src={ref}
-                    alt={`ref-${i}`}
-                    className="w-8 h-8 rounded-[6px] object-cover shrink-0 bg-white/[0.05]"
-                    onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+        {refs().length > 0 && (
+          <div className="space-y-2 mb-2">
+            {refs().map((ref, i) => (
+              <div key={i} className="rounded-[10px] bg-white/[0.03] border border-white/[0.05] overflow-hidden">
+                <div className="flex items-center gap-2 px-2 py-1.5">
+                  {isImageUrl(ref.url) ? (
+                    <img
+                      src={ref.url}
+                      alt={`ref-${i}`}
+                      className="w-8 h-8 rounded-[6px] object-cover shrink-0 bg-white/[0.05]"
+                      onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                    />
+                  ) : (
+                    <ImageIcon size={14} className="text-[#55555D] shrink-0" />
+                  )}
+                  <span className="flex-1 text-[12px] text-[#A1A1AA] truncate">{ref.url}</span>
+                  <button onClick={() => removeRef(i)} className="text-[#55555D] hover:text-red-400 transition-colors shrink-0">
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="px-2 pb-2">
+                  <textarea
+                    value={ref.description ?? ''}
+                    onChange={e => updateRefDescription(i, e.target.value)}
+                    placeholder={t('channelStyle.covers.refDescription')}
+                    rows={2}
+                    className="glass-input w-full px-2 py-1.5 text-[11px] text-[#A1A1AA] placeholder:text-[#55555D] resize-none"
                   />
-                ) : (
-                  <ImageIcon size={14} className="text-[#55555D] shrink-0" />
-                )}
-                <span className="flex-1 text-[12px] text-[#A1A1AA] truncate">{ref}</span>
-                <button onClick={() => removeRef(i)} className="text-[#55555D] hover:text-red-400 transition-colors shrink-0">
-                  <X size={12} />
-                </button>
+                </div>
               </div>
             ))}
           </div>
@@ -500,7 +520,7 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           fullWidth
         >
           {isUploadingRef
-            ? <><Loader2 size={12} className="animate-spin" />{t('channelStyle.covers.uploading')}</>
+            ? <><Loader2 size={12} className="animate-spin" />{t('channelStyle.covers.analyzing')}</>
             : <><Upload size={12} />{t('channelStyle.covers.uploadReference')}</>
           }
         </Button>

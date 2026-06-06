@@ -439,6 +439,8 @@ export const ru: Dict = {
       referenceAdd:     'Добавить ссылку…',
       uploadReference:  'Загрузить изображение',
       uploading:        'Загружаем…',
+      analyzing:        'Анализируем стиль…',
+      refDescription:   'Описание стиля',
       uploadDone:       'Загружено',
       uploadFailed:     'Загрузка не удалась. Попробуйте снова.',
       avoidList:        'Что избегать',
