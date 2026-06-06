@@ -12,7 +12,7 @@
  */
 
 import { prisma } from '../db';
-import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate } from './aiGenerator';
+import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate, selectHtmlTemplate } from './aiGenerator';
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
 import { renderHtmlTemplate } from './playwrightRenderer';
@@ -251,22 +251,34 @@ export async function createDraftPostForChannel(
       const vkObj       = visualKit as Record<string, unknown>;
       const aspectRatio = (typeof vkObj['aspectRatio'] === 'string'
         ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
-      const htmlTemplate = typeof vkObj['htmlTemplate'] === 'string'
-        ? vkObj['htmlTemplate'] as string : null;
       const coverMode = typeof vkObj['coverMode'] === 'string'
         ? vkObj['coverMode'] as string : 'ai';
 
+      // Load named HTML templates (new multi-template system)
+      const rawTemplates = vkObj['htmlTemplates'];
+      const htmlTemplates: { name: string; url: string }[] =
+        Array.isArray(rawTemplates)
+          ? (rawTemplates as unknown[])
+              .filter((t): t is { name: string; url: string } =>
+                !!t && typeof t === 'object' &&
+                typeof (t as Record<string, unknown>)['name'] === 'string' &&
+                typeof (t as Record<string, unknown>)['url']  === 'string')
+          : [];
+
       const classification = await classifyPostForTemplate(title, sourceSummary);
 
-      // Priority 1: user's custom HTML template → Playwright render (only in html mode)
-      if (coverMode === 'html' && htmlTemplate) {
-        cover = await renderHtmlTemplate({
-          htmlTemplateUrl: htmlTemplate,
-          brand,
-          classification,
-          headline: classification.headline || finalTitle,
-          aspectRatio,
-        });
+      // Priority 1: user HTML templates → AI picks best match → Playwright render
+      if (coverMode === 'html' && htmlTemplates.length > 0) {
+        const chosen = await selectHtmlTemplate(htmlTemplates, title, sourceSummary);
+        if (chosen) {
+          cover = await renderHtmlTemplate({
+            htmlTemplateUrl: chosen.url,
+            brand,
+            classification,
+            headline: classification.headline || finalTitle,
+            aspectRatio,
+          });
+        }
       }
 
       // Priority 2: built-in Satori templates

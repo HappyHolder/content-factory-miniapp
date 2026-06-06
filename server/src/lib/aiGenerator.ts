@@ -729,6 +729,84 @@ export async function classifyPostForTemplate(
   }
 }
 
+// ─── HTML template selector ──────────────────────────────────────────────────
+
+export interface HtmlTemplateItem {
+  name: string;
+  url:  string;
+}
+
+/**
+ * Given a list of named HTML templates and a post, asks DeepSeek which template
+ * best matches. Falls back to the first template on any error.
+ * Returns null if templates array is empty.
+ */
+export async function selectHtmlTemplate(
+  templates: HtmlTemplateItem[],
+  title:     string,
+  excerpt:   string,
+): Promise<HtmlTemplateItem | null> {
+  if (!templates.length) return null;
+  if (templates.length === 1) return templates[0]!;
+
+  // Heuristic fallback: keyword match against template names
+  function heuristic(): HtmlTemplateItem {
+    const text = `${title} ${excerpt}`.toLowerCase();
+    for (const tpl of templates) {
+      const nameLower = tpl.name.toLowerCase();
+      // Check if any word from the template name appears in the post text
+      const words = nameLower.split(/\s+/);
+      if (words.some(w => w.length > 3 && text.includes(w))) return tpl;
+    }
+    return templates[0]!;
+  }
+
+  if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return heuristic();
+
+  const names = templates.map((t, i) => `${i}: "${t.name}"`).join('\n');
+
+  const systemPrompt =
+    'You select the best cover template for a Telegram post. ' +
+    'Respond with ONLY a JSON object: {"index": <number>}\n\n' +
+    `Available templates:\n${names}`;
+
+  const userPrompt =
+    `Post title: ${title}\nExcerpt: ${excerpt.slice(0, 300)}`;
+
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 8_000);
+
+  try {
+    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
+      body: JSON.stringify({
+        model: env.DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: userPrompt   },
+        ],
+        max_tokens: 20, temperature: 0.1,
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    if (!response.ok) return heuristic();
+
+    const data   = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const raw    = data.choices?.[0]?.message?.content?.trim() ?? '';
+    const parsed = JSON.parse(raw) as { index?: unknown };
+    const idx    = typeof parsed.index === 'number' ? Math.round(parsed.index) : -1;
+
+    if (idx >= 0 && idx < templates.length) return templates[idx]!;
+    return heuristic();
+  } catch {
+    return heuristic();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 /**

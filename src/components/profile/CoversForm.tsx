@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
 import { useApp } from '@/context/AppContext'
-import type { VisualKit, ReferenceItem, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage } from '@/types'
+import type { VisualKit, HtmlTemplateItem, ReferenceItem, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage } from '@/types'
 import { cn } from '@/lib/utils'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
@@ -64,10 +64,22 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   const [isUploadingLogo, setIsUploadingLogo]     = useState(false)
   const [isUploadingRef,  setIsUploadingRef]      = useState(false)
   const [isUploadingHtml, setIsUploadingHtml]     = useState(false)
+  const [uploadingHtmlIdx, setUploadingHtmlIdx]   = useState<number | null>(null)
   const [isGeneratingStyle, setIsGeneratingStyle] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
   const refInputRef  = useRef<HTMLInputElement>(null)
   const htmlInputRef = useRef<HTMLInputElement>(null)
+
+  // HTML templates helpers
+  const htmlTemplates = (): HtmlTemplateItem[] => data.htmlTemplates ?? []
+  const addHtmlTemplate    = () =>
+    set('htmlTemplates', [...htmlTemplates(), { name: '', url: '' }])
+  const removeHtmlTemplate = (i: number) =>
+    set('htmlTemplates', htmlTemplates().filter((_, idx) => idx !== i))
+  const updateHtmlTemplateName = (i: number, name: string) =>
+    set('htmlTemplates', htmlTemplates().map((t, idx) => idx === i ? { ...t, name } : t))
+  const updateHtmlTemplateUrl  = (i: number, url: string) =>
+    set('htmlTemplates', htmlTemplates().map((t, idx) => idx === i ? { ...t, url } : t))
 
   const set = <K extends keyof VisualKit>(key: K, val: VisualKit[K]) =>
     setData(prev => ({ ...prev, [key]: val }))
@@ -141,10 +153,11 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   const removeAvoid = (v: string) =>
     set('avoidList', (data.avoidList ?? []).filter(x => x !== v))
 
-  const uploadHtmlTemplate = async (file: File) => {
+  const uploadHtmlTemplate = async (file: File, templateIdx: number) => {
     const initData = getTelegramInitData()
     if (!initData) { showToast(t('channelStyle.covers.uploadFailed'), 'error'); return }
     setIsUploadingHtml(true)
+    setUploadingHtmlIdx(templateIdx)
     try {
       const form = new FormData()
       form.append('initData', initData)
@@ -159,12 +172,13 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         return
       }
       const { url } = await res.json() as { url: string }
-      set('htmlTemplate', url)
+      updateHtmlTemplateUrl(templateIdx, url)
       showToast(t('channelStyle.covers.uploadDone'))
     } catch {
       showToast(t('channelStyle.covers.uploadFailed'), 'error')
     } finally {
       setIsUploadingHtml(false)
+      setUploadingHtmlIdx(null)
     }
   }
 
@@ -650,7 +664,7 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
       {/* ── HTML MODE ───────────────────────────────────────────────────────── */}
       {coverMode === 'html' && <>
 
-      {/* Hidden file input */}
+      {/* Hidden file input — shared, triggered programmatically with index */}
       <input
         ref={htmlInputRef}
         type="file"
@@ -658,84 +672,108 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         className="hidden"
         onChange={e => {
           const file = e.target.files?.[0]
-          if (file) uploadHtmlTemplate(file)
+          const idx  = Number(htmlInputRef.current?.dataset['idx'] ?? 0)
+          if (file) uploadHtmlTemplate(file, idx)
           e.target.value = ''
         }}
       />
 
       <div>
-        <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-0.5">
-          {language === 'ru' ? 'HTML шаблон' : 'HTML Template'}
-        </p>
-        <p className="text-[11px] text-[#55555D] mb-3">
-          {language === 'ru'
-            ? 'Загрузи .html файл — система подставит слоты и CSS переменные брендбука'
-            : 'Upload your .html file — slots and brand CSS vars are injected automatically'}
-        </p>
-
-        {data.htmlTemplate ? (
-          <div className="flex items-center gap-2 p-3 rounded-[14px] bg-white/[0.03] border border-[#FF6A00]/20 mb-3">
-            <FileCode size={16} className="text-[#FF6A00] shrink-0" />
-            <span className="flex-1 text-[12px] text-[#A1A1AA] truncate">
-              {data.htmlTemplate.split('/').pop()?.split('?')[0] ?? 'template.html'}
-            </span>
-            <button
-              onClick={() => set('htmlTemplate', undefined)}
-              className="text-[#55555D] hover:text-red-400 transition-colors shrink-0"
-            >
-              <X size={12} />
-            </button>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider">
+              {language === 'ru' ? 'Шаблоны по рубрикам' : 'Templates by rubric'}
+            </p>
+            <p className="text-[11px] text-[#55555D] mt-0.5">
+              {language === 'ru'
+                ? 'AI выберет подходящий шаблон для каждого поста по названию рубрики'
+                : 'AI picks the best template for each post based on rubric name'}
+            </p>
           </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2 py-6 rounded-[14px] bg-white/[0.02] border border-white/[0.06] border-dashed mb-3">
+          <button
+            onClick={addHtmlTemplate}
+            className="text-[12px] font-semibold text-[#FF6A00] hover:text-[#ff8c3a] transition-colors shrink-0"
+          >
+            + {language === 'ru' ? 'Добавить' : 'Add'}
+          </button>
+        </div>
+
+        {htmlTemplates().length === 0 ? (
+          <button
+            onClick={addHtmlTemplate}
+            className="w-full flex flex-col items-center gap-2 py-8 rounded-[14px] bg-white/[0.02] border border-white/[0.06] border-dashed hover:border-[#FF6A00]/30 transition-colors"
+          >
             <FileCode size={24} className="text-[#44444C]" />
             <p className="text-[12px] text-[#44444C]">
-              {language === 'ru' ? 'Шаблон не загружен' : 'No template uploaded'}
+              {language === 'ru' ? 'Нажми чтобы добавить первый шаблон' : 'Click to add your first template'}
             </p>
+          </button>
+        ) : (
+          <div className="space-y-2">
+            {htmlTemplates().map((tpl, i) => {
+              const isUploading = isUploadingHtml && uploadingHtmlIdx === i
+              const hasFile     = !!tpl.url
+              return (
+                <div key={i} className="rounded-[14px] bg-white/[0.03] border border-white/[0.06] overflow-hidden">
+                  {/* Name row */}
+                  <div className="flex items-center gap-2 px-3 pt-3 pb-2">
+                    <FileCode size={14} className={cn('shrink-0', hasFile ? 'text-[#FF6A00]' : 'text-[#44444C]')} />
+                    <input
+                      value={tpl.name}
+                      onChange={e => updateHtmlTemplateName(i, e.target.value)}
+                      placeholder={language === 'ru' ? 'Название рубрики...' : 'Rubric name...'}
+                      className="flex-1 bg-transparent text-[13px] font-medium text-white placeholder:text-[#44444C] outline-none"
+                    />
+                    <button onClick={() => removeHtmlTemplate(i)} className="text-[#44444C] hover:text-red-400 transition-colors shrink-0">
+                      <X size={13} />
+                    </button>
+                  </div>
+                  {/* File row */}
+                  <div className="flex items-center gap-2 px-3 pb-3">
+                    {hasFile ? (
+                      <span className="flex-1 text-[11px] text-[#55555D] truncate font-mono">
+                        {tpl.url.split('/').pop()?.split('?')[0]}
+                      </span>
+                    ) : (
+                      <span className="flex-1 text-[11px] text-[#44444C]">
+                        {language === 'ru' ? 'Файл не загружен' : 'No file uploaded'}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (htmlInputRef.current) {
+                          htmlInputRef.current.dataset['idx'] = String(i)
+                          htmlInputRef.current.click()
+                        }
+                      }}
+                      disabled={isUploading || authStatus !== 'authenticated'}
+                      className="flex items-center gap-1 text-[11px] font-medium text-[#FF6A00] hover:text-[#ff8c3a] disabled:opacity-40 transition-colors shrink-0"
+                    >
+                      {isUploading
+                        ? <><Loader2 size={10} className="animate-spin" />{language === 'ru' ? 'Загрузка...' : 'Uploading...'}</>
+                        : <><Upload size={10} />{hasFile ? (language === 'ru' ? 'Заменить' : 'Replace') : (language === 'ru' ? 'Загрузить .html' : 'Upload .html')}</>
+                      }
+                    </button>
+                    {hasFile && (
+                      <button onClick={() => window.open(tpl.url, '_blank')} className="text-[11px] text-[#55555D] hover:text-[#A1A1AA] transition-colors shrink-0">
+                        ↗
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
 
-        <div className="flex gap-2 mb-3">
-          <Button
-            variant={data.htmlTemplate ? 'secondary' : 'primary'}
-            size="sm"
-            onClick={() => htmlInputRef.current?.click()}
-            disabled={isUploadingHtml || authStatus !== 'authenticated'}
-            className="flex-1"
-          >
-            {isUploadingHtml
-              ? <><Loader2 size={12} className="animate-spin" />{language === 'ru' ? 'Загрузка...' : 'Uploading...'}</>
-              : <><Upload size={12} />{data.htmlTemplate
-                  ? (language === 'ru' ? 'Заменить .html' : 'Replace .html')
-                  : (language === 'ru' ? 'Загрузить .html' : 'Upload .html')}</>
-            }
-          </Button>
-          {data.htmlTemplate && (
-            <Button variant="ghost" size="sm" onClick={() => window.open(data.htmlTemplate, '_blank')}>
-              {language === 'ru' ? 'Открыть' : 'View'}
-            </Button>
-          )}
-        </div>
-
         {/* Slot cheatsheet */}
-        <div className="p-3 rounded-[12px] bg-white/[0.02] border border-white/[0.04]">
+        <div className="mt-3 p-3 rounded-[12px] bg-white/[0.02] border border-white/[0.04]">
           <p className="text-[10px] font-semibold text-[#44444C] uppercase tracking-wider mb-2">
-            {language === 'ru' ? 'Доступные слоты' : 'Available slots'}
+            {language === 'ru' ? 'Слоты для подстановки' : 'Available slots'}
           </p>
-          <div className="space-y-1">
-            {[
-              ['{{headline}}',    language === 'ru' ? 'заголовок обложки'  : 'cover headline'],
-              ['{{subheadline}}', language === 'ru' ? 'подзаголовок'       : 'subheadline'],
-              ['{{stat}}',        language === 'ru' ? 'ключевая цифра'     : 'key metric'],
-              ['{{category}}',    language === 'ru' ? 'категория (NEWS)'   : 'category label'],
-              ['{{logo}}',        language === 'ru' ? 'URL логотипа'       : 'logo URL'],
-              ['--primary',       language === 'ru' ? 'акцентный цвет'     : 'accent color'],
-              ['--bg',            language === 'ru' ? 'фоновый цвет'       : 'background color'],
-            ].map(([slot, desc]) => (
-              <div key={slot} className="flex items-baseline gap-2">
-                <code className="text-[10px] font-mono text-[#FF6A00] shrink-0">{slot}</code>
-                <span className="text-[10px] text-[#44444C]">{desc}</span>
-              </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {['{{headline}}','{{subheadline}}','{{stat}}','{{category}}','{{logo}}','--primary','--bg'].map(s => (
+              <code key={s} className="text-[10px] font-mono text-[#FF6A00]">{s}</code>
             ))}
           </div>
         </div>

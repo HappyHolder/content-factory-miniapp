@@ -124,11 +124,16 @@ export interface VisualKit {
   visualFontRules?: string
   // Master visual style for all covers — used as base of every image prompt
   visualCoverStyle?: string
-  // User-uploaded HTML cover template (Blob URL). When set, Playwright renders
-  // it directly instead of using Satori built-in templates.
-  htmlTemplate?: string
-  // Cover generation mode: 'ai' = built-in Satori templates, 'html' = user HTML template
+  // Named HTML cover templates — one per channel rubric/content type.
+  // AI picks the best match for each post; falls back to Satori if none fit.
+  htmlTemplates?: HtmlTemplateItem[]
+  // Cover generation mode: 'ai' = Satori built-ins, 'html' = user HTML templates
   coverMode?: 'ai' | 'html'
+}
+
+export interface HtmlTemplateItem {
+  name: string       // rubric label shown in UI, used by AI for matching
+  url:  string       // Vercel Blob URL of the .html file
 }
 
 export interface Signature {
