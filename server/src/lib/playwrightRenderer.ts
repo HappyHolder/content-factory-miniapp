@@ -121,6 +121,51 @@ function buildCssVars(brand: TemplateBrand): string {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * Renders an arbitrary HTML string to PNG.
+ * Used for AI-generated covers where the HTML is already fully prepared.
+ * Returns null on any error so the caller can fall back gracefully.
+ */
+export async function renderHtmlString(
+  html:         string,
+  aspectRatio?: string,
+): Promise<GeneratedCover | null> {
+  if (!env.BLOB_READ_WRITE_TOKEN) {
+    console.warn('[playwrightRenderer] BLOB_READ_WRITE_TOKEN not set');
+    return null;
+  }
+
+  const { W, H } = getDimensions(aspectRatio);
+  let pngBuffer: Buffer;
+
+  try {
+    const browser = await getBrowser();
+    const page    = await browser.newPage();
+    try {
+      await page.setViewportSize({ width: W, height: H });
+      await page.setContent(html, { waitUntil: 'networkidle', timeout: 30_000 });
+      const screenshot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
+      pngBuffer = Buffer.from(screenshot);
+    } finally {
+      await page.close();
+    }
+  } catch (err) {
+    console.warn('[playwrightRenderer] renderHtmlString screenshot failed:', (err as Error).message);
+    return null;
+  }
+
+  try {
+    const blob = await put(`covers/ai-html-${Date.now()}.png`, pngBuffer, {
+      access: 'public', token: env.BLOB_READ_WRITE_TOKEN, contentType: 'image/png',
+    });
+    console.log(`[playwrightRenderer] AI HTML cover ${W}×${H} → ${blob.url}`);
+    return { bannerUrl: blob.url, coverBaseUrl: null };
+  } catch (err) {
+    console.warn('[playwrightRenderer] Blob upload failed:', (err as Error).message);
+    return null;
+  }
+}
+
+/**
  * Renders a user's HTML cover template to PNG.
  * Returns null on any error so the caller can fall back to Satori templates.
  */

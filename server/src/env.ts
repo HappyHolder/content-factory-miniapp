@@ -74,6 +74,8 @@ export const env = {
   TONCENTER_API_KEY:    process.env['TONCENTER_API_KEY']    ?? '',
   // Web search for the AI assistant (Tavily). Optional — search is disabled if absent.
   TAVILY_API_KEY:       process.env['TAVILY_API_KEY']       ?? '',
+  // Claude (Anthropic) — used for AI-generated HTML covers in user's brand style
+  ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] ?? '',
   // Cover generation engine:
   //   'template' — always use HTML/Satori templates (free, instant, brand-perfect)
   //   'flux'     — always use Flux via Replicate (AI-generated artistic images)

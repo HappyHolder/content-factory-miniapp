@@ -15,7 +15,8 @@ import { prisma } from '../db';
 import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate, selectHtmlTemplate } from './aiGenerator';
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
-import { renderHtmlTemplate } from './playwrightRenderer';
+import { renderHtmlTemplate, renderHtmlString } from './playwrightRenderer';
+import { generateHtmlCover } from './claudeHtmlGenerator';
 import { env } from '../env';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -267,17 +268,47 @@ export async function createDraftPostForChannel(
 
       const classification = await classifyPostForTemplate(title, sourceSummary);
 
-      // Priority 1: user HTML templates → AI picks best match → Playwright render
+      // Priority 1: user HTML templates → AI picks best match → Claude generates unique HTML → Playwright renders
       if (coverMode === 'html' && htmlTemplates.length > 0) {
         const chosen = await selectHtmlTemplate(htmlTemplates, title, sourceSummary);
         if (chosen) {
-          cover = await renderHtmlTemplate({
-            htmlTemplateUrl: chosen.url,
-            brand,
-            classification,
-            headline: classification.headline || finalTitle,
-            aspectRatio,
-          });
+          // Fetch the reference HTML from Blob
+          let refHtml: string | null = null;
+          try {
+            const res = await fetch(chosen.url);
+            if (res.ok) refHtml = await res.text();
+          } catch (err) {
+            console.warn('[draftGenerator] Failed to fetch reference HTML:', (err as Error).message);
+          }
+
+          if (refHtml) {
+            // Claude Haiku generates a unique cover in the channel's visual style
+            const generatedHtml = await generateHtmlCover({
+              referenceHtml: refHtml,
+              headline:      classification.headline || finalTitle,
+              subheadline:   classification.subheadline,
+              stat:          classification.stat,
+              category:      classification.category,
+              logoUrl:       brand.logoUrl ?? undefined,
+              primaryColor:  brand.primaryColor,
+              bgColor:       brand.bgColor,
+              aspectRatio,
+            });
+            if (generatedHtml) {
+              cover = await renderHtmlString(generatedHtml, aspectRatio);
+            }
+          }
+
+          // Fallback: slot-based render if Claude failed or key not set
+          if (!cover) {
+            cover = await renderHtmlTemplate({
+              htmlTemplateUrl: chosen.url,
+              brand,
+              classification,
+              headline: classification.headline || finalTitle,
+              aspectRatio,
+            });
+          }
         }
       }
 
