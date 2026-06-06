@@ -14,11 +14,8 @@
 import { env } from '../env';
 
 export interface HtmlCoverInput {
-  /** Full reference HTML file (html+css mode) — OR omit and provide cssContent */
-  referenceHtml?: string;
-  /** Pure CSS design system (css mode) — model builds HTML from scratch */
-  cssContent?:    string;
-  headline:       string;
+  referenceHtml: string;
+  headline:      string;
   subheadline?:   string;
   stat?:          string;
   category?:      string;
@@ -62,15 +59,6 @@ function extractClassPalette(html: string): string {
   const classes = new Set<string>();
   for (const m of html.matchAll(/class="([^"]+)"/g)) {
     m[1].split(/\s+/).filter(Boolean).forEach(c => classes.add(c));
-  }
-  return Array.from(classes).join(' ');
-}
-
-/** Extracts class names defined in CSS (e.g. .badge, .card-grid) */
-function extractClassesFromCss(css: string): string {
-  const classes = new Set<string>();
-  for (const m of css.matchAll(/\.([a-zA-Z][\w-]*)/g)) {
-    classes.add(m[1]);
   }
   return Array.from(classes).join(' ');
 }
@@ -122,35 +110,16 @@ export async function generateHtmlCover(input: HtmlCoverInput): Promise<string |
 
   const { w, h } = dims(input.aspectRatio);
 
-  // ── Resolve CSS and layout context (two modes) ────────────────────────────
-  // Mode A — cssContent only: pure design system, model builds HTML from scratch
-  // Mode B — referenceHtml:  extract CSS + body structure, use as creative reference
-  const isCssOnlyMode = !!input.cssContent && !input.referenceHtml;
-
-  let css: string;
-  let classPalette: string;
-  let referenceBodyBlock: string;
-
-  if (isCssOnlyMode) {
-    css            = input.cssContent!;
-    classPalette   = extractClassesFromCss(css);
-    referenceBodyBlock = ''; // no reference — model is fully free
-  } else {
-    if (!input.referenceHtml) {
-      console.warn('[htmlCoverGenerator] Neither referenceHtml nor cssContent provided');
-      return null;
-    }
-    css = extractCss(input.referenceHtml);
-    if (!css) {
-      console.warn('[htmlCoverGenerator] No <style> block found in reference HTML');
-      return null;
-    }
-    const bodyStructure = extractBodyStructure(input.referenceHtml);
-    classPalette       = extractClassPalette(bodyStructure);
-    referenceBodyBlock = `
+  const css = extractCss(input.referenceHtml);
+  if (!css) {
+    console.warn('[htmlCoverGenerator] No <style> block found in reference HTML');
+    return null;
+  }
+  const bodyStructure    = extractBodyStructure(input.referenceHtml);
+  const classPalette     = extractClassPalette(bodyStructure);
+  const referenceBodyBlock = `
 ━━━ REFERENCE LAYOUT (component structure — for creative inspiration only, do NOT copy) ━━━
 ${bodyStructure}`;
-  }
 
   const contentLines = [`Headline: "${input.headline}"`];
   if (input.subheadline) contentLines.push(`Subheadline: "${input.subheadline}"`);
@@ -162,11 +131,7 @@ ${bodyStructure}`;
 
   const systemPrompt = `You are a creative art director and HTML/CSS designer. You create unique, original social media cover images. Each cover you design is a fresh composition tailored to the specific post — never a copy of a template. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
 
-  const cssOnlyNote = isCssOnlyMode
-    ? `\nThis is a PURE CSS MODE — there is no reference layout. You have complete creative freedom. Invent a composition that best suits this post's message.`
-    : '';
-
-  const userPrompt = `Design an original social media cover image for the post below.${cssOnlyNote}
+  const userPrompt = `Design an original social media cover image for the post below.
 
 ━━━ DESIGN SYSTEM (CSS — colors, fonts, visual effects — use these exactly) ━━━
 ${css}

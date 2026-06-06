@@ -268,42 +268,7 @@ export async function createDraftPostForChannel(
                 !!(t as Record<string, unknown>)['url'])
           : [];
 
-      const cssFileUrl = typeof vkObj['cssFileUrl'] === 'string' ? vkObj['cssFileUrl'] : null;
-
       const classification = await classifyPostForTemplate(title, sourceSummary);
-
-      // Priority 0: pure CSS design system — AI invents fresh layout for every post
-      if (coverMode === 'css' && cssFileUrl) {
-        let cssContent: string | null = null;
-        try {
-          const res = await fetch(cssFileUrl);
-          if (res.ok) cssContent = await res.text();
-        } catch (err) {
-          console.warn('[draftGenerator] Failed to fetch CSS file:', (err as Error).message);
-        }
-
-        if (cssContent) {
-          const generatedHtml = await generateHtmlCover({
-            cssContent,
-            headline:    classification.headline || finalTitle,
-            subheadline: classification.subheadline,
-            stat:        classification.stat,
-            category:    classification.category,
-            postContent: input || undefined,
-            logoUrl:     brand.logoUrl ?? undefined,
-            primaryColor: brand.primaryColor,
-            bgColor:      brand.bgColor,
-            aspectRatio,
-          });
-          if (generatedHtml) {
-            cover = await renderHtmlString(generatedHtml, aspectRatio);
-          }
-        }
-
-        if (!cover) {
-          console.warn('[draftGenerator] CSS-only cover failed — falling back to Satori');
-        }
-      }
 
       // Priority 1: user HTML templates → AI picks best match → Claude generates unique HTML → Playwright renders
       if (!cover && coverMode === 'html' && htmlTemplates.length > 0) {

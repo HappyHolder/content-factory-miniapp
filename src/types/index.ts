@@ -127,14 +127,10 @@ export interface VisualKit {
   // Named HTML cover templates — one per channel rubric/content type.
   // AI picks the best match for each post; falls back to Satori if none fit.
   htmlTemplates?: HtmlTemplateItem[]
-  // Pure CSS design system file — used in 'css' mode. AI builds HTML from scratch
-  // using only these styles; produces maximally original compositions per post.
-  cssFileUrl?: string
   // Cover generation mode:
   //   'ai'   — Satori built-in templates
   //   'html' — user HTML templates (AI edits text, keeps structure)
-  //   'css'  — pure CSS design system (AI invents fresh layout for every post)
-  coverMode?: 'ai' | 'html' | 'css'
+  coverMode?: 'ai' | 'html'
 }
 
 export interface HtmlTemplateItem {

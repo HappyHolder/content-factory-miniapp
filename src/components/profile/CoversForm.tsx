@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Upload, X, Loader2, Image as ImageIcon, FileCode, Braces } from 'lucide-react'
+import { Upload, X, Loader2, Image as ImageIcon, FileCode } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
@@ -65,12 +65,10 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   const [isUploadingRef,  setIsUploadingRef]      = useState(false)
   const [isUploadingHtml, setIsUploadingHtml]     = useState(false)
   const [uploadingHtmlIdx, setUploadingHtmlIdx]   = useState<number | null>(null)
-  const [isUploadingCss,  setIsUploadingCss]      = useState(false)
   const [isGeneratingStyle, setIsGeneratingStyle] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
   const refInputRef  = useRef<HTMLInputElement>(null)
   const htmlInputRef = useRef<HTMLInputElement>(null)
-  const cssInputRef  = useRef<HTMLInputElement>(null)
 
   // HTML templates helpers
   const htmlTemplates = (): HtmlTemplateItem[] => data.htmlTemplates ?? []
@@ -184,33 +182,6 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
     }
   }
 
-  const uploadCssFile = async (file: File) => {
-    const initData = getTelegramInitData()
-    if (!initData) { showToast(t('channelStyle.covers.uploadFailed'), 'error'); return }
-    setIsUploadingCss(true)
-    try {
-      const form = new FormData()
-      form.append('initData', initData)
-      form.append('channelId', channelId)
-      form.append('file', file)
-      const res = await fetch(`${API_BASE}/api/brandkits/upload-css-file`, {
-        method: 'POST', body: form,
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { error?: string }
-        showToast(err.error ?? t('channelStyle.covers.uploadFailed'), 'error')
-        return
-      }
-      const { url } = await res.json() as { url: string }
-      set('cssFileUrl', url)
-      showToast(t('channelStyle.covers.uploadDone'))
-    } catch {
-      showToast(t('channelStyle.covers.uploadFailed'), 'error')
-    } finally {
-      setIsUploadingCss(false)
-    }
-  }
-
   const uploadAsset = async (file: File, assetType: 'logo' | 'reference') => {
     const initData = getTelegramInitData()
     if (!initData) {
@@ -261,7 +232,7 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
 
       {/* Mode switcher */}
       <div className="flex gap-1 p-1 rounded-[14px] bg-white/[0.04] border border-white/[0.06]">
-        {(['ai', 'html', 'css'] as const).map(mode => (
+        {(['ai', 'html'] as const).map(mode => (
           <button
             key={mode}
             onClick={() => set('coverMode', mode)}
@@ -811,109 +782,6 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
       </div>
 
       </> /* end HTML mode */}
-
-      {/* ── CSS MODE ────────────────────────────────────────────────────────── */}
-      {coverMode === 'css' && <>
-
-      {/* Hidden CSS file input */}
-      <input
-        ref={cssInputRef}
-        type="file"
-        accept=".css,text/css"
-        className="hidden"
-        onChange={e => {
-          const file = e.target.files?.[0]
-          if (file) uploadCssFile(file)
-          e.target.value = ''
-        }}
-      />
-
-      <div>
-        <div className="mb-3">
-          <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider">
-            {language === 'ru' ? 'CSS дизайн-система' : 'CSS Design System'}
-          </p>
-          <p className="text-[11px] text-[#55555D] mt-0.5">
-            {language === 'ru'
-              ? 'Загрузи CSS файл проекта — AI создаст уникальную композицию с нуля для каждого поста'
-              : 'Upload your project CSS — AI invents a unique layout for every post from scratch'}
-          </p>
-        </div>
-
-        {/* CSS file card */}
-        <div className="flex items-center gap-3 p-3 rounded-[14px] bg-white/[0.03] border border-white/[0.06] border-dashed mb-3">
-          <div className="w-12 h-12 rounded-[10px] bg-white/[0.06] flex items-center justify-center shrink-0">
-            {isUploadingCss
-              ? <Loader2 size={18} className="text-[#FF6A00] animate-spin" />
-              : <Braces size={18} className={data.cssFileUrl ? 'text-[#FF6A00]' : 'text-[#55555D]'} />
-            }
-          </div>
-          <div className="flex-1 min-w-0">
-            {data.cssFileUrl ? (
-              <>
-                <p className="text-sm text-[#A1A1AA] truncate font-mono">
-                  {data.cssFileUrl.split('/').pop()?.split('?')[0]}
-                </p>
-                <p className="text-[11px] text-[#55555D]">
-                  {language === 'ru' ? 'CSS загружен - AI использует его для генерации' : 'CSS loaded - AI will use it for generation'}
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-[#55555D]">
-                  {language === 'ru' ? 'CSS файл не загружен' : 'No CSS file uploaded'}
-                </p>
-                <p className="text-[11px] text-[#44444C]">
-                  {language === 'ru' ? 'Загрузи .css файл твоего проекта' : 'Upload your project .css file'}
-                </p>
-              </>
-            )}
-          </div>
-          {data.cssFileUrl && (
-            <button
-              onClick={() => window.open(data.cssFileUrl, '_blank')}
-              className="text-[11px] text-[#55555D] hover:text-[#A1A1AA] transition-colors shrink-0"
-            >↗</button>
-          )}
-        </div>
-
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => cssInputRef.current?.click()}
-            disabled={isUploadingCss || authStatus !== 'authenticated'}
-            className="flex-1"
-          >
-            {isUploadingCss
-              ? <><Loader2 size={12} className="animate-spin" />{language === 'ru' ? 'Загрузка...' : 'Uploading...'}</>
-              : <><Upload size={12} />{data.cssFileUrl ? (language === 'ru' ? 'Заменить CSS' : 'Replace CSS') : (language === 'ru' ? 'Загрузить .css' : 'Upload .css')}</>
-            }
-          </Button>
-          {data.cssFileUrl && (
-            <Button variant="ghost" size="sm" onClick={() => set('cssFileUrl', undefined)}>
-              <X size={12} /> {language === 'ru' ? 'Удалить' : 'Remove'}
-            </Button>
-          )}
-        </div>
-
-        {/* Info block */}
-        <div className="mt-4 p-3 rounded-[12px] bg-white/[0.02] border border-white/[0.04]">
-          <p className="text-[10px] font-semibold text-[#44444C] uppercase tracking-wider mb-2">
-            {language === 'ru' ? 'Как это работает' : 'How it works'}
-          </p>
-          <div className="space-y-1">
-            {(language === 'ru'
-              ? ['AI читает весь пост', 'Решает какую композицию сделать (hero / grid / типографика)', 'Генерирует уникальный HTML используя твои CSS классы', 'Каждый пост = своя оригинальная обложка']
-              : ['AI reads the full post', 'Decides what composition fits (hero / grid / typography)', 'Generates unique HTML using your CSS classes', 'Every post = its own original cover']
-            ).map((s, i) => (
-              <p key={i} className="text-[11px] text-[#55555D]">→ {s}</p>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      </> /* end CSS mode */}
 
       <Button variant="primary" size="md" onClick={handleSave} fullWidth>
         {t('channelStyle.save.covers')}
