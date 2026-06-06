@@ -28,12 +28,16 @@
  *   requests. If the browser crashes and disconnects, the next call re-launches it.
  */
 
-import { chromium, Browser } from 'playwright';
+// playwright is imported lazily (dynamic import) so the server starts fine
+// even when Chromium binaries are not installed.
 import { put }               from '@vercel/blob';
 import { env }               from '../env';
 import type { GeneratedCover } from './imageGenerator';
 import type { TemplateBrand }  from './templateRenderer';
 import type { TemplateClassification } from './aiGenerator';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Browser = any;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +56,9 @@ let _browser: Browser | null = null;
 
 async function getBrowser(): Promise<Browser> {
   if (_browser?.isConnected()) return _browser;
+  // Dynamic import — keeps the module loadable when playwright/Chromium absent
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { chromium } = await import('playwright');
   console.log('[playwrightRenderer] Launching Chromium...');
   _browser = await chromium.launch({
     args: [
