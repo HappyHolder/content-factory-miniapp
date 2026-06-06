@@ -67,6 +67,13 @@ async function getBrowser(): Promise<Browser> {
       '--disable-dev-shm-usage',
       '--disable-gpu',
     ],
+  }).catch((err: Error) => {
+    console.error(
+      '[playwrightRenderer] FATAL: Chromium launch failed.\n' +
+      '  Make sure your Render Build Command includes: npx playwright install chromium\n' +
+      '  Error:', err.message,
+    );
+    throw err;
   });
   _browser.on('disconnected', () => {
     console.warn('[playwrightRenderer] Browser disconnected, will re-launch on next render');
@@ -142,7 +149,11 @@ export async function renderHtmlString(
     const page    = await browser.newPage();
     try {
       await page.setViewportSize({ width: W, height: H });
-      await page.setContent(html, { waitUntil: 'networkidle', timeout: 30_000 });
+      // 'load' instead of 'networkidle' — canvas requestAnimationFrame loops never
+      // reach networkidle and would time out after 30 s on every user template.
+      await page.setContent(html, { waitUntil: 'load', timeout: 15_000 });
+      // Extra settle time so CSS transitions and font rendering finish
+      await page.waitForTimeout(300);
       const screenshot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
       pngBuffer = Buffer.from(screenshot);
     } finally {
@@ -214,7 +225,8 @@ export async function renderHtmlTemplate(
     const page    = await browser.newPage();
     try {
       await page.setViewportSize({ width: W, height: H });
-      await page.setContent(finalHtml, { waitUntil: 'networkidle', timeout: 30_000 });
+      await page.setContent(finalHtml, { waitUntil: 'load', timeout: 15_000 });
+      await page.waitForTimeout(300);
       const screenshot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
       pngBuffer = Buffer.from(screenshot);
     } finally {

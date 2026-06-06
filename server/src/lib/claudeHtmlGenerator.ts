@@ -134,9 +134,9 @@ RULES:
         },
         body: JSON.stringify({
           input: {
-            prompt:     userPrompt,
-            system:     systemPrompt,
-            max_tokens: 4096,
+            prompt:        userPrompt,
+            system_prompt: systemPrompt,
+            max_tokens:    4096,
           },
         }),
       },

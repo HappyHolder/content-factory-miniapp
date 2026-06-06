@@ -263,7 +263,9 @@ export async function createDraftPostForChannel(
               .filter((t): t is { name: string; url: string } =>
                 !!t && typeof t === 'object' &&
                 typeof (t as Record<string, unknown>)['name'] === 'string' &&
-                typeof (t as Record<string, unknown>)['url']  === 'string')
+                typeof (t as Record<string, unknown>)['url']  === 'string' &&
+                // skip templates where the file hasn't been uploaded yet
+                !!(t as Record<string, unknown>)['url'])
           : [];
 
       const classification = await classifyPostForTemplate(title, sourceSummary);
@@ -314,6 +316,9 @@ export async function createDraftPostForChannel(
 
       // Priority 2: built-in Satori templates
       if (!cover) {
+        if (coverMode === 'html') {
+          console.warn('[draftGenerator] All HTML cover attempts failed — falling back to Satori templates');
+        }
         cover = await renderTemplateCover({
           template:     classification.template,
           headline:     classification.headline || finalTitle,
