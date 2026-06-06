@@ -53,22 +53,7 @@ let fontCache: FontSet | null = null;
 async function getFonts(): Promise<FontSet> {
   if (fontCache) return fontCache;
 
-  // Try Inter from jsDelivr (woff2 — supported by Satori 0.10+)
-  try {
-    const [regular, bold] = await Promise.all([
-      fetch('https://cdn.jsdelivr.net/npm/@fontsource/inter@5/files/inter-latin-400-normal.woff2')
-        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); }),
-      fetch('https://cdn.jsdelivr.net/npm/@fontsource/inter@5/files/inter-latin-700-normal.woff2')
-        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); }),
-    ]);
-    fontCache = { regular, bold };
-    console.log('[templateRenderer] Inter font loaded from CDN');
-    return fontCache;
-  } catch (err) {
-    console.warn('[templateRenderer] Inter CDN failed, falling back to DejaVuSans:', (err as Error).message);
-  }
-
-  // Fallback: bundled DejaVuSans-Bold for both weights
+  // Step 1: try bundled DejaVuSans-Bold (always available — committed to repo)
   const candidates = [
     path.resolve(__dirname, '../../assets/DejaVuSans-Bold.ttf'),
     path.resolve(process.cwd(), 'assets/DejaVuSans-Bold.ttf'),
@@ -79,9 +64,26 @@ async function getFonts(): Promise<FontSet> {
       if (fs.existsSync(p)) {
         const buf = fs.readFileSync(p).buffer as ArrayBuffer;
         fontCache = { regular: buf, bold: buf };
+        console.log('[templateRenderer] DejaVuSans loaded from', p);
         return fontCache;
       }
     } catch { /* try next */ }
+  }
+
+  // Step 2: CDN fallback — Inter from jsDelivr (pinned version)
+  console.log('[templateRenderer] Local font not found, trying CDN...');
+  try {
+    const [regular, bold] = await Promise.all([
+      fetch('https://cdn.jsdelivr.net/npm/@fontsource/inter@4.5.15/files/inter-latin-400-normal.woff2')
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); }),
+      fetch('https://cdn.jsdelivr.net/npm/@fontsource/inter@4.5.15/files/inter-latin-700-normal.woff2')
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); }),
+    ]);
+    fontCache = { regular, bold };
+    console.log('[templateRenderer] Inter font loaded from CDN');
+    return fontCache;
+  } catch (err) {
+    console.warn('[templateRenderer] CDN font failed:', (err as Error).message);
   }
 
   throw new Error('No usable font found for template renderer');
@@ -347,7 +349,7 @@ export async function renderTemplateCover(
     return { bannerUrl: blob.url, coverBaseUrl: null };
 
   } catch (err) {
-    console.warn('[templateRenderer] Render failed:', (err as Error).message);
+    console.error('[templateRenderer] Render failed:', (err as Error).message, (err as Error).stack?.split('\n')[1]);
     return null;
   }
 }
