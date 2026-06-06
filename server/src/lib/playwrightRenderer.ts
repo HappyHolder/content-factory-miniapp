@@ -154,6 +154,32 @@ export async function renderHtmlString(
       await page.setContent(html, { waitUntil: 'load', timeout: 15_000 });
       // Extra settle time so CSS transitions and font rendering finish
       await page.waitForTimeout(300);
+      // Auto-fit: the model targets ${W}×${H} but often overshoots the height,
+      // and overflow:hidden then clips the bottom card. Measure the real content
+      // height and, if it overflows, uniformly scale the body down to fit. The
+      // html background is filled with the body's bg so the side margins created
+      // by uniform scaling blend in instead of showing as gaps.
+      await page.evaluate(({ H }: { H: number }) => {
+        // Browser globals — typed via cast since the server tsconfig has no DOM lib.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const win = globalThis as any;
+        const body = win.document.body;
+        const root = win.document.documentElement;
+        const bg = win.getComputedStyle(body).backgroundColor;
+        root.style.margin = '0';
+        root.style.background = bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#000';
+        // Measure natural content height with overflow released.
+        body.style.height = 'auto';
+        body.style.overflow = 'visible';
+        const real = body.scrollHeight;
+        if (real > H + 2) {
+          const scale = H / real;
+          body.style.height = `${real}px`;
+          body.style.overflow = 'hidden';
+          body.style.transformOrigin = 'top center';
+          body.style.transform = `scale(${scale})`;
+        }
+      }, { H });
       const screenshot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
       pngBuffer = Buffer.from(screenshot);
     } finally {
