@@ -182,16 +182,22 @@ function buildMilestone(input: TemplateCoverInput, W: number, H: number): N {
   const mutedColor = light ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.45)';
   const cardBg    = light ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)';
   const cardBorder = light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.07)';
-  const hasCards  = Array.isArray(statCards) && statCards.length > 0;
+  // Show stat cards only when there are 2+ DIFFERENT ones (1 card alone looks bad)
+  const hasCards  = Array.isArray(statCards) && statCards.length >= 2;
   const pad       = Math.round(W * 0.07);
+
+  // When there are stat cards, the layout fills the bottom half.
+  // When there are no cards, center everything vertically.
+  const justifyContent = hasCards ? 'flex-start' : 'center';
 
   return d({
     display: 'flex', flexDirection: 'column', alignItems: 'center',
+    justifyContent,
     width: `${W}px`, height: `${H}px`, background: bgColor,
     position: 'relative', overflow: 'hidden',
     padding: `${Math.round(H * 0.07)}px ${pad}px`,
   }, [
-    // Radial glow behind logo
+    // Radial glow
     d({ position: 'absolute', top: '-5%', left: '50%', transform: 'translateX(-50%)',
       width: '70%', height: '60%',
       background: `radial-gradient(ellipse at top, ${withAlpha(primaryColor, 0.2)} 0%, transparent 65%)` }, ''),
@@ -200,53 +206,53 @@ function buildMilestone(input: TemplateCoverInput, W: number, H: number): N {
     ...(logoUrl ? [
       d({ display: 'flex', flexDirection: 'column', alignItems: 'center',
         marginBottom: `${Math.round(H * 0.04)}px` }, [
-        img(logoUrl, { width: `${Math.round(W * 0.1)}px`, height: `${Math.round(W * 0.1)}px`, objectFit: 'contain' }),
-        d({ width: `${Math.round(W * 0.14)}px`, height: '1px',
-          background: withAlpha(primaryColor, 0.5), marginTop: `${Math.round(H * 0.025)}px` }, ''),
+        img(logoUrl, { width: `${Math.round(W * 0.09)}px`, height: `${Math.round(W * 0.09)}px`, objectFit: 'contain' }),
+        d({ width: `${Math.round(W * 0.12)}px`, height: '1px',
+          background: withAlpha(primaryColor, 0.4), marginTop: `${Math.round(H * 0.022)}px` }, ''),
       ])
     ] : []),
 
     // Big stat number
     ...(stat ? [d({
-      fontSize: `${Math.round(W * 0.16)}px`, fontWeight: 700, color: textColor,
-      lineHeight: '1', letterSpacing: '-3px',
-      marginBottom: `${Math.round(H * 0.01)}px`, textAlign: 'center',
+      fontSize: `${Math.round(W * (hasCards ? 0.18 : 0.2))}px`, fontWeight: 700,
+      color: textColor, lineHeight: '1', letterSpacing: '-3px',
+      marginBottom: `${Math.round(H * 0.012)}px`, textAlign: 'center',
     }, stat)] : []),
 
-    // Headline
+    // Headline (colored if there's a stat, full-size if no stat)
     d({
-      fontSize: `${Math.round(W * (stat ? 0.032 : 0.056))}px`, fontWeight: 700,
+      fontSize: `${Math.round(W * (stat ? 0.032 : 0.058))}px`, fontWeight: 700,
       color: stat ? primaryColor : textColor,
-      textAlign: 'center', lineHeight: '1.25',
-      marginBottom: `${Math.round(H * 0.008)}px`, letterSpacing: '-0.3px',
+      textAlign: 'center', lineHeight: '1.25', letterSpacing: '-0.3px',
+      marginBottom: subheadline ? `${Math.round(H * 0.006)}px` : `${Math.round(H * 0.04)}px`,
     }, headline),
 
-    // Subheadline
-    ...(subheadline ? [d({
+    // Subheadline — only when no stat (avoids "Vibers" duplication under "1000+ / Vibers" headline)
+    ...(!stat && subheadline ? [d({
       fontSize: `${Math.round(W * 0.022)}px`, fontWeight: 400,
       color: mutedColor, textAlign: 'center',
       marginBottom: `${Math.round(H * 0.04)}px`,
     }, subheadline)] : []),
 
-    // Stats grid 2×2
+    // Stats grid — 2 cols, only when 2+ cards
     ...(hasCards ? [d({
       display: 'flex', flexWrap: 'wrap',
-      gap: `${Math.round(W * 0.015)}px`, width: '100%',
-      marginTop: `${Math.round(H * 0.015)}px`,
+      gap: `${Math.round(W * 0.018)}px`, width: '100%',
     }, (statCards ?? []).slice(0, 4).map(card =>
       d({
-        display: 'flex', flexDirection: 'column', flex: '1 1 45%',
+        display: 'flex', flexDirection: 'column',
+        flex: '1 1 45%',
         background: cardBg, border: `1px solid ${cardBorder}`,
-        borderRadius: `${Math.round(W * 0.02)}px`,
-        padding: `${Math.round(H * 0.022)}px ${Math.round(W * 0.025)}px`,
-        gap: '4px',
+        borderRadius: `${Math.round(W * 0.022)}px`,
+        padding: `${Math.round(H * 0.025)}px ${Math.round(W * 0.028)}px`,
+        gap: '6px',
       }, [
-        d({ fontSize: `${Math.round(W * 0.016)}px`, fontWeight: 700,
-          color: primaryColor, letterSpacing: '1px' }, card.label.toUpperCase()),
-        d({ fontSize: `${Math.round(W * 0.038)}px`, fontWeight: 700,
+        d({ fontSize: `${Math.round(W * 0.015)}px`, fontWeight: 700,
+          color: primaryColor, letterSpacing: '1.5px' }, card.label.toUpperCase()),
+        d({ fontSize: `${Math.round(W * 0.042)}px`, fontWeight: 700,
           color: textColor, lineHeight: '1' }, card.value),
         ...(card.desc ? [d({
-          fontSize: `${Math.round(W * 0.016)}px`, color: mutedColor, marginTop: '2px',
+          fontSize: `${Math.round(W * 0.015)}px`, color: mutedColor,
         }, card.desc)] : []),
       ])
     ))] : []),

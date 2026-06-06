@@ -662,10 +662,11 @@ export async function classifyPostForTemplate(
     '  template: "milestone" | "news" | "atmospheric"\n' +
     '  headline: punchy cover headline, max 8 words, same language as post\n\n' +
     'Optional by template:\n' +
-    '  (milestone) stat: key metric as string, e.g. "1,500+" or "10K"\n' +
-    '  (milestone) subheadline: 1-3 words describing the metric, e.g. "users"\n' +
-    '  (milestone) statCards: array of up to 4 objects {label,value,desc?} — extract key stats from the post. ' +
-    'label is short uppercase name (e.g. "USERS"), value is numeric (e.g. "1,500"), desc is optional short context\n' +
+    '  (milestone) stat: the SINGLE most impressive metric from the post, formatted as string e.g. "1,500+" or "10K"\n' +
+    '  (milestone) subheadline: 1-3 words describing ONLY that metric, e.g. "Vibers" or "active users"\n' +
+    '  (milestone) statCards: SECONDARY stats from the post body (NOT the same as stat above). ' +
+    'Extract 2-4 DIFFERENT supporting numbers. Each: {label: short uppercase, value: number string, desc?: short context}. ' +
+    'Example: if stat="1000+ Vibers", statCards should be things like miners count, posts count, tokens mined — NOT Vibers again.\n' +
     '  (news) category: very short uppercase label, e.g. "BREAKING", "UPDATE", "LAUNCH", "АНОНС", "НОВОСТЬ"\n' +
     '  (news) subheadline: 1 sentence summary, max 15 words, same language as post\n' +
     '  (atmospheric) subheadline: optional 1-sentence teaser, same language as post';
