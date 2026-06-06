@@ -1,14 +1,14 @@
 /**
  * claudeHtmlGenerator.ts
  *
- * Uses a Replicate text/code model (Llama 3.1 70B by default) to generate a
- * unique HTML cover image for each post, using the user's uploaded HTML/CSS
- * as a STYLE REFERENCE — not a template to fill, but a brand guide.
+ * Generates a new unique HTML cover for each post using the user's templates
+ * as a design system reference via Claude Haiku on Replicate.
  *
- * Each post gets a visually distinct cover that matches the channel's visual
- * identity (colors, fonts, aesthetic) but with its own composition.
+ * Strategy: extract the CSS from the reference template (exact colors, effects,
+ * component styles) → send to Haiku → ask it to write a NEW <body> using those
+ * same CSS classes in a fresh composition for the specific post content.
  *
- * Uses the same REPLICATE_API_TOKEN as image generation — no extra keys needed.
+ * Result: different layout per post, identical visual language per channel.
  */
 
 import { env } from '../env';
@@ -25,7 +25,7 @@ export interface HtmlCoverInput {
   aspectRatio?:   string;
 }
 
-// ─── Dimensions ───────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function dims(ratio?: string): { w: number; h: number } {
   switch (ratio) {
@@ -36,9 +36,15 @@ function dims(ratio?: string): { w: number; h: number } {
   }
 }
 
+/** Extracts everything inside the first <style> block */
+function extractCss(html: string): string {
+  const m = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+  return m ? m[1].trim() : '';
+}
+
 // ─── Replicate polling ────────────────────────────────────────────────────────
 
-interface ReplicatePrediction {
+interface Prediction {
   id:     string;
   status: 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled';
   output: string | string[] | null;
@@ -49,28 +55,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
-function extractText(output: string | string[] | null): string | null {
-  if (!output) return null;
-  if (Array.isArray(output)) return output.join('').trim() || null;
-  if (typeof output === 'string') return output.trim() || null;
-  return null;
+function joinOutput(output: string | string[] | null): string {
+  if (!output) return '';
+  return Array.isArray(output) ? output.join('') : output;
 }
 
-async function pollForText(
-  predictionId: string,
-  token: string,
-  timeoutMs = 60_000,
-): Promise<string | null> {
+async function pollText(id: string, token: string, timeoutMs = 90_000): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await sleep(3_000);
-    const res = await fetch(
-      `https://api.replicate.com/v1/predictions/${predictionId}`,
-      { headers: { Authorization: `Token ${token}` } },
-    );
-    if (!res.ok) { console.warn(`[htmlCoverGenerator] Poll HTTP ${res.status}`); return null; }
-    const p = await res.json() as ReplicatePrediction;
-    if (p.status === 'succeeded') return extractText(p.output);
+    const res = await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
+      headers: { Authorization: `Token ${token}` },
+    });
+    if (!res.ok) return null;
+    const p = await res.json() as Prediction;
+    if (p.status === 'succeeded') return joinOutput(p.output) || null;
     if (p.status === 'failed' || p.status === 'canceled') {
       console.warn(`[htmlCoverGenerator] Prediction ${p.status}: ${p.error ?? ''}`);
       return null;
@@ -84,97 +83,101 @@ async function pollForText(
 
 export async function generateHtmlCover(input: HtmlCoverInput): Promise<string | null> {
   if (!env.REPLICATE_API_TOKEN) {
-    console.warn('[htmlCoverGenerator] REPLICATE_API_TOKEN not set — skipping');
+    console.warn('[htmlCoverGenerator] REPLICATE_API_TOKEN not set');
     return null;
   }
 
   const { w, h } = dims(input.aspectRatio);
-  const model     = env.COVER_HTML_MODEL;
+  const css = extractCss(input.referenceHtml);
+  if (!css) {
+    console.warn('[htmlCoverGenerator] No <style> block found in reference HTML');
+    return null;
+  }
 
   const contentLines = [`Headline: "${input.headline}"`];
   if (input.subheadline) contentLines.push(`Subheadline: "${input.subheadline}"`);
   if (input.stat)        contentLines.push(`Key metric: "${input.stat}"`);
-  if (input.category)    contentLines.push(`Category tag: "${input.category}"`);
-  if (input.logoUrl)     contentLines.push(`Logo URL: ${input.logoUrl}`);
+  if (input.category)    contentLines.push(`Category: "${input.category}"`);
 
-  const systemPrompt = `You are an expert web designer. You generate complete, self-contained HTML cover images. Return ONLY raw HTML — no markdown, no explanation.`;
+  const systemPrompt = `You are an expert HTML/CSS web designer specializing in social media cover images. You write clean, valid HTML that renders pixel-perfectly in a headless browser. Return ONLY raw HTML — no markdown, no explanation, no code fences.`;
 
-  const userPrompt = `Create a ${w}×${h}px social media cover image.
+  const userPrompt = `Create a ${w}×${h}px social media cover image as a complete HTML file.
 
-REFERENCE DESIGN (brand style guide — study colors, fonts, aesthetic; do NOT copy the layout):
-${input.referenceHtml.slice(0, 6000)}
+USE THIS EXACT CSS — do not modify any colors, sizes, effects, or class names:
+<style>
+${css}
+</style>
 
-EXACT BRAND COLORS: primary/accent = ${input.primaryColor}, background = ${input.bgColor}
-
-POST CONTENT:
+POST CONTENT to feature:
 ${contentLines.join('\n')}
+${input.logoUrl ? `Logo image URL: ${input.logoUrl}` : ''}
 
-Requirements:
-- Use the EXACT same color palette and fonts from the reference
-- Headline is the dominant element — large, bold, prominent
-- Create a UNIQUE composition — different layout than the reference
-- Fully self-contained: inline all CSS; Google Fonts @import OK; no other external files
-- body: width ${w}px, height ${h}px, margin: 0, overflow: hidden
-- NO JavaScript, NO CSS animations — static only (screenshot = frame 0)
-- Fill the entire canvas — no white margins
-${input.logoUrl ? `- Show logo as <img src="${input.logoUrl}" />` : ''}
+TASK: Write a new <body> for this specific post content. You can use any CSS classes defined above. Create a composition that fits the content — layout can be different from any template you've seen, but it must use the same visual components and design language defined in the CSS.
 
-Return ONLY the raw HTML starting with <!DOCTYPE html>.`;
+RULES:
+1. Return a complete HTML file: <!DOCTYPE html><html><head><meta charset="UTF-8"><style>[the exact CSS above]</style></head><body>[your new layout]</body></html>
+2. body is exactly ${w}px × ${h}px, margin:0, overflow:hidden — already set in CSS
+3. Use ONLY classes and properties already defined in the <style> above — no new CSS
+4. NO JavaScript, NO canvas animations — static HTML only (screenshot = frame 0)
+5. Headline must be large and prominent — it is the most important element
+6. Fill the entire canvas — no empty white space
+7. If a logo URL is provided, show it as <img> in an appropriate position`;
 
   try {
     const createRes = await fetch(
-      `https://api.replicate.com/v1/models/${model}/predictions`,
+      `https://api.replicate.com/v1/models/${env.COVER_HTML_MODEL}/predictions`,
       {
-        method: 'POST',
+        method:  'POST',
         headers: {
-          'Authorization': `Token ${env.REPLICATE_API_TOKEN}`,
-          'Content-Type':  'application/json',
+          Authorization: `Token ${env.REPLICATE_API_TOKEN}`,
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           input: {
-            prompt:      userPrompt,
-            system:      systemPrompt,
-            max_tokens:  4096,
+            prompt:     userPrompt,
+            system:     systemPrompt,
+            max_tokens: 4096,
           },
         }),
       },
     );
 
     if (!createRes.ok) {
-      console.warn(`[htmlCoverGenerator] Create prediction failed: HTTP ${createRes.status}`);
+      const body = await createRes.text();
+      console.warn(`[htmlCoverGenerator] Create failed: HTTP ${createRes.status} — ${body.slice(0, 200)}`);
       return null;
     }
 
-    const prediction = await createRes.json() as ReplicatePrediction;
+    const prediction = await createRes.json() as Prediction;
 
-    let text: string | null = null;
-
+    let raw: string | null = null;
     if (prediction.status === 'succeeded') {
-      text = extractText(prediction.output);
+      raw = joinOutput(prediction.output) || null;
     } else if (prediction.status === 'failed' || prediction.status === 'canceled') {
-      console.warn(`[htmlCoverGenerator] Prediction failed: ${prediction.status}`);
+      console.warn(`[htmlCoverGenerator] Failed immediately: ${prediction.status}`);
       return null;
     } else if (prediction.id) {
-      text = await pollForText(prediction.id, env.REPLICATE_API_TOKEN);
+      raw = await pollText(prediction.id, env.REPLICATE_API_TOKEN);
     }
 
-    if (!text) return null;
+    if (!raw) return null;
 
     // Strip markdown fences if model added them
-    const html = text
+    const html = raw
       .replace(/^```html?\s*/i, '')
       .replace(/```\s*$/, '')
       .trim();
 
-    if (!html.startsWith('<!') && !html.startsWith('<html')) {
+    if (!html.includes('<body') && !html.startsWith('<!')) {
       console.warn('[htmlCoverGenerator] Response does not look like HTML');
       return null;
     }
 
-    console.log(`[htmlCoverGenerator] Generated ${html.length}-char HTML cover (${w}×${h}) via ${model}`);
+    console.log(`[htmlCoverGenerator] Generated ${html.length}-char cover (${w}×${h}) via ${env.COVER_HTML_MODEL}`);
     return html;
+
   } catch (err) {
-    console.warn('[htmlCoverGenerator] Failed:', (err as Error).message);
+    console.warn('[htmlCoverGenerator] Error:', (err as Error).message);
     return null;
   }
 }
