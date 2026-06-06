@@ -545,7 +545,11 @@ export async function generateImagePromptWithAI(
     'You are a visual art director writing prompts for AI image generation models. ' +
     'Given a post topic and brand style, write a short visual description (40-70 words) ' +
     'for a square Telegram post cover image. ' +
-    'Write ONLY what should be visually present in the image: scene, atmosphere, colors, lighting, mood. ' +
+    'Center the image on ONE concrete, recognizable subject or visual metaphor that directly relates to the post topic ' +
+    '(an object, device, app interface, person, place, or symbol) — not pure abstraction. ' +
+    'Place that subject in an atmospheric, on-brand background (colors, lighting, mood). ' +
+    'Avoid empty abstract gradients, nebulae, or galaxies unless the brand style explicitly calls for them. ' +
+    'Write ONLY what should be visually present in the image: the subject, scene, atmosphere, colors, lighting, mood. ' +
     'Do NOT include any instructions, rules, or "do not" phrases. ' +
     'Do NOT mention text, typography, labels, or design specs. ' +
     'Write in English. Output ONLY the visual description, nothing else.';
