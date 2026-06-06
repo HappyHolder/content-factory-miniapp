@@ -8,7 +8,7 @@ import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard 
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { generateImageForPost, buildVisualKitPromptHints, renderCoverFromBase } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
-import { isCreatesLimitReached, applyMonthlyQuotaReset, MAX_TEXT_REGENS_PER_POST, MAX_IMAGE_REGENS_PER_POST } from '../lib/subscriptionLimits';
+import { isCreatesLimitReached, applyMonthlyQuotaReset, canUseHtmlCovers, MAX_TEXT_REGENS_PER_POST, MAX_IMAGE_REGENS_PER_POST } from '../lib/subscriptionLimits';
 import { generatePostVariants } from '../lib/aiGenerator';
 
 // ─── Multer for image uploads ─────────────────────────────────────────────────
@@ -130,14 +130,17 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
 
   // ── 4. Check Create-mode generation quota (with lazy monthly reset) ──────
   let subscription: { aiCreatesLimit: number | null; aiCreatesUsed: number } | null = null;
+  // Unknown tier (no row / DB error) → don't block the HTML feature.
+  let allowHtmlCovers = true;
   try {
     const sub = await prisma.subscription.findUnique({
       where:  { userId: dbUser.id },
-      select: { aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
+      select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
     });
     if (sub) {
       const fresh = await applyMonthlyQuotaReset({ userId: dbUser.id, ...sub });
       subscription = { aiCreatesLimit: fresh.aiCreatesLimit, aiCreatesUsed: fresh.aiCreatesUsed };
+      allowHtmlCovers = canUseHtmlCovers(sub.tier);
     }
   } catch (err) {
     console.error('[posts/generate] Subscription lookup failed:', (err as Error).message);
@@ -185,6 +188,7 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
       imagePrompt: typeof imagePrompt === 'string' ? imagePrompt : undefined,
       useBrandKit: useBrandKit === false ? false : true,
       imageOnly:   isImageOnly,
+      allowHtmlCovers,
     });
 
     // Increment Create-mode usage counter (non-fatal if it fails)
@@ -1073,6 +1077,24 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   }
   if (variant.generatedPost.channel.userId !== dbUser.id) {
     res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+
+  // ── 4a. Block visual regeneration in HTML cover mode ─────────────────────
+  // HTML covers are composed by Sonnet (costly) from the channel templates.
+  // The Flux regenerate path here would replace that brand layout with a
+  // generic neural image, so it is disabled for HTML-mode channels.
+  {
+    const vk = variant.generatedPost.channel.brandKit?.visualKit;
+    const mode = (vk && typeof vk === 'object')
+      ? (vk as Record<string, unknown>)['coverMode']
+      : undefined;
+    if (mode === 'html') {
+      res.status(403).json({
+        error: 'Перегенерация визуала недоступна в HTML-режиме обложек.',
+        code:  'REGEN_DISABLED_HTML_MODE',
+      });
+      return;
+    }
   }
 
   // ── 4b. Enforce per-post visual regeneration cap ─────────────────────────

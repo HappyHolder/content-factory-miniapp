@@ -50,7 +50,9 @@ function deriveInitialBrandColors(vk: VisualKit, isRu: boolean): BrandColor[] {
 }
 
 export function CoversForm({ channelId, initialData }: CoversFormProps) {
-  const { updateBrandKit, showToast, authStatus, language, t } = useApp()
+  const { state, updateBrandKit, showToast, authStatus, language, t } = useApp()
+  // HTML cover mode is a paid feature — locked on the FREE plan.
+  const canUseHtml = state.user.subscription.planTier !== 'free'
 
   // On first render, if brandColors is absent, seed from legacy primaryColor/secondaryColor.
   const [data, setData] = useState<VisualKit>(() => {
@@ -232,25 +234,35 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
 
       {/* Mode switcher */}
       <div className="flex gap-1 p-1 rounded-[14px] bg-white/[0.04] border border-white/[0.06]">
-        {(['ai', 'html'] as const).map(mode => (
-          <button
-            key={mode}
-            onClick={() => set('coverMode', mode)}
-            className={cn(
-              'flex-1 py-2 rounded-[10px] text-[12px] font-semibold transition-all',
-              coverMode === mode
-                ? 'bg-[#FF6A00] text-white shadow-sm'
-                : 'text-[#55555D] hover:text-[#A1A1AA]'
-            )}
-          >
-            {mode === 'ai'
-              ? (language === 'ru' ? '✦ AI' : '✦ AI')
-              : mode === 'html'
-              ? (language === 'ru' ? '</> HTML' : '</> HTML')
-              : (language === 'ru' ? '{ } CSS' : '{ } CSS')
-            }
-          </button>
-        ))}
+        {(['ai', 'html'] as const).map(mode => {
+          const locked = mode === 'html' && !canUseHtml
+          return (
+            <button
+              key={mode}
+              onClick={() => {
+                if (locked) {
+                  showToast(language === 'ru'
+                    ? 'HTML-обложки доступны на платных тарифах'
+                    : 'HTML covers are available on paid plans', 'info')
+                  return
+                }
+                set('coverMode', mode)
+              }}
+              className={cn(
+                'flex-1 py-2 rounded-[10px] text-[12px] font-semibold transition-all',
+                coverMode === mode
+                  ? 'bg-[#FF6A00] text-white shadow-sm'
+                  : locked
+                  ? 'text-[#44444C]'
+                  : 'text-[#55555D] hover:text-[#A1A1AA]'
+              )}
+            >
+              {mode === 'ai'
+                ? '✦ AI'
+                : locked ? '🔒 HTML' : '</> HTML'}
+            </button>
+          )
+        })}
       </div>
 
       {/* Color Tokens — visible in both modes (HTML mode needs --primary/--bg) */}

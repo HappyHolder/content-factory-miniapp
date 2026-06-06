@@ -21,6 +21,8 @@ export interface HtmlCoverInput {
   category?:      string;
   /** Full post body text — lets the model extract real facts for feature cards */
   postContent?:   string;
+  /** Optional user art direction — free-text layout/composition wishes */
+  artDirection?:  string;
   logoUrl?:       string;
   primaryColor:   string;
   bgColor:        string;
@@ -128,6 +130,9 @@ ${bodyStructure}`;
   const postBodyBlock = input.postContent
     ? `\nFULL POST TEXT:\n${input.postContent.slice(0, 2000)}`
     : '';
+  const artDirectionBlock = input.artDirection
+    ? `\n━━━ ART DIRECTION FROM THE USER (follow these layout/composition wishes) ━━━\n${input.artDirection.slice(0, 600)}`
+    : '';
 
   const systemPrompt = `You are a creative art director and HTML/CSS designer. You create unique, original social media cover images. Each cover you design is a fresh composition tailored to the specific post — never a copy of a template. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
 
@@ -144,6 +149,7 @@ ${referenceBodyBlock}
 ${contentLines.join('\n')}
 ${input.logoUrl ? `Logo URL: ${input.logoUrl}` : ''}
 ${postBodyBlock}
+${artDirectionBlock}
 
 ━━━ YOUR CREATIVE BRIEF ━━━
 Create a COMPLETELY ORIGINAL cover for this specific post:

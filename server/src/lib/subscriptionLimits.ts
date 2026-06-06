@@ -7,14 +7,20 @@ interface TierLimits {
   channelLimit: number;
   canSchedule: boolean;
   canUseAiAssistant: boolean;
+  canUseHtmlCovers: boolean; // HTML cover mode (Sonnet, ~6¢/gen) — paid plans only
 }
 
 export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
-  FREE:       { aiPostsLimit: 5,   aiCreatesLimit: 5,  channelLimit: 1,  canSchedule: false, canUseAiAssistant: false },
-  STARTER:    { aiPostsLimit: 30,  aiCreatesLimit: 20, channelLimit: 1,  canSchedule: false, canUseAiAssistant: true  },
-  CREATOR:    { aiPostsLimit: 150, aiCreatesLimit: 60, channelLimit: 3,  canSchedule: true,  canUseAiAssistant: true  },
-  STUDIO_PRO: { aiPostsLimit: 700, aiCreatesLimit: null, channelLimit: 10, canSchedule: true, canUseAiAssistant: true },
+  FREE:       { aiPostsLimit: 5,   aiCreatesLimit: 5,  channelLimit: 1,  canSchedule: false, canUseAiAssistant: false, canUseHtmlCovers: false },
+  STARTER:    { aiPostsLimit: 30,  aiCreatesLimit: 20, channelLimit: 1,  canSchedule: false, canUseAiAssistant: true,  canUseHtmlCovers: true  },
+  CREATOR:    { aiPostsLimit: 150, aiCreatesLimit: 60, channelLimit: 3,  canSchedule: true,  canUseAiAssistant: true,  canUseHtmlCovers: true  },
+  STUDIO_PRO: { aiPostsLimit: 700, aiCreatesLimit: null, channelLimit: 10, canSchedule: true, canUseAiAssistant: true, canUseHtmlCovers: true },
 };
+
+/** True when the given tier may use HTML cover mode (all paid plans). */
+export function canUseHtmlCovers(tier: PlanTier): boolean {
+  return TIER_LIMITS[tier].canUseHtmlCovers;
+}
 
 export function isCreatesLimitReached(used: number, limit: number | null): boolean {
   if (limit === null) return false; // unlimited

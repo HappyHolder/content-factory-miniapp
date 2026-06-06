@@ -28,6 +28,7 @@ export interface CreateDraftParams {
   imagePrompt?: string;    // optional; if provided, Replicate image generation is attempted
   useBrandKit?: boolean;   // default true; false = ignore channel style for this generation
   imageOnly?:   boolean;   // skip text AI generation, produce one empty-text variant
+  allowHtmlCovers?: boolean; // default true; false (FREE tier) forces coverMode 'ai'
 }
 
 /** Frontend-compatible post shape — identical to what /api/posts/generate returns. */
@@ -121,7 +122,7 @@ function extractButtonLinks(brandKit: unknown): {
 export async function createDraftPostForChannel(
   params: CreateDraftParams,
 ): Promise<DraftPost> {
-  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false } = params;
+  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false, allowHtmlCovers = true } = params;
 
   // ── Load channel ──────────────────────────────────────────────────────────
   const channel = await prisma.channel.findUniqueOrThrow({
@@ -242,15 +243,24 @@ export async function createDraftPostForChannel(
   const vkObj = (visualKit && typeof visualKit === 'object')
     ? visualKit as Record<string, unknown>
     : null;
-  const coverMode = typeof vkObj?.['coverMode'] === 'string'
+  const rawCoverMode = typeof vkObj?.['coverMode'] === 'string'
     ? vkObj['coverMode'] as string : 'ai';
+  // HTML mode is a paid feature; FREE tier (allowHtmlCovers=false) is coerced to AI.
+  const coverMode = (rawCoverMode === 'html' && !allowHtmlCovers) ? 'ai' : rawCoverMode;
+  if (rawCoverMode === 'html' && !allowHtmlCovers) {
+    console.warn('[draftGenerator] HTML cover mode not allowed on this plan — using AI/Flux');
+  }
   const aspectRatio = (typeof vkObj?.['aspectRatio'] === 'string'
     ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
 
   // ── HTML mode: user templates + Sonnet ────────────────────────────────────
+  // HTML mode NEVER falls through to Flux — it stays in the template engine
+  // (Sonnet → slot render → Satori). Flux would replace the brand layout with a
+  // generic neural image and burn the wrong (costly) engine.
   if (coverMode === 'html' && useBrandKit && vkObj) {
     try {
       const brand = extractBrand(visualKit);
+      const classification = await classifyPostForTemplate(title, sourceSummary);
 
       // Load named HTML templates (multi-template system)
       const rawTemplates = vkObj['htmlTemplates'];
@@ -264,74 +274,80 @@ export async function createDraftPostForChannel(
                 !!(t as Record<string, unknown>)['url'])
           : [];
 
-      if (htmlTemplates.length > 0) {
-        const classification = await classifyPostForTemplate(title, sourceSummary);
-        const chosen = await selectHtmlTemplate(htmlTemplates, title, sourceSummary);
-        if (chosen) {
-          // Fetch the reference HTML from Blob
-          let refHtml: string | null = null;
-          try {
-            const res = await fetch(chosen.url);
-            if (res.ok) refHtml = await res.text();
-          } catch (err) {
-            console.warn('[draftGenerator] Failed to fetch reference HTML:', (err as Error).message);
-          }
+      const chosen = htmlTemplates.length > 0
+        ? await selectHtmlTemplate(htmlTemplates, title, sourceSummary)
+        : null;
 
-          if (refHtml) {
-            // Sonnet composes a unique cover in the channel's visual style.
-            // Pass the full post input so it uses real facts, not invented text.
-            const generatedHtml = await generateHtmlCover({
-              referenceHtml: refHtml,
-              headline:      classification.headline || finalTitle,
-              subheadline:   classification.subheadline,
-              stat:          classification.stat,
-              category:      classification.category,
-              postContent:   input || undefined,
-              logoUrl:       brand.logoUrl ?? undefined,
-              primaryColor:  brand.primaryColor,
-              bgColor:       brand.bgColor,
-              aspectRatio,
-            });
-            if (generatedHtml) {
-              cover = await renderHtmlString(generatedHtml, aspectRatio);
-            }
-          }
+      if (chosen) {
+        // Fetch the reference HTML from Blob
+        let refHtml: string | null = null;
+        try {
+          const res = await fetch(chosen.url);
+          if (res.ok) refHtml = await res.text();
+        } catch (err) {
+          console.warn('[draftGenerator] Failed to fetch reference HTML:', (err as Error).message);
+        }
 
-          // Internal fallbacks so HTML mode still yields a cover:
-          // slot-based render of the chosen template, then Satori.
-          if (!cover) {
-            cover = await renderHtmlTemplate({
-              htmlTemplateUrl: chosen.url,
-              brand,
-              classification,
-              headline: classification.headline || finalTitle,
-              aspectRatio,
-            });
-          }
-          if (!cover) {
-            console.warn('[draftGenerator] HTML cover attempts failed — falling back to Satori');
-            cover = await renderTemplateCover({
-              template:    classification.template,
-              headline:    classification.headline || finalTitle,
-              subheadline: classification.subheadline,
-              stat:        classification.stat,
-              statCards:   classification.statCards,
-              category:    classification.category,
-              brand,
-              aspectRatio,
-            });
+        if (refHtml) {
+          // Sonnet composes a unique cover in the channel's visual style.
+          // Pass the full post input so it uses real facts, not invented text,
+          // and the user's prompt as art direction (layout / card wishes).
+          const generatedHtml = await generateHtmlCover({
+            referenceHtml: refHtml,
+            headline:      classification.headline || finalTitle,
+            subheadline:   classification.subheadline,
+            stat:          classification.stat,
+            category:      classification.category,
+            postContent:   input || undefined,
+            artDirection:  imagePrompt?.trim() || undefined,
+            logoUrl:       brand.logoUrl ?? undefined,
+            primaryColor:  brand.primaryColor,
+            bgColor:       brand.bgColor,
+            aspectRatio,
+          });
+          if (generatedHtml) {
+            cover = await renderHtmlString(generatedHtml, aspectRatio);
           }
         }
+
+        // Slot-based render of the chosen template if Sonnet failed.
+        if (!cover) {
+          cover = await renderHtmlTemplate({
+            htmlTemplateUrl: chosen.url,
+            brand,
+            classification,
+            headline: classification.headline || finalTitle,
+            aspectRatio,
+          });
+        }
+      }
+
+      // Final fallback for HTML mode: branded Satori template. Runs when there
+      // are no templates uploaded, or when every HTML attempt failed.
+      if (!cover) {
+        console.warn(htmlTemplates.length === 0
+          ? '[draftGenerator] HTML mode but no templates uploaded — using Satori'
+          : '[draftGenerator] HTML cover attempts failed — falling back to Satori');
+        cover = await renderTemplateCover({
+          template:    classification.template,
+          headline:    classification.headline || finalTitle,
+          subheadline: classification.subheadline,
+          stat:        classification.stat,
+          statCards:   classification.statCards,
+          category:    classification.category,
+          brand,
+          aspectRatio,
+        });
       }
     } catch (err) {
       console.warn('[draftGenerator] HTML cover render failed (non-fatal):', (err as Error).message);
     }
   }
 
-  // ── AI mode (default): Flux neural image via Replicate ─────────────────────
-  // Same engine as POST /api/posts/regenerate-visual. Also the fallback when
-  // HTML mode produced nothing.
-  if (!cover) {
+  // ── AI mode: Flux neural image via Replicate ───────────────────────────────
+  // Same engine as POST /api/posts/regenerate-visual. Only runs in AI mode —
+  // HTML mode handles its own fallbacks above and must never reach Flux.
+  if (!cover && coverMode !== 'html') {
     let resolvedImagePrompt: string | null = imagePrompt?.trim() || null;
 
     if (!resolvedImagePrompt && useBrandKit) {

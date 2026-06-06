@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerPreCheckoutQuery, TelegramWebAppKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel, type DraftPost } from '../lib/draftGenerator';
-import { isPostsLimitReached, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
+import { isPostsLimitReached, applyMonthlyQuotaReset, canUseHtmlCovers } from '../lib/subscriptionLimits';
 import { isPaidTier, grantSubscription } from '../lib/payments';
 import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContent } from '../lib/visionExtractor';
@@ -440,12 +440,14 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     // Check bot-posts quota before generating (with lazy monthly reset)
     const rawSub = await prisma.subscription.findUnique({
       where:  { userId: dbUser.id },
-      select: { aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
+      select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
     }).catch(() => null);
 
     const userSub = rawSub
       ? await applyMonthlyQuotaReset({ userId: dbUser.id, ...rawSub })
       : null;
+    // HTML covers are a paid feature; unknown tier (no row) → don't block.
+    const allowHtmlCovers = rawSub ? canUseHtmlCovers(rawSub.tier) : true;
 
     if (userSub && isPostsLimitReached(userSub.aiPostsUsed, userSub.aiPostsLimit)) {
       try {
@@ -499,6 +501,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
         input:      genInput,
         sourceType: photoFileId ? 'photo' : (extractedUrl ? 'link' : 'prompt'),
         sourceUrl:  extractedUrl ?? null,
+        allowHtmlCovers,
       });
     } catch (err) {
       console.error('[bot/webhook] Draft generation failed:', (err as Error).message);

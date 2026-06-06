@@ -55,6 +55,8 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const allLinkButtons = brandKit?.linkKit.links.filter(l =>
     l.usage === 'button' || l.usage === 'always'
   ) || []
+  // HTML cover mode → visual regeneration (Flux) is disabled for this channel.
+  const isHtmlCoverMode = brandKit?.visualKit?.coverMode === 'html'
 
   // Per-post regeneration remaining counts
   const textRegensLeft  = Math.max(0, MAX_TEXT_REGENS  - (post.textRegensUsed  ?? 0))
@@ -492,18 +494,22 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                         : <><Upload size={13} />Заменить картинку</>
                       }
                     </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={handleRegenerateVisual}
-                      disabled={isRegeneratingVisual || imageRegensLeft <= 0}
-                      fullWidth
-                    >
-                      {isRegeneratingVisual
-                        ? <><Loader2 size={13} className="animate-spin" />{t('postDetails.regeneratingVisual')}</>
-                        : <><RefreshCw size={13} />{t('postDetails.regenerateVisual')} · {imageRegensLeft}/{MAX_IMAGE_REGENS}</>
-                      }
-                    </Button>
+                    {/* Visual regeneration is AI/Flux-only — hidden in HTML cover
+                        mode, where covers are composed from channel templates. */}
+                    {!isHtmlCoverMode && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleRegenerateVisual}
+                        disabled={isRegeneratingVisual || imageRegensLeft <= 0}
+                        fullWidth
+                      >
+                        {isRegeneratingVisual
+                          ? <><Loader2 size={13} className="animate-spin" />{t('postDetails.regeneratingVisual')}</>
+                          : <><RefreshCw size={13} />{t('postDetails.regenerateVisual')} · {imageRegensLeft}/{MAX_IMAGE_REGENS}</>
+                        }
+                      </Button>
+                    )}
                     {bannerHistory.length > 0 && (
                       <Button
                         variant="ghost"
