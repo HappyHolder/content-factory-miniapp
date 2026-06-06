@@ -261,13 +261,24 @@ export async function generateImageForPost(
   const refImageUrl = extractReferenceImage(input.visualKit);
 
   // ── Build model input ─────────────────────────────────────────────────────
-  const isGptImage = model.includes('gpt-image');
+  // flux-2-max uses `input_images: string[]` for img2img (file[] API).
+  // flux-schnell / flux-dev use `image: string` + `prompt_strength`.
+  // gpt-image uses `image: string`.
+  const isGptImage  = model.includes('gpt-image');
+  const isFlux2Max  = model.includes('flux-2-max');
   const modelInput: Record<string, unknown> = isGptImage
     ? {
         prompt,
         size:    '1024x1024',
         quality: 'high',
         ...(refImageUrl ? { image: refImageUrl } : {}),
+      }
+    : isFlux2Max
+    ? {
+        prompt,
+        aspect_ratio: '1:1',
+        resolution:   '1 MP',
+        ...(refImageUrl ? { input_images: [refImageUrl] } : {}),
       }
     : {
         prompt,
