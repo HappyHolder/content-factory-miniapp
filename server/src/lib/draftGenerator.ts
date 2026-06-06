@@ -253,11 +253,13 @@ export async function createDraftPostForChannel(
         ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
       const htmlTemplate = typeof vkObj['htmlTemplate'] === 'string'
         ? vkObj['htmlTemplate'] as string : null;
+      const coverMode = typeof vkObj['coverMode'] === 'string'
+        ? vkObj['coverMode'] as string : 'ai';
 
       const classification = await classifyPostForTemplate(title, sourceSummary);
 
-      // Priority 1: user's custom HTML template → Playwright render
-      if (htmlTemplate) {
+      // Priority 1: user's custom HTML template → Playwright render (only in html mode)
+      if (coverMode === 'html' && htmlTemplate) {
         cover = await renderHtmlTemplate({
           htmlTemplateUrl: htmlTemplate,
           brand,

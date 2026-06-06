@@ -127,6 +127,8 @@ export interface VisualKit {
   // User-uploaded HTML cover template (Blob URL). When set, Playwright renders
   // it directly instead of using Satori built-in templates.
   htmlTemplate?: string
+  // Cover generation mode: 'ai' = built-in Satori templates, 'html' = user HTML template
+  coverMode?: 'ai' | 'html'
 }
 
 export interface Signature {

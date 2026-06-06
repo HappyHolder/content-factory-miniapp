@@ -211,10 +211,33 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
     }
   }
 
+  const coverMode = data.coverMode ?? 'ai'
+
   return (
     <div className="space-y-5">
 
-      {/* Color Tokens */}
+      {/* Mode switcher */}
+      <div className="flex gap-1 p-1 rounded-[14px] bg-white/[0.04] border border-white/[0.06]">
+        {(['ai', 'html'] as const).map(mode => (
+          <button
+            key={mode}
+            onClick={() => set('coverMode', mode)}
+            className={cn(
+              'flex-1 py-2 rounded-[10px] text-[13px] font-semibold transition-all',
+              coverMode === mode
+                ? 'bg-[#FF6A00] text-white shadow-sm'
+                : 'text-[#55555D] hover:text-[#A1A1AA]'
+            )}
+          >
+            {mode === 'ai'
+              ? (language === 'ru' ? '✦ AI шаблоны' : '✦ AI Templates')
+              : (language === 'ru' ? '</> HTML шаблон' : '</> HTML Template')
+            }
+          </button>
+        ))}
+      </div>
+
+      {/* Color Tokens — visible in both modes (HTML mode needs --primary/--bg) */}
       <div>
         <div className="flex items-start justify-between gap-2 mb-1">
           <div>
@@ -382,6 +405,22 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         />
       </div>
 
+      {/* Aspect ratio — both modes */}
+      <OptionPills<CoverAspectRatio>
+        label={t('channelStyle.covers.aspectRatio')}
+        value={data.aspectRatio ?? '16:9'}
+        onChange={v => set('aspectRatio', v)}
+        options={[
+          { value: '16:9', label: t('channelStyle.covers.ratio16x9') },
+          { value: '4:5',  label: t('channelStyle.covers.ratio4x5')  },
+          { value: '1:1',  label: t('channelStyle.covers.ratio1x1')  },
+          { value: '9:16', label: t('channelStyle.covers.ratio9x16') },
+        ]}
+      />
+
+      {/* ── AI MODE ─────────────────────────────────────────────────────────── */}
+      {coverMode === 'ai' && <>
+
       {/* Watermark */}
       <Switch
         label={t('channelStyle.covers.watermark')}
@@ -400,19 +439,6 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           { value: 'minimal',    label: t('channelStyle.covers.styleMinimal')   },
           { value: 'branded',    label: t('channelStyle.covers.styleBranded')   },
           { value: 'news',       label: t('channelStyle.covers.styleNews')      },
-        ]}
-      />
-
-      {/* Aspect ratio */}
-      <OptionPills<CoverAspectRatio>
-        label={t('channelStyle.covers.aspectRatio')}
-        value={data.aspectRatio ?? '16:9'}
-        onChange={v => set('aspectRatio', v)}
-        options={[
-          { value: '16:9', label: t('channelStyle.covers.ratio16x9') },
-          { value: '4:5',  label: t('channelStyle.covers.ratio4x5')  },
-          { value: '1:1',  label: t('channelStyle.covers.ratio1x1')  },
-          { value: '9:16', label: t('channelStyle.covers.ratio9x16') },
         ]}
       />
 
@@ -619,36 +645,36 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         />
       </div>
 
-      {/* HTML Cover Template */}
-      <div>
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <div>
-            <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider">
-              {language === 'ru' ? 'HTML шаблон обложки' : 'HTML Cover Template'}
-            </p>
-            <p className="text-[11px] text-[#55555D] mt-0.5">
-              {language === 'ru'
-                ? 'Загрузи свой .html файл — система подставит {{headline}}, {{stat}}, {{logo}} и CSS переменные --primary, --bg'
-                : 'Upload your .html file — the system injects {{headline}}, {{stat}}, {{logo}} and CSS vars --primary, --bg'}
-            </p>
-          </div>
-        </div>
+      </> /* end AI mode */}
 
-        {/* Hidden file input */}
-        <input
-          ref={htmlInputRef}
-          type="file"
-          accept=".html,text/html"
-          className="hidden"
-          onChange={e => {
-            const file = e.target.files?.[0]
-            if (file) uploadHtmlTemplate(file)
-            e.target.value = ''
-          }}
-        />
+      {/* ── HTML MODE ───────────────────────────────────────────────────────── */}
+      {coverMode === 'html' && <>
+
+      {/* Hidden file input */}
+      <input
+        ref={htmlInputRef}
+        type="file"
+        accept=".html,text/html"
+        className="hidden"
+        onChange={e => {
+          const file = e.target.files?.[0]
+          if (file) uploadHtmlTemplate(file)
+          e.target.value = ''
+        }}
+      />
+
+      <div>
+        <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-0.5">
+          {language === 'ru' ? 'HTML шаблон' : 'HTML Template'}
+        </p>
+        <p className="text-[11px] text-[#55555D] mb-3">
+          {language === 'ru'
+            ? 'Загрузи .html файл — система подставит слоты и CSS переменные брендбука'
+            : 'Upload your .html file — slots and brand CSS vars are injected automatically'}
+        </p>
 
         {data.htmlTemplate ? (
-          <div className="flex items-center gap-2 p-3 rounded-[14px] bg-white/[0.03] border border-white/[0.06] mb-2">
+          <div className="flex items-center gap-2 p-3 rounded-[14px] bg-white/[0.03] border border-[#FF6A00]/20 mb-3">
             <FileCode size={16} className="text-[#FF6A00] shrink-0" />
             <span className="flex-1 text-[12px] text-[#A1A1AA] truncate">
               {data.htmlTemplate.split('/').pop()?.split('?')[0] ?? 'template.html'}
@@ -661,17 +687,17 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2 p-3 rounded-[14px] bg-white/[0.02] border border-white/[0.06] border-dashed mb-2">
-            <FileCode size={16} className="text-[#44444C] shrink-0" />
+          <div className="flex flex-col items-center gap-2 py-6 rounded-[14px] bg-white/[0.02] border border-white/[0.06] border-dashed mb-3">
+            <FileCode size={24} className="text-[#44444C]" />
             <p className="text-[12px] text-[#44444C]">
-              {language === 'ru' ? 'Шаблон не загружен - используются встроенные шаблоны' : 'No template - built-in templates are used'}
+              {language === 'ru' ? 'Шаблон не загружен' : 'No template uploaded'}
             </p>
           </div>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 mb-3">
           <Button
-            variant="ghost"
+            variant={data.htmlTemplate ? 'secondary' : 'primary'}
             size="sm"
             onClick={() => htmlInputRef.current?.click()}
             disabled={isUploadingHtml || authStatus !== 'authenticated'}
@@ -679,7 +705,9 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           >
             {isUploadingHtml
               ? <><Loader2 size={12} className="animate-spin" />{language === 'ru' ? 'Загрузка...' : 'Uploading...'}</>
-              : <><Upload size={12} />{language === 'ru' ? 'Загрузить .html' : 'Upload .html'}</>
+              : <><Upload size={12} />{data.htmlTemplate
+                  ? (language === 'ru' ? 'Заменить .html' : 'Replace .html')
+                  : (language === 'ru' ? 'Загрузить .html' : 'Upload .html')}</>
             }
           </Button>
           {data.htmlTemplate && (
@@ -689,14 +717,31 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           )}
         </div>
 
-        {/* Slot reference */}
-        <div className="mt-2 p-2.5 rounded-[10px] bg-white/[0.02] border border-white/[0.04]">
-          <p className="text-[10px] font-mono text-[#44444C] leading-relaxed">
-            {'{{headline}}'} {'{{subheadline}}'} {'{{stat}}'} {'{{category}}'} {'{{logo}}'}<br/>
-            {'--primary'} {'--bg'} {'--accent'}
+        {/* Slot cheatsheet */}
+        <div className="p-3 rounded-[12px] bg-white/[0.02] border border-white/[0.04]">
+          <p className="text-[10px] font-semibold text-[#44444C] uppercase tracking-wider mb-2">
+            {language === 'ru' ? 'Доступные слоты' : 'Available slots'}
           </p>
+          <div className="space-y-1">
+            {[
+              ['{{headline}}',    language === 'ru' ? 'заголовок обложки'  : 'cover headline'],
+              ['{{subheadline}}', language === 'ru' ? 'подзаголовок'       : 'subheadline'],
+              ['{{stat}}',        language === 'ru' ? 'ключевая цифра'     : 'key metric'],
+              ['{{category}}',    language === 'ru' ? 'категория (NEWS)'   : 'category label'],
+              ['{{logo}}',        language === 'ru' ? 'URL логотипа'       : 'logo URL'],
+              ['--primary',       language === 'ru' ? 'акцентный цвет'     : 'accent color'],
+              ['--bg',            language === 'ru' ? 'фоновый цвет'       : 'background color'],
+            ].map(([slot, desc]) => (
+              <div key={slot} className="flex items-baseline gap-2">
+                <code className="text-[10px] font-mono text-[#FF6A00] shrink-0">{slot}</code>
+                <span className="text-[10px] text-[#44444C]">{desc}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+
+      </> /* end HTML mode */}
 
       <Button variant="primary" size="md" onClick={handleSave} fullWidth>
         {t('channelStyle.save.covers')}
