@@ -278,6 +278,8 @@ export async function createDraftPostForChannel(
         ? await selectHtmlTemplate(htmlTemplates, title, sourceSummary)
         : null;
 
+      console.log(`[draftGenerator] HTML mode: ${htmlTemplates.length} template(s) in DB, chosen=${chosen?.url ?? 'none'}`);
+
       if (chosen) {
         // Fetch the reference HTML from Blob
         let refHtml: string | null = null;
