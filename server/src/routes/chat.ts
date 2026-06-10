@@ -197,7 +197,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         model:       env.DEEPSEEK_MODEL,
         messages,
         max_tokens:  1024,
-        temperature: 0.8,
+        // 0.6 + top_p 0.9 — the assistant should stay grounded and factual;
+        // 0.8 made it drift into confident nonsense on some answers.
+        temperature: 0.6,
+        top_p:       0.9,
         ...(tools ? { tools, tool_choice: 'auto' } : {}),
       }),
     });

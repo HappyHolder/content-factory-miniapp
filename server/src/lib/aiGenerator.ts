@@ -346,7 +346,10 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
           { role: 'user',   content: userPrompt   },
         ],
         max_tokens:  2048,
-        temperature: 0.8,
+        // 0.7 + top_p 0.9 (DeepSeek's recommended range for grounded copy) —
+        // 0.8 with no top_p let the model drift into generic "AI" filler.
+        temperature: 0.7,
+        top_p:       0.9,
       }),
     });
 
