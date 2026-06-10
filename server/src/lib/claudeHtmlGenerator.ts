@@ -120,7 +120,7 @@ export async function generateHtmlCover(input: HtmlCoverInput): Promise<string |
   const bodyStructure    = extractBodyStructure(input.referenceHtml);
   const classPalette     = extractClassPalette(bodyStructure);
   const referenceBodyBlock = `
-━━━ REFERENCE LAYOUT (component structure — for creative inspiration only, do NOT copy) ━━━
+━━━ TEMPLATE LAYOUT TO FOLLOW (this is the channel's chosen design — keep its structure) ━━━
 ${bodyStructure}`;
 
   const contentLines = [`Headline: "${input.headline}"`];
@@ -134,9 +134,9 @@ ${bodyStructure}`;
     ? `\n━━━ ART DIRECTION FROM THE USER (follow these layout/composition wishes) ━━━\n${input.artDirection.slice(0, 600)}`
     : '';
 
-  const systemPrompt = `You are a creative art director and HTML/CSS designer. You create unique, original social media cover images. Each cover you design is a fresh composition tailored to the specific post — never a copy of a template. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
+  const systemPrompt = `You are an expert HTML/CSS designer. You take a channel's cover TEMPLATE and produce a cover for a specific post by keeping the template's layout, structure, and visual design, and replacing its sample content with the post's real content. You faithfully follow the template — you do not redesign it. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
 
-  const userPrompt = `Design an original social media cover image for the post below.
+  const userPrompt = `Recreate the cover below using the channel's TEMPLATE as the exact design to follow.
 
 ━━━ DESIGN SYSTEM (CSS — colors, fonts, visual effects — use these exactly) ━━━
 ${css}
@@ -151,23 +151,17 @@ ${input.logoUrl ? `Logo URL: ${input.logoUrl}` : ''}
 ${postBodyBlock}
 ${artDirectionBlock}
 
-━━━ YOUR CREATIVE BRIEF ━━━
-Create a COMPLETELY ORIGINAL cover for this specific post:
+━━━ YOUR BRIEF ━━━
 1. Use the CSS design system above — same colors, fonts, visual effects, icons (embed the CSS in <style>)
-2. The reference layout is ONLY a style sample. Do NOT reuse its structure, element order, or section arrangement. Invent a genuinely different composition for THIS post.
-3. Pick a layout archetype that fits the content, and vary it:
-   • big number / metric → hero layout with the number dominating
-   • list of ideas / features → card grid or numbered stack
-   • announcement / quote → bold oversized typography, lots of negative space
-   • story / analysis → asymmetric editorial layout
-4. Vary the focal point, alignment (left / center / asymmetric), and visual hierarchy between covers — never default to the same arrangement twice.
-5. ALL text must come from the post — no placeholder phrases, no invented content
-6. If the post has specific numbers or facts, make them visually prominent
-7. Reuse the icon/SVG components from the design system where they reinforce the message
-8. Remove <canvas> and <script> tags
-9. <body> must be ${w}px × ${h}px, overflow:hidden
-10. Return complete HTML starting with <!DOCTYPE html>
-11. NO markdown fences, NO explanation — raw HTML only`;
+2. FOLLOW the template layout above: keep its structure, section order, blocks (header, cards, stat, footer, etc.) and overall composition. This is the channel's chosen design — do NOT redesign it.
+3. Replace ONLY the sample content with THIS post's real content: headline, sub-text, card titles/values, category, etc. The design stays identical.
+4. Adapt the COUNT of repeating elements to the content (e.g. if the template shows 3 cards but the post has 2 points, render 2 cards in the same style) — but never change the layout itself.
+5. ALL text must come from the post — no placeholder phrases, no invented content, and no leftover sample text from the template.
+6. Keep the template's icons/SVG components and reuse them where the template uses them.
+7. Remove <canvas> and <script> tags
+8. <body> must be ${w}px × ${h}px, overflow:hidden
+9. Return complete HTML starting with <!DOCTYPE html>
+10. NO markdown fences, NO explanation — raw HTML only`;
 
   try {
     const createRes = await fetch(
@@ -183,9 +177,10 @@ Create a COMPLETELY ORIGINAL cover for this specific post:
             prompt:        userPrompt,
             system_prompt: systemPrompt,
             max_tokens:    4096,
-            // High temperature so two similar posts don't collapse to the same
-            // layout — pushes the model to vary the composition each time.
-            temperature:   1,
+            // Low temperature: the model must follow the channel's template
+            // faithfully, not improvise a new layout. Variety comes from having
+            // multiple rubric templates, not from sampling randomness.
+            temperature:   0.4,
           },
         }),
       },
