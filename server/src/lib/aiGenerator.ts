@@ -661,7 +661,8 @@ export async function fillTemplateSlots(
     'Return ONLY a JSON object mapping each requested slot name to a short string value. Rules:\n' +
     '- Write values in the SAME language as the post.\n' +
     '- Keep every value short enough to fit on a cover (no markdown, no line breaks).\n' +
-    '- Slots ending in _VALUE = a short metric, number, or keyword (1-2 words, e.g. "1300+", "~$100", "MVP").\n' +
+    '- Slots ending in _VALUE = a short metric, number, or keyword (1-2 words, e.g. "1300+", "~$100", "MVP"). ' +
+    'Use a number ONLY if that exact number appears in the post. If the post has no number for it, use a short REAL keyword from the post (a tech, topic, or stage) instead — NEVER invent or guess a statistic.\n' +
     '- Slots ending in _LABEL or named RUBRIC / BADGE / *_TAG / CATEGORY = a very short uppercase-style label (1-3 words).\n' +
     '- TITLE_WHITE + TITLE_ACCENT together form ONE huge display headline shown at a very large font. ' +
     'Keep it EXTREMELY short: 2-3 SHORT words TOTAL across both parts (like a product or topic name, e.g. WHITE="TON" ACCENT="VIBE"). ' +
@@ -670,7 +671,8 @@ export async function fillTemplateSlots(
     '- A lone TITLE / HEADLINE = a short punchy headline (max 3-4 words).\n' +
     '- DESCRIPTION / SUBHEADLINE = one short sentence.\n' +
     '- TAGS = 2-3 hashtags. AUTHOR = the channel or author name.\n' +
-    '- All text must come from the post — never invent facts or leave template sample text.';
+    '- All text must come from the post. NEVER invent facts, numbers, metrics, or statistics that are not in the post. ' +
+    'If you genuinely cannot derive a value for a slot from the post, return an empty string for it rather than making something up.';
 
   const userPrompt =
     `Slots to fill: ${slots.join(', ')}\n\n` +

@@ -172,16 +172,25 @@ export async function renderHtmlString(
         const bg = win.getComputedStyle(body).backgroundColor;
         root.style.margin = '0';
         root.style.background = bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#000';
+        // Remember the template's own height/overflow to restore after measuring.
+        const prevHeight   = body.style.height;
+        const prevOverflow = body.style.overflow;
         // Measure natural content height with overflow released.
         body.style.height = 'auto';
         body.style.overflow = 'visible';
         const real = body.scrollHeight;
         if (real > H + 2) {
+          // Content overflows the canvas — scale the whole body down to fit.
           const scale = H / real;
           body.style.height = `${real}px`;
           body.style.overflow = 'hidden';
           body.style.transformOrigin = 'top center';
           body.style.transform = `scale(${scale})`;
+        } else {
+          // Fits — restore the template's own height/overflow so fixed-height,
+          // space-between layouts keep filling the full canvas (no black gap).
+          body.style.height = prevHeight;
+          body.style.overflow = prevOverflow;
         }
       }, { H });
       const screenshot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
