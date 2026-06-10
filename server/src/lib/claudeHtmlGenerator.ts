@@ -130,13 +130,19 @@ ${bodyStructure}`;
   const postBodyBlock = input.postContent
     ? `\nFULL POST TEXT:\n${input.postContent.slice(0, 2000)}`
     : '';
-  const artDirectionBlock = input.artDirection
-    ? `\n━━━ ART DIRECTION FROM THE USER (follow these layout/composition wishes) ━━━\n${input.artDirection.slice(0, 600)}`
+  const hasArt = !!input.artDirection;
+  const artDirectionBlock = hasArt
+    ? `\n━━━ USER ART DIRECTION — TOP PRIORITY, OVERRIDES THE TEMPLATE LAYOUT ━━━\n${input.artDirection!.slice(0, 600)}`
     : '';
 
-  const systemPrompt = `You are an expert HTML/CSS designer. You take a channel's cover TEMPLATE and produce a cover for a specific post by keeping the template's layout, structure, and visual design, and replacing its sample content with the post's real content. You faithfully follow the template — you do not redesign it. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
+  const systemPrompt = `You are an expert HTML/CSS designer producing a social-media cover for a post, using the channel's TEMPLATE for visual style. When the user gives explicit art direction, it dictates the composition; otherwise you faithfully follow the template's layout. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
 
-  const userPrompt = `Recreate the cover below using the channel's TEMPLATE as the exact design to follow.
+  // Layout rule flips based on whether the user gave explicit art direction.
+  const layoutRule = hasArt
+    ? `2. The USER ART DIRECTION above is the TOP priority and OVERRIDES the template's layout. Build exactly the composition the user describes (what goes in the center, what at the bottom, how many elements, minimalism, etc.). Use the template ONLY for visual style — its colors, fonts, effects, and icon look — NOT its structure. Drop any template blocks the user did not ask for.`
+    : `2. FOLLOW the template layout above: keep its structure, section order, blocks (header, cards, stat, footer, etc.) and overall composition. This is the channel's chosen design — do NOT redesign it. Adapt only the COUNT of repeating elements to the content.`;
+
+  const userPrompt = `Design the cover below using the channel's TEMPLATE for visual style.
 
 ━━━ DESIGN SYSTEM (CSS — colors, fonts, visual effects — use these exactly) ━━━
 ${css}
@@ -153,15 +159,13 @@ ${artDirectionBlock}
 
 ━━━ YOUR BRIEF ━━━
 1. Use the CSS design system above — same colors, fonts, visual effects, icons (embed the CSS in <style>)
-2. FOLLOW the template layout above: keep its structure, section order, blocks (header, cards, stat, footer, etc.) and overall composition. This is the channel's chosen design — do NOT redesign it.
-3. Replace ONLY the sample content with THIS post's real content: headline, sub-text, card titles/values, category, etc. The design stays identical.
-4. Adapt the COUNT of repeating elements to the content (e.g. if the template shows 3 cards but the post has 2 points, render 2 cards in the same style) — but never change the layout itself.
-5. ALL text must come from the post — no placeholder phrases, no invented content, and no leftover sample text from the template.
-6. Keep the template's icons/SVG components and reuse them where the template uses them.
-7. Remove <canvas> and <script> tags
-8. <body> must be ${w}px × ${h}px, overflow:hidden
-9. Return complete HTML starting with <!DOCTYPE html>
-10. NO markdown fences, NO explanation — raw HTML only`;
+${layoutRule}
+3. ALL text must come from the post — no placeholder phrases, no invented content/numbers, and no leftover sample text from the template.
+4. Keep the template's icon/SVG style; reuse icons only where they fit the chosen composition.
+5. Remove <canvas> and <script> tags
+6. <body> must be ${w}px × ${h}px, overflow:hidden
+7. Return complete HTML starting with <!DOCTYPE html>
+8. NO markdown fences, NO explanation — raw HTML only`;
 
   try {
     const createRes = await fetch(
