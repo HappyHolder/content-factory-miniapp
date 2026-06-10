@@ -636,6 +636,13 @@ function escapeHtmlText(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Extracts the <style> + <body> of a template so the AI can size each slot. */
+function extractStyleAndBody(html: string): string {
+  const style = html.match(/<style[^>]*>[\s\S]*?<\/style>/i)?.[0] ?? '';
+  const body  = html.match(/<body[\s\S]*?<\/body>/i)?.[0] ?? '';
+  return `${style}\n${body}`.slice(0, 5000);
+}
+
 /**
  * Fills a slot-based cover template ({{SLOT}} placeholders) with content derived
  * from the post, WITHOUT touching its HTML/CSS — the design and colors stay 1:1.
@@ -656,25 +663,30 @@ export async function fillTemplateSlots(
   if (slots.length === 0) return null;
   if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
 
+  // Generic + self-calibrating: the model is given the template's HTML+CSS and
+  // sizes each slot by HOW it is styled, so ANY template works without per-client
+  // prompt changes. The naming hints below are just common conventions, not a
+  // fixed schema.
   const systemPrompt =
-    'You fill the slots of a social-media cover template from a post. ' +
-    'Return ONLY a JSON object mapping each requested slot name to a short string value. Rules:\n' +
-    '- Write values in the SAME language as the post.\n' +
-    '- Keep every value short enough to fit on a cover (no markdown, no line breaks).\n' +
-    '- Slots ending in _VALUE = a short metric, number, or keyword (1-2 words, e.g. "1300+", "~$100", "MVP"). ' +
-    'Use a number ONLY if that exact number appears in the post. If the post has no number for it, use a short REAL keyword from the post (a tech, topic, or stage) instead — NEVER invent or guess a statistic.\n' +
-    '- Slots ending in _LABEL or named RUBRIC / BADGE / *_TAG / CATEGORY = a very short uppercase-style label (1-3 words).\n' +
-    '- TITLE_WHITE + TITLE_ACCENT together form ONE huge display headline shown at a very large font. ' +
-    'Keep it EXTREMELY short: 2-3 SHORT words TOTAL across both parts (like a product or topic name, e.g. WHITE="TON" ACCENT="VIBE"). ' +
-    'Each word must be short (avoid long words that would break or wrap). ACCENT = the single punchy keyword, WHITE = the 1-2 words before it. ' +
-    'NEVER put a sentence or a long phrase in the title.\n' +
-    '- A lone TITLE / HEADLINE = a short punchy headline (max 3-4 words).\n' +
-    '- DESCRIPTION / SUBHEADLINE = one short sentence.\n' +
-    '- TAGS = 2-3 hashtags. AUTHOR = the channel or author name.\n' +
-    '- All text must come from the post. NEVER invent facts, numbers, metrics, or statistics that are not in the post. ' +
-    'If you genuinely cannot derive a value for a slot from the post, return an empty string for it rather than making something up.';
+    'You fill the {{SLOT}} placeholders of a social-media cover TEMPLATE with content from a post, ' +
+    'and return ONLY a JSON object mapping each slot name to a short string value.\n\n' +
+    'You are given the template HTML + CSS. Calibrate EACH slot by how it is styled and laid out:\n' +
+    '- A slot rendered at a large/display font size, or inside a headline/title element, must get VERY few short words ' +
+    '(a name or 1-3 short words). Long words or sentences break such layouts — never put them there.\n' +
+    '- A small, monospace, label, tag, category, or badge slot gets a 1-3 word short label.\n' +
+    '- A description / subtitle slot gets one short sentence.\n' +
+    '- A tag/hashtag slot gets 2-3 hashtags; an author/handle slot gets the channel or author name.\n' +
+    'Naming hints (common conventions, when present): *_VALUE = one metric/number/keyword, *_LABEL = its caption; ' +
+    'TITLE/HEADLINE (or a TITLE split into _WHITE/_ACCENT parts) = the huge headline, keep it to 2-3 short words total.\n\n' +
+    'General rules:\n' +
+    '- Write values in the SAME language as the post. No markdown, no line breaks.\n' +
+    '- Keep each value short enough to fit its element without wrapping awkwardly.\n' +
+    '- Use a number ONLY if that exact number appears in the post. ' +
+    'NEVER invent facts, numbers, metrics, or statistics. ' +
+    'If you cannot derive a value for a slot from the post, return an empty string for it rather than making something up.';
 
   const userPrompt =
+    `TEMPLATE (HTML + CSS — use it to judge each slot's size and length):\n${extractStyleAndBody(templateHtml)}\n\n` +
     `Slots to fill: ${slots.join(', ')}\n\n` +
     `Post title: ${post.title}\n` +
     `Post body:\n${post.content.slice(0, 1500)}\n\n` +
