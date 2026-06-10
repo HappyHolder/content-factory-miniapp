@@ -655,7 +655,7 @@ function extractStyleAndBody(html: string): string {
  */
 export async function fillTemplateSlots(
   templateHtml: string,
-  post: { title: string; content: string },
+  post: { title: string; content: string; artDirection?: string },
 ): Promise<string | null> {
   const slots = Array.from(new Set(
     [...templateHtml.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]),
@@ -685,12 +685,17 @@ export async function fillTemplateSlots(
     'NEVER invent facts, numbers, metrics, or statistics. ' +
     'If you cannot derive a value for a slot from the post, return an empty string for it rather than making something up.';
 
+  const artDirectionLine = post.artDirection
+    ? `\nUser art direction (apply where it makes sense): ${post.artDirection.slice(0, 400)}\n`
+    : '';
+
   const userPrompt =
     `TEMPLATE (HTML + CSS — use it to judge each slot's size and length):\n${extractStyleAndBody(templateHtml)}\n\n` +
     `Slots to fill: ${slots.join(', ')}\n\n` +
     `Post title: ${post.title}\n` +
-    `Post body:\n${post.content.slice(0, 1500)}\n\n` +
-    `Return a JSON object with exactly these keys: ${slots.join(', ')}`;
+    `Post body:\n${post.content.slice(0, 1500)}\n` +
+    artDirectionLine +
+    `\nReturn a JSON object with exactly these keys: ${slots.join(', ')}`;
 
   const controller = new AbortController();
   const timeoutId  = setTimeout(() => controller.abort(), 20_000);

@@ -63,7 +63,7 @@ function normalizeTelegramUrl(raw: unknown): string | null {
 // Response 500: DB error
 
 router.post('/generate', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, input, sourceType, imagePrompt, useBrandKit, imageOnly } = req.body as {
+  const { initData, channelId, input, sourceType, imagePrompt, useBrandKit, imageOnly, coverMode } = req.body as {
     initData?:    unknown;
     channelId?:   unknown;
     input?:       unknown;
@@ -71,6 +71,7 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     imagePrompt?: unknown;
     useBrandKit?: unknown;
     imageOnly?:   unknown;
+    coverMode?:   unknown;
   };
 
   // ── 1. Input validation ───────────────────────────────────────────────────
@@ -189,6 +190,7 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
       useBrandKit: useBrandKit === false ? false : true,
       imageOnly:   isImageOnly,
       allowHtmlCovers,
+      coverModeOverride: (coverMode === 'ai' || coverMode === 'html') ? coverMode : undefined,
     });
 
     // Increment Create-mode usage counter (non-fatal if it fails)

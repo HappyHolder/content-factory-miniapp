@@ -29,6 +29,7 @@ export interface CreateDraftParams {
   useBrandKit?: boolean;   // default true; false = ignore channel style for this generation
   imageOnly?:   boolean;   // skip text AI generation, produce one empty-text variant
   allowHtmlCovers?: boolean; // default true; false (FREE tier) forces coverMode 'ai'
+  coverModeOverride?: 'ai' | 'html'; // per-generation cover engine; overrides channel setting
 }
 
 /** Frontend-compatible post shape — identical to what /api/posts/generate returns. */
@@ -122,7 +123,7 @@ function extractButtonLinks(brandKit: unknown): {
 export async function createDraftPostForChannel(
   params: CreateDraftParams,
 ): Promise<DraftPost> {
-  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false, allowHtmlCovers = true } = params;
+  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false, allowHtmlCovers = true, coverModeOverride } = params;
 
   // ── Load channel ──────────────────────────────────────────────────────────
   const channel = await prisma.channel.findUniqueOrThrow({
@@ -243,8 +244,9 @@ export async function createDraftPostForChannel(
   const vkObj = (visualKit && typeof visualKit === 'object')
     ? visualKit as Record<string, unknown>
     : null;
-  const rawCoverMode = typeof vkObj?.['coverMode'] === 'string'
-    ? vkObj['coverMode'] as string : 'ai';
+  // Per-generation override (Create tab switch) wins over the channel setting.
+  const rawCoverMode = coverModeOverride
+    ?? (typeof vkObj?.['coverMode'] === 'string' ? vkObj['coverMode'] as string : 'ai');
   // HTML mode is a paid feature; FREE tier (allowHtmlCovers=false) is coerced to AI.
   const coverMode = (rawCoverMode === 'html' && !allowHtmlCovers) ? 'ai' : rawCoverMode;
   if (rawCoverMode === 'html' && !allowHtmlCovers) {
@@ -297,8 +299,9 @@ export async function createDraftPostForChannel(
             // Slot template: fill {{SLOTS}} with AI content and render the RAW
             // template untouched — its layout and colors stay exactly 1:1.
             const filled = await fillTemplateSlots(refHtml, {
-              title:   classification.headline || finalTitle,
-              content: input || finalTitle,
+              title:        classification.headline || finalTitle,
+              content:      input || finalTitle,
+              artDirection: imagePrompt?.trim() || undefined,
             });
             if (filled) {
               cover = await renderHtmlString(filled, aspectRatio);

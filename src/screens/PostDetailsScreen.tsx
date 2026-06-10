@@ -524,27 +524,31 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                         }
                       </Button>
                     )}
-                    {/* Edit the cover headline text — re-renders over the clean base */}
-                    <div className="pt-1.5 space-y-1.5">
-                      <input
-                        value={coverText ?? post.title}
-                        onChange={e => setCoverText(e.target.value)}
-                        placeholder={t('postDetails.coverTextPlaceholder')}
-                        className="glass-input w-full px-3 py-2 text-sm"
-                      />
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleSetCoverText}
-                        disabled={isSettingCoverText}
-                        fullWidth
-                      >
-                        {isSettingCoverText
-                          ? <><Loader2 size={13} className="animate-spin" />{t('common.loading')}</>
-                          : <><Type size={13} />{t('postDetails.coverTextApply')}</>
-                        }
-                      </Button>
-                    </div>
+                    {/* Edit the cover headline text — re-renders the sharp overlay
+                        over the clean base. Only for AI/Flux covers; hidden in HTML
+                        mode where the headline lives inside the template. */}
+                    {!isHtmlCoverMode && (
+                      <div className="pt-1.5 space-y-1.5">
+                        <input
+                          value={coverText ?? post.title}
+                          onChange={e => setCoverText(e.target.value)}
+                          placeholder={t('postDetails.coverTextPlaceholder')}
+                          className="glass-input w-full px-3 py-2 text-sm"
+                        />
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleSetCoverText}
+                          disabled={isSettingCoverText}
+                          fullWidth
+                        >
+                          {isSettingCoverText
+                            ? <><Loader2 size={13} className="animate-spin" />{t('common.loading')}</>
+                            : <><Type size={13} />{t('postDetails.coverTextApply')}</>
+                          }
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ) : post.banner ? (
                   <BannerPreview
