@@ -152,6 +152,10 @@ export async function renderHtmlString(
       // 'load' instead of 'networkidle' — canvas requestAnimationFrame loops never
       // reach networkidle and would time out after 30 s on every user template.
       await page.setContent(html, { waitUntil: 'load', timeout: 15_000 });
+      // Wait for web fonts (templates often load Google Fonts) so the screenshot
+      // uses the intended typeface, not a fallback. Non-fatal if it times out.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await page.evaluate(() => (globalThis as any).document.fonts.ready).catch(() => {});
       // Extra settle time so CSS transitions and font rendering finish
       await page.waitForTimeout(300);
       // Auto-fit: the model targets ${W}×${H} but often overshoots the height,

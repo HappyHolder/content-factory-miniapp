@@ -12,7 +12,7 @@
  */
 
 import { prisma } from '../db';
-import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate, selectHtmlTemplate } from './aiGenerator';
+import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate, selectHtmlTemplate, fillTemplateSlots } from './aiGenerator';
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
 import { renderHtmlTemplate, renderHtmlString } from './playwrightRenderer';
@@ -291,24 +291,37 @@ export async function createDraftPostForChannel(
         }
 
         if (refHtml) {
-          // Sonnet composes a unique cover in the channel's visual style.
-          // Pass the full post input so it uses real facts, not invented text,
-          // and the user's prompt as art direction (layout / card wishes).
-          const generatedHtml = await generateHtmlCover({
-            referenceHtml: refHtml,
-            headline:      classification.headline || finalTitle,
-            subheadline:   classification.subheadline,
-            stat:          classification.stat,
-            category:      classification.category,
-            postContent:   input || undefined,
-            artDirection:  imagePrompt?.trim() || undefined,
-            logoUrl:       brand.logoUrl ?? undefined,
-            primaryColor:  brand.primaryColor,
-            bgColor:       brand.bgColor,
-            aspectRatio,
-          });
-          if (generatedHtml) {
-            cover = await renderHtmlString(generatedHtml, aspectRatio);
+          const hasSlots = /\{\{\w+\}\}/.test(refHtml);
+
+          if (hasSlots) {
+            // Slot template: fill {{SLOTS}} with AI content and render the RAW
+            // template untouched — its layout and colors stay exactly 1:1.
+            const filled = await fillTemplateSlots(refHtml, {
+              title:   classification.headline || finalTitle,
+              content: input || finalTitle,
+            });
+            if (filled) {
+              cover = await renderHtmlString(filled, aspectRatio);
+            }
+          } else {
+            // Free-form template (no slots): Sonnet composes the cover using the
+            // template as the design to follow, with the post's real content.
+            const generatedHtml = await generateHtmlCover({
+              referenceHtml: refHtml,
+              headline:      classification.headline || finalTitle,
+              subheadline:   classification.subheadline,
+              stat:          classification.stat,
+              category:      classification.category,
+              postContent:   input || undefined,
+              artDirection:  imagePrompt?.trim() || undefined,
+              logoUrl:       brand.logoUrl ?? undefined,
+              primaryColor:  brand.primaryColor,
+              bgColor:       brand.bgColor,
+              aspectRatio,
+            });
+            if (generatedHtml) {
+              cover = await renderHtmlString(generatedHtml, aspectRatio);
+            }
           }
         }
 

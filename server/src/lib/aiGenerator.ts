@@ -629,6 +629,100 @@ export async function generateImagePromptWithAI(
   }
 }
 
+// ─── Template slot filling ────────────────────────────────────────────────────
+
+/** Escapes HTML text-node special characters in a slot value. */
+function escapeHtmlText(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Fills a slot-based cover template ({{SLOT}} placeholders) with content derived
+ * from the post, WITHOUT touching its HTML/CSS — the design and colors stay 1:1.
+ *
+ * The AI returns a JSON object mapping each slot name to a short string; we
+ * substitute verbatim. Unknown/missing slots become empty strings.
+ *
+ * Returns the filled HTML, or null if there are no slots / AI is unavailable /
+ * the call fails (callers then fall back to Sonnet or Satori).
+ */
+export async function fillTemplateSlots(
+  templateHtml: string,
+  post: { title: string; content: string },
+): Promise<string | null> {
+  const slots = Array.from(new Set(
+    [...templateHtml.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]),
+  ));
+  if (slots.length === 0) return null;
+  if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
+
+  const systemPrompt =
+    'You fill the slots of a social-media cover template from a post. ' +
+    'Return ONLY a JSON object mapping each requested slot name to a short string value. Rules:\n' +
+    '- Write values in the SAME language as the post.\n' +
+    '- Keep every value short enough to fit on a cover (no markdown, no line breaks).\n' +
+    '- Slots ending in _VALUE = a short metric, number, or keyword (1-2 words).\n' +
+    '- Slots ending in _LABEL or named RUBRIC / BADGE / *_TAG / CATEGORY = a very short uppercase-style label.\n' +
+    '- TITLE_WHITE + TITLE_ACCENT together form ONE headline split in two parts (ACCENT = the punchy keyword, WHITE = the rest).\n' +
+    '- A lone TITLE / HEADLINE = the full punchy headline (max ~8 words).\n' +
+    '- DESCRIPTION / SUBHEADLINE = one short sentence.\n' +
+    '- TAGS = 2-3 hashtags. AUTHOR = the channel or author name.\n' +
+    '- All text must come from the post — never invent facts or leave template sample text.';
+
+  const userPrompt =
+    `Slots to fill: ${slots.join(', ')}\n\n` +
+    `Post title: ${post.title}\n` +
+    `Post body:\n${post.content.slice(0, 1500)}\n\n` +
+    `Return a JSON object with exactly these keys: ${slots.join(', ')}`;
+
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 20_000);
+
+  try {
+    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
+      method:  'POST',
+      signal:  controller.signal,
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model:           env.DEEPSEEK_MODEL,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: userPrompt   },
+        ],
+        max_tokens:  800,
+        temperature: 0.5,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[aiGenerator] Slot fill failed: HTTP ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const raw  = data.choices?.[0]?.message?.content?.trim() ?? '';
+    const values = JSON.parse(raw) as Record<string, unknown>;
+
+    const filled = templateHtml.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+      const v = values[key];
+      return typeof v === 'string' ? escapeHtmlText(v)
+           : typeof v === 'number' ? String(v)
+           : '';
+    });
+    console.log(`[aiGenerator] Filled ${slots.length} template slots via DeepSeek`);
+    return filled;
+  } catch (err) {
+    console.warn('[aiGenerator] Slot fill error:', (err as Error).message);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ─── Template classifier ─────────────────────────────────────────────────────
 
 export interface StatCard {
