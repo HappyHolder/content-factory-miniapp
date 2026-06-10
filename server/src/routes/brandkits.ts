@@ -35,6 +35,67 @@ const uploadHtml = multer({
   },
 });
 
+// Multer for the Telegram channel export (result.json, max 30 MB — exports of
+// channels with many posts can be large; only the message text is parsed out).
+const uploadExport = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 30 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = file.mimetype === 'application/json' || file.originalname.endsWith('.json');
+    ok ? cb(null, true) : cb(new Error('Only the Telegram export result.json file is accepted.'));
+  },
+});
+
+/**
+ * Flattens a Telegram export message `text` field into a plain string.
+ * In result.json `text` is either a string, or an array of (string | {text}).
+ */
+function flattenExportText(text: unknown): string {
+  if (typeof text === 'string') return text;
+  if (Array.isArray(text)) {
+    return text
+      .map(part => typeof part === 'string'
+        ? part
+        : (part && typeof part === 'object' && typeof (part as Record<string, unknown>)['text'] === 'string'
+            ? (part as Record<string, unknown>)['text'] as string
+            : ''))
+      .join('');
+  }
+  return '';
+}
+
+/**
+ * Extracts up to `limit` recent post texts from a Telegram channel export
+ * (result.json). Keeps real posts (type 'message', non-trivial text), newest
+ * first, each capped to ~1000 chars. Returns [] on any parse failure.
+ */
+function extractPostsFromExport(buf: Buffer, limit: number): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(buf.toString('utf-8'));
+  } catch {
+    return [];
+  }
+  const messages = (parsed && typeof parsed === 'object')
+    ? (parsed as Record<string, unknown>)['messages']
+    : null;
+  if (!Array.isArray(messages)) return [];
+
+  const posts: string[] = [];
+  // Export lists messages oldest-first → walk from the end for the newest posts.
+  for (let i = messages.length - 1; i >= 0 && posts.length < limit; i--) {
+    const m = messages[i];
+    if (!m || typeof m !== 'object') continue;
+    const msg = m as Record<string, unknown>;
+    if (msg['type'] !== 'message') continue; // skip service messages
+    const text = flattenExportText(msg['text']).trim();
+    // Skip empty / very short captions (links, single emoji, etc.)
+    if (text.length < 30) continue;
+    posts.push(text.slice(0, 1000));
+  }
+  return posts;
+}
+
 
 /** Strips non-safe characters from an original filename and caps length. */
 function safeFileName(name: string): string {
@@ -231,6 +292,52 @@ router.post(
       console.error('[brandkits/upload-html-template] Blob upload failed:', (err as Error).message);
       res.status(500).json({ error: 'Upload failed. Try again.' });
     }
+  },
+);
+
+// ─── POST /api/brandkits/upload-posts-export ─────────────────────────────────
+//
+// Parses a Telegram channel export (result.json) and returns the most recent
+// post texts to use as few-shot voice examples. Does NOT write to the DB — the
+// client stores the returned posts in voiceProfile.examplePosts via PATCH.
+//
+// Request: multipart/form-data { initData, channelId, file (result.json) }
+// Response 200: { posts: string[] }
+
+router.post(
+  '/upload-posts-export',
+  uploadExport.single('file'),
+  async (req: Request, res: Response): Promise<void> => {
+    const initData  = req.body['initData']  as unknown;
+    const channelId = req.body['channelId'] as unknown;
+    const file      = req.file;
+
+    if (typeof initData  !== 'string' || !initData.trim())  { res.status(400).json({ error: 'initData is required' });  return; }
+    if (typeof channelId !== 'string' || !channelId.trim()) { res.status(400).json({ error: 'channelId is required' }); return; }
+    if (!file) { res.status(400).json({ error: 'file is required' }); return; }
+
+    let parsed;
+    try {
+      parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+    } catch (err) {
+      res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+    }
+
+    const telegramId = String(parsed.user.id);
+    const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+    if (!dbUser) { res.status(401).json({ error: 'User not found.' }); return; }
+
+    const channel = await prisma.channel.findUnique({ where: { id: channelId as string }, select: { userId: true } }).catch(() => null);
+    if (!channel)                     { res.status(404).json({ error: 'Channel not found.' }); return; }
+    if (channel.userId !== dbUser.id) { res.status(403).json({ error: 'Access denied.' }); return; }
+
+    // Extract up to 10 newest posts; the client picks 5/10 to actually use.
+    const posts = extractPostsFromExport(file.buffer, 10);
+    if (posts.length === 0) {
+      res.status(422).json({ error: 'Не удалось найти тексты постов в файле. Убедись, что это result.json экспорта канала.' });
+      return;
+    }
+    res.json({ posts });
   },
 );
 

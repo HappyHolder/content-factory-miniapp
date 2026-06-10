@@ -90,6 +90,8 @@ interface StyleContext {
   signatureUsage: string;
   /** Free-text guidance the owner typed (voiceProfile + postRules customNote), or '' */
   customNote:     string;
+  /** Real channel posts (few-shot voice examples), capped by exampleCount. */
+  examplePosts:   string[];
 }
 
 /**
@@ -104,7 +106,7 @@ interface StyleContext {
  */
 function buildStyleContext(brandKit: unknown): StyleContext {
   const empty: StyleContext = {
-    context: '', language: '', addressStyle: '', signatureBlock: null, signatureUsage: '', customNote: '',
+    context: '', language: '', addressStyle: '', signatureBlock: null, signatureUsage: '', customNote: '', examplePosts: [],
   };
 
   if (!brandKit || typeof brandKit !== 'object') return empty;
@@ -116,6 +118,7 @@ function buildStyleContext(brandKit: unknown): StyleContext {
   let addressStyle   = '';
   let signatureBlock: string | null = null;
   let signatureUsage = '';
+  let examplePosts:  string[] = [];
 
   // ── channelAbout ──────────────────────────────────────────────────────────
   const channelAbout = bk['channelAbout'];
@@ -156,6 +159,17 @@ function buildStyleContext(brandKit: unknown): StyleContext {
         .filter((w): w is string => typeof w === 'string' && !!w)
         .join(', ');
       if (words) lines.push(`NEVER use these words: ${words}`);
+    }
+
+    // Few-shot voice examples — real channel posts uploaded by the owner.
+    // exampleCount (5 or 10) caps how many are actually fed to the model.
+    const rawExamples = vp['examplePosts'];
+    if (Array.isArray(rawExamples) && rawExamples.length > 0) {
+      const count = typeof vp['exampleCount'] === 'number' ? vp['exampleCount'] : 5;
+      examplePosts = rawExamples
+        .filter((p): p is string => typeof p === 'string' && !!p.trim())
+        .slice(0, count)
+        .map(p => p.trim().slice(0, 600));
     }
   }
 
@@ -231,13 +245,13 @@ function buildStyleContext(brandKit: unknown): StyleContext {
     }
   }
 
-  return { context: lines.join('\n'), language, addressStyle, signatureBlock, signatureUsage, customNote: customNotes.join('\n') };
+  return { context: lines.join('\n'), language, addressStyle, signatureBlock, signatureUsage, customNote: customNotes.join('\n'), examplePosts };
 }
 
 async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraft[]> {
   const { input, sourceType, channel, brandKit } = params;
 
-  const { context, language, addressStyle, signatureBlock, signatureUsage, customNote } =
+  const { context, language, addressStyle, signatureBlock, signatureUsage, customNote, examplePosts } =
     buildStyleContext(brandKit);
 
   const channelLabel = channel.handle ? `@${channel.handle}` : channel.name;
@@ -292,6 +306,16 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
   if (customNote) {
     systemParts.push(
       `Additional hard style instructions from the channel owner — follow them EXACTLY:\n${customNote}`
+    );
+  }
+
+  // Few-shot: real posts from this channel as the authoritative voice reference.
+  // The model must mimic their tone, rhythm, and formatting — not copy their text.
+  if (examplePosts.length > 0) {
+    const samples = examplePosts.map((p, i) => `Example ${i + 1}:\n${p}`).join('\n\n---\n\n');
+    systemParts.push(
+      `Below are REAL posts from this channel. They are the single best reference for the channel's authentic voice, tone, rhythm, sentence length, and formatting. ` +
+      `Match this style closely in your output, but write about the new content — never copy or reuse phrases from these examples:\n\n${samples}`
     );
   }
 

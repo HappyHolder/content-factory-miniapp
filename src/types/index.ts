@@ -71,6 +71,8 @@ export interface VoiceProfile {
   tone: Tone
   postLength: PostLength
   examplePosts: string[]
+  // How many of examplePosts to feed the model as few-shot voice samples (5 or 10).
+  exampleCount?: number
   favoriteWords: string[]
   forbiddenWords: string[]
   // Free-text style guidance written by the channel owner. Injected verbatim
