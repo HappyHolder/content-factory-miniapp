@@ -55,8 +55,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const allLinkButtons = brandKit?.linkKit.links.filter(l =>
     l.usage === 'button' || l.usage === 'always'
   ) || []
-  // HTML cover mode → visual regeneration (Flux) is disabled for this channel.
+  // HTML / AI+HTML cover modes → visual regeneration (Flux) and the cover-text
+  // overlay editor are disabled (the cover is composed, not a Flux+sharp overlay).
   const isHtmlCoverMode = brandKit?.visualKit?.coverMode === 'html'
+    || brandKit?.visualKit?.coverMode === 'ai_html'
 
   // Per-post regeneration remaining counts
   const textRegensLeft  = Math.max(0, MAX_TEXT_REGENS  - (post.textRegensUsed  ?? 0))

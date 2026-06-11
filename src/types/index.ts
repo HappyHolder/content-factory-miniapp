@@ -130,9 +130,10 @@ export interface VisualKit {
   // AI picks the best match for each post; falls back to Satori if none fit.
   htmlTemplates?: HtmlTemplateItem[]
   // Cover generation mode:
-  //   'ai'   — Satori built-in templates
-  //   'html' — user HTML templates (AI edits text, keeps structure)
-  coverMode?: 'ai' | 'html'
+  //   'ai'      — Flux neural image
+  //   'html'    — user HTML templates / Sonnet structured cover
+  //   'ai_html' — hybrid: Flux themed background + Sonnet overlay on top
+  coverMode?: 'ai' | 'html' | 'ai_html'
 }
 
 export interface HtmlTemplateItem {

@@ -190,7 +190,7 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
       useBrandKit: useBrandKit === false ? false : true,
       imageOnly:   isImageOnly,
       allowHtmlCovers,
-      coverModeOverride: (coverMode === 'ai' || coverMode === 'html') ? coverMode : undefined,
+      coverModeOverride: (coverMode === 'ai' || coverMode === 'html' || coverMode === 'ai_html') ? coverMode : undefined,
     });
 
     // Increment Create-mode usage counter (non-fatal if it fails)
@@ -1090,9 +1090,9 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
     const mode = (vk && typeof vk === 'object')
       ? (vk as Record<string, unknown>)['coverMode']
       : undefined;
-    if (mode === 'html') {
+    if (mode === 'html' || mode === 'ai_html') {
       res.status(403).json({
-        error: 'Перегенерация визуала недоступна в HTML-режиме обложек.',
+        error: 'Перегенерация визуала недоступна в этом режиме обложек.',
         code:  'REGEN_DISABLED_HTML_MODE',
       });
       return;

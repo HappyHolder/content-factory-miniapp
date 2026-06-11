@@ -193,6 +193,11 @@ export interface GenerateImageInput {
    * draws garbled letters), and we composite legible typography on top.
    */
   headline?:  string;
+  /**
+   * When true, produce a clean text-free image with NO headline/logo overlay —
+   * used as the background layer for the AI+HTML hybrid cover.
+   */
+  backgroundOnly?: boolean;
 }
 
 /** Result of cover generation: the final (text-baked) cover + the clean base. */
@@ -238,14 +243,17 @@ export async function generateImageForPost(
     ? input.visualKit as Record<string, unknown>
     : null;
   const brandTokens = buildVisualKitPromptHints(input.visualKit);
-  const logoUrl = typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
+  const logoUrl = !input.backgroundOnly
+    && typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
     ? vkObj['logoUrl'] as string
     : null;
 
   // Text-on-cover overlay: honour the visualKit.textOnCover toggle (default on,
   // matching the UI default). The model keeps producing a clean background; the
   // headline is drawn on top by sharp so it is always crisp and on-brand.
-  const textOnCover = vkObj?.['textOnCover'] !== false;
+  // backgroundOnly (AI+HTML hybrid) → never overlay headline or logo: the HTML
+  // layer draws all text/branding on top of this clean image.
+  const textOnCover = !input.backgroundOnly && vkObj?.['textOnCover'] !== false;
   const headline = textOnCover && typeof input.headline === 'string' && input.headline.trim()
     ? input.headline.trim()
     : null;

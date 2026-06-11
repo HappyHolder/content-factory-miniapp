@@ -229,3 +229,91 @@ ${layoutRule}
     return null;
   }
 }
+
+// ─── AI+HTML hybrid: Sonnet overlay on top of a Flux background ────────────────
+
+export interface HtmlOverlayInput {
+  /** Public URL of the clean, text-free Flux background image. */
+  bgImageUrl:   string;
+  headline:     string;
+  subheadline?: string;
+  postContent?: string;
+  /** Free-text composition wishes from the user (image prompt). */
+  artDirection?: string;
+  logoUrl?:     string;
+  primaryColor: string;
+  aspectRatio?: string;
+}
+
+/**
+ * Generates a transparent HTML/CSS overlay that sits on top of a full-bleed
+ * background photo (the Flux image). Sonnet composes a clean, readable, branded
+ * layer — dark scrims for legibility, brand accent color, minimal structure.
+ * Returns raw HTML, or null on failure.
+ */
+export async function generateHtmlOverlay(input: HtmlOverlayInput): Promise<string | null> {
+  if (!env.REPLICATE_API_TOKEN) {
+    console.warn('[htmlOverlay] REPLICATE_API_TOKEN not set');
+    return null;
+  }
+
+  const { w, h } = dims(input.aspectRatio);
+
+  const contentLines = [`Headline: "${input.headline}"`];
+  if (input.subheadline) contentLines.push(`Subheadline: "${input.subheadline}"`);
+  const postBodyBlock = input.postContent ? `\nFULL POST TEXT:\n${input.postContent.slice(0, 1500)}` : '';
+  const artBlock = input.artDirection ? `\nUSER ART DIRECTION (top priority for composition): ${input.artDirection.slice(0, 400)}` : '';
+
+  const systemPrompt = `You are an expert HTML/CSS designer. You build a clean, readable text-and-graphic overlay that sits ON TOP of a full-bleed background photo. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
+
+  const userPrompt = `Build the overlay for a social-media cover. There is a full-bleed BACKGROUND PHOTO behind it (URL below) — your job is the readable branded layer on top.
+
+BACKGROUND IMAGE URL: ${input.bgImageUrl}
+BRAND PRIMARY COLOR: ${input.primaryColor}
+${input.logoUrl ? `LOGO URL: ${input.logoUrl}` : ''}
+
+━━━ THIS POST ━━━
+${contentLines.join('\n')}${postBodyBlock}${artBlock}
+
+━━━ BRIEF ━━━
+1. <body> is ${w}px × ${h}px, position:relative, overflow:hidden, margin:0.
+2. Set the body background to the photo, covering the whole canvas:
+   background: #0b0b0f url('${input.bgImageUrl}') center/cover no-repeat;
+3. Add dark gradient SCRIMS (e.g. linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,.15))) UNDER the text so EVERY word is fully readable on any photo. Readability is the #1 rule.
+4. Compose a clean, minimal, branded layout: a strong punchy headline, optional one-line subheadline, and the channel handle/logo. Use the brand primary color only for small accents (a bar, a word, a tag).
+5. Let the photo breathe — keep large areas of it visible; do NOT cover the whole image with panels.
+6. ALL text must come from the post. No invented numbers or metrics. Keep the headline short (a few words).
+7. Embed all CSS in <style>. No <script>, no <canvas>.
+8. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;
+
+  try {
+    const createRes = await fetch(
+      `https://api.replicate.com/v1/models/${env.COVER_HTML_MODEL}/predictions`,
+      {
+        method:  'POST',
+        headers: { Authorization: `Token ${env.REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: { prompt: userPrompt, system_prompt: systemPrompt, max_tokens: 4096, temperature: 0.6 } }),
+      },
+    );
+    if (!createRes.ok) {
+      console.warn(`[htmlOverlay] Create failed: HTTP ${createRes.status}`);
+      return null;
+    }
+
+    const prediction = await createRes.json() as Prediction;
+    let raw: string | null = null;
+    if (prediction.status === 'succeeded') raw = joinOutput(prediction.output) || null;
+    else if (prediction.status === 'failed' || prediction.status === 'canceled') return null;
+    else if (prediction.id) raw = await pollText(prediction.id, env.REPLICATE_API_TOKEN);
+    if (!raw) return null;
+
+    const html = raw.replace(/^```html?\s*/i, '').replace(/```\s*$/, '').trim();
+    if (!html.includes('<body') && !html.startsWith('<!')) return null;
+
+    console.log(`[htmlOverlay] Generated ${html.length}-char overlay (${w}×${h}) over Flux bg`);
+    return html;
+  } catch (err) {
+    console.warn('[htmlOverlay] Error:', (err as Error).message);
+    return null;
+  }
+}

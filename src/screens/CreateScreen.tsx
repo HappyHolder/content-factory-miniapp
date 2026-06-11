@@ -38,9 +38,9 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
   // Cover engine for THIS generation. Defaults to the channel's saved mode,
   // re-synced when the active channel changes. HTML is a paid feature.
   const channelCoverMode =
-    (brandKitService.getByChannelId(state.activeChannelId)?.visualKit?.coverMode ?? 'ai') as 'ai' | 'html'
+    (brandKitService.getByChannelId(state.activeChannelId)?.visualKit?.coverMode ?? 'ai') as 'ai' | 'html' | 'ai_html'
   const canUseHtml = state.user.subscription.planTier !== 'free'
-  const [coverMode, setCoverMode] = useState<'ai' | 'html'>(channelCoverMode)
+  const [coverMode, setCoverMode] = useState<'ai' | 'html' | 'ai_html'>(channelCoverMode)
   useEffect(() => { setCoverMode(channelCoverMode) }, [state.activeChannelId, channelCoverMode])
 
   const hasInput = textPrompt.trim().length > 3 || imagePrompt.trim().length > 3
@@ -176,28 +176,33 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
                     {isRu ? 'Движок обложки' : 'Cover engine'}
                   </p>
                   <div className="flex gap-1 p-1 rounded-[12px] bg-white/[0.04] border border-white/[0.06]">
-                    {(['ai', 'html'] as const).map(mode => {
-                      const locked = mode === 'html' && !canUseHtml
+                    {(['ai', 'html', 'ai_html'] as const).map(mode => {
+                      const locked = mode !== 'ai' && !canUseHtml
+                      const label = mode === 'ai'
+                        ? '✦ AI'
+                        : mode === 'html'
+                          ? (locked ? '🔒 HTML' : '</> HTML')
+                          : (locked ? '🔒 AI+HTML' : 'AI+HTML')
                       return (
                         <button
                           key={mode}
                           onClick={() => {
                             if (locked) {
                               showToast(isRu
-                                ? 'HTML-обложки доступны на платных тарифах'
-                                : 'HTML covers are available on paid plans', 'info')
+                                ? 'Доступно на платных тарифах'
+                                : 'Available on paid plans', 'info')
                               return
                             }
                             setCoverMode(mode)
                           }}
                           className={cn(
-                            'flex-1 py-1.5 rounded-[9px] text-[12px] font-semibold transition-all',
+                            'flex-1 py-1.5 rounded-[9px] text-[11px] font-semibold transition-all',
                             coverMode === mode
                               ? 'bg-[#FF6A00] text-white shadow-sm'
                               : locked ? 'text-[#44444C]' : 'text-[#55555D] hover:text-[#A1A1AA]'
                           )}
                         >
-                          {mode === 'ai' ? '✦ AI' : (locked ? '🔒 HTML' : '</> HTML')}
+                          {label}
                         </button>
                       )
                     })}

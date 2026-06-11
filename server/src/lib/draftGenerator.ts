@@ -16,7 +16,7 @@ import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplat
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
 import { renderHtmlTemplate, renderHtmlString } from './playwrightRenderer';
-import { generateHtmlCover } from './claudeHtmlGenerator';
+import { generateHtmlCover, generateHtmlOverlay } from './claudeHtmlGenerator';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ export interface CreateDraftParams {
   useBrandKit?: boolean;   // default true; false = ignore channel style for this generation
   imageOnly?:   boolean;   // skip text AI generation, produce one empty-text variant
   allowHtmlCovers?: boolean; // default true; false (FREE tier) forces coverMode 'ai'
-  coverModeOverride?: 'ai' | 'html'; // per-generation cover engine; overrides channel setting
+  coverModeOverride?: 'ai' | 'html' | 'ai_html'; // per-generation cover engine; overrides channel setting
 }
 
 /** Frontend-compatible post shape — identical to what /api/posts/generate returns. */
@@ -247,13 +247,56 @@ export async function createDraftPostForChannel(
   // Per-generation override (Create tab switch) wins over the channel setting.
   const rawCoverMode = coverModeOverride
     ?? (typeof vkObj?.['coverMode'] === 'string' ? vkObj['coverMode'] as string : 'ai');
-  // HTML mode is a paid feature; FREE tier (allowHtmlCovers=false) is coerced to AI.
-  const coverMode = (rawCoverMode === 'html' && !allowHtmlCovers) ? 'ai' : rawCoverMode;
-  if (rawCoverMode === 'html' && !allowHtmlCovers) {
-    console.warn('[draftGenerator] HTML cover mode not allowed on this plan — using AI/Flux');
+  // HTML and AI+HTML modes use Sonnet (paid); FREE tier is coerced to AI/Flux.
+  const isPaidMode = rawCoverMode === 'html' || rawCoverMode === 'ai_html';
+  const coverMode = (isPaidMode && !allowHtmlCovers) ? 'ai' : rawCoverMode;
+  if (isPaidMode && !allowHtmlCovers) {
+    console.warn('[draftGenerator] Paid cover mode not allowed on this plan — using AI/Flux');
   }
   const aspectRatio = (typeof vkObj?.['aspectRatio'] === 'string'
     ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
+
+  // ── AI+HTML hybrid: Flux themed background + Sonnet overlay on top ──────────
+  if (coverMode === 'ai_html' && useBrandKit && vkObj) {
+    try {
+      const brand = extractBrand(visualKit);
+      const classification = await classifyPostForTemplate(title, sourceSummary);
+
+      // 1. Themed background prompt: user's image prompt, or AI-generated scene.
+      let bgPrompt: string | null = imagePrompt?.trim() || null;
+      if (!bgPrompt) {
+        try {
+          bgPrompt = await generateImagePromptWithAI({ title, excerpt: sourceSummary, visualKit });
+        } catch (err) {
+          console.warn('[draftGenerator] Hybrid bg prompt failed:', (err as Error).message);
+        }
+      }
+
+      if (bgPrompt) {
+        // 2. Clean, text-free Flux background.
+        const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, backgroundOnly: true });
+        if (bg?.bannerUrl) {
+          // 3. Sonnet builds a readable branded overlay on top of the background.
+          const overlayHtml = await generateHtmlOverlay({
+            bgImageUrl:   bg.bannerUrl,
+            headline:     classification.headline || finalTitle,
+            subheadline:  classification.subheadline,
+            postContent:  input || undefined,
+            artDirection: imagePrompt?.trim() || undefined,
+            logoUrl:      brand.logoUrl ?? undefined,
+            primaryColor: brand.primaryColor,
+            aspectRatio,
+          });
+          if (overlayHtml) {
+            cover = await renderHtmlString(overlayHtml, aspectRatio);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[draftGenerator] AI+HTML hybrid failed (non-fatal):', (err as Error).message);
+    }
+    // If the hybrid produced nothing, the AI/Flux fallback below still runs.
+  }
 
   // ── HTML mode: user templates + Sonnet ────────────────────────────────────
   // HTML mode NEVER falls through to Flux — it stays in the template engine

@@ -234,22 +234,27 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
 
       {/* Mode switcher */}
       <div className="flex gap-1 p-1 rounded-[14px] bg-white/[0.04] border border-white/[0.06]">
-        {(['ai', 'html'] as const).map(mode => {
-          const locked = mode === 'html' && !canUseHtml
+        {(['ai', 'html', 'ai_html'] as const).map(mode => {
+          const locked = mode !== 'ai' && !canUseHtml
+          const label = mode === 'ai'
+            ? '✦ AI'
+            : mode === 'html'
+              ? (locked ? '🔒 HTML' : '</> HTML')
+              : (locked ? '🔒 AI+HTML' : 'AI+HTML')
           return (
             <button
               key={mode}
               onClick={() => {
                 if (locked) {
                   showToast(language === 'ru'
-                    ? 'HTML-обложки доступны на платных тарифах'
-                    : 'HTML covers are available on paid plans', 'info')
+                    ? 'Доступно на платных тарифах'
+                    : 'Available on paid plans', 'info')
                   return
                 }
                 set('coverMode', mode)
               }}
               className={cn(
-                'flex-1 py-2 rounded-[10px] text-[12px] font-semibold transition-all',
+                'flex-1 py-2 rounded-[10px] text-[11px] font-semibold transition-all',
                 coverMode === mode
                   ? 'bg-[#FF6A00] text-white shadow-sm'
                   : locked
@@ -257,9 +262,7 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
                   : 'text-[#55555D] hover:text-[#A1A1AA]'
               )}
             >
-              {mode === 'ai'
-                ? '✦ AI'
-                : locked ? '🔒 HTML' : '</> HTML'}
+              {label}
             </button>
           )
         })}
