@@ -258,9 +258,10 @@ export async function createDraftPostForChannel(
 
   // ── AI+HTML hybrid: Flux themed background + Sonnet overlay on top ──────────
   if (coverMode === 'ai_html' && useBrandKit && vkObj) {
+    const brand = extractBrand(visualKit);
+    let classification: Awaited<ReturnType<typeof classifyPostForTemplate>> | null = null;
     try {
-      const brand = extractBrand(visualKit);
-      const classification = await classifyPostForTemplate(title, sourceSummary);
+      classification = await classifyPostForTemplate(title, sourceSummary);
 
       // 1. Themed background prompt: user's image prompt, or AI-generated scene.
       let bgPrompt: string | null = imagePrompt?.trim() || null;
@@ -295,7 +296,27 @@ export async function createDraftPostForChannel(
     } catch (err) {
       console.warn('[draftGenerator] AI+HTML hybrid failed (non-fatal):', (err as Error).message);
     }
-    // If the hybrid produced nothing, the AI/Flux fallback below still runs.
+
+    // If the hybrid produced nothing, fall back to a branded Satori template —
+    // never to Flux+sharp, whose burned-in text is what this mode exists to avoid.
+    if (!cover) {
+      try {
+        if (!classification) classification = await classifyPostForTemplate(title, sourceSummary);
+        console.warn('[draftGenerator] AI+HTML hybrid produced no cover — falling back to Satori');
+        cover = await renderTemplateCover({
+          template:    classification.template,
+          headline:    classification.headline || finalTitle,
+          subheadline: classification.subheadline,
+          stat:        classification.stat,
+          statCards:   classification.statCards,
+          category:    classification.category,
+          brand,
+          aspectRatio,
+        });
+      } catch (err) {
+        console.warn('[draftGenerator] Hybrid Satori fallback failed (non-fatal):', (err as Error).message);
+      }
+    }
   }
 
   // ── HTML mode: user templates + Sonnet ────────────────────────────────────
@@ -406,9 +427,10 @@ export async function createDraftPostForChannel(
   }
 
   // ── AI mode: Flux neural image via Replicate ───────────────────────────────
-  // Same engine as POST /api/posts/regenerate-visual. Only runs in AI mode —
-  // HTML mode handles its own fallbacks above and must never reach Flux.
-  if (!cover && coverMode !== 'html') {
+  // Same engine as POST /api/posts/regenerate-visual. Only runs in pure AI mode —
+  // html and ai_html handle their own fallbacks above and must never reach
+  // Flux+sharp with its burned-in text.
+  if (!cover && coverMode === 'ai') {
     let resolvedImagePrompt: string | null = imagePrompt?.trim() || null;
 
     if (!resolvedImagePrompt && useBrandKit) {
