@@ -162,10 +162,11 @@ ${artDirectionBlock}
 ${layoutRule}
 3. ALL text must come from the post — no placeholder phrases, no invented content/numbers, and no leftover sample text from the template.
 4. Keep the template's icon/SVG style; reuse icons only where they fit the chosen composition.
-5. Remove <canvas> and <script> tags
-6. <body> must be ${w}px × ${h}px, overflow:hidden
-7. Return complete HTML starting with <!DOCTYPE html>
-8. NO markdown fences, NO explanation — raw HTML only`;
+5. Do NOT add emoji or Unicode pictographs that are not already in the template — the render server has no emoji font and they come out as empty boxes. Prefer the template's own icons/SVG.
+6. Remove <canvas> and <script> tags
+7. <body> must be ${w}px × ${h}px, overflow:hidden
+8. Return complete HTML starting with <!DOCTYPE html>
+9. NO markdown fences, NO explanation — raw HTML only`;
 
   try {
     const createRes = await fetch(
@@ -283,8 +284,9 @@ ${contentLines.join('\n')}${postBodyBlock}${artBlock}
 4. Compose a clean, minimal, branded layout: a strong punchy headline, optional one-line subheadline, and the channel handle/logo. Use the brand primary color only for small accents (a bar, a word, a tag).
 5. Let the photo breathe — keep large areas of it visible; do NOT cover the whole image with panels.
 6. ALL text must come from the post. No invented numbers or metrics. Keep the headline short (a few words).
-7. Embed all CSS in <style>. No <script>, no <canvas>.
-8. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;
+7. NEVER use emoji or Unicode pictographs (📷 🚀 ✨ etc.) anywhere in the markup — the render server has no emoji font and they come out as empty boxes. For chips, tags and list markers use plain text, CSS shapes, or small inline SVG icons.
+8. Embed all CSS in <style>. No <script>, no <canvas>.
+9. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;
 
   try {
     const createRes = await fetch(

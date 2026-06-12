@@ -110,6 +110,34 @@ function replaceSlots(html: string, slots: Record<string, string>): string {
   });
 }
 
+// ─── Emoji fallback font ──────────────────────────────────────────────────────
+// Linux Chromium on Render has no system emoji font, so any emoji in headlines,
+// slot content, user templates, or AI-generated markup renders as tofu (□).
+// Inject Noto Color Emoji as a webfont and append it to every font-family chain
+// so emoji glyphs resolve. display=block makes document.fonts.ready wait for it.
+const EMOJI_FONT_INJECT =
+  '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=block">\n' +
+  // Lowest-priority default: injected before the template's own styles, so a
+  // template body font-family rule still wins. Unquoted family name on purpose —
+  // quotes would break inside style="" attributes rewritten below.
+  '<style id="cf-emoji-font">body { font-family: sans-serif, Noto Color Emoji; }</style>';
+
+function injectEmojiFallback(html: string): string {
+  // The family list is bare chars or complete quoted names — an unpaired quote
+  // (i.e. the closing quote of a style="" attribute) ends the match, so inline
+  // declarations are rewritten without swallowing the attribute delimiter.
+  const withFamilies = html.replace(
+    /font-family\s*:\s*((?:[^;{}<"']|"[^"<]*"|'[^'<]*')+)/gi,
+    (match, families: string) =>
+      /noto color emoji/i.test(families)
+        ? match
+        : `font-family: ${families.trim()}, Noto Color Emoji`,
+  );
+  return /<head[\s>]/i.test(withFamilies)
+    ? withFamilies.replace(/(<head[^>]*>)/i, `$1\n${EMOJI_FONT_INJECT}`)
+    : EMOJI_FONT_INJECT + withFamilies;
+}
+
 // ─── CSS variable injection ───────────────────────────────────────────────────
 
 function buildCssVars(brand: TemplateBrand): string {
@@ -151,7 +179,7 @@ export async function renderHtmlString(
       await page.setViewportSize({ width: W, height: H });
       // 'load' instead of 'networkidle' — canvas requestAnimationFrame loops never
       // reach networkidle and would time out after 30 s on every user template.
-      await page.setContent(html, { waitUntil: 'load', timeout: 15_000 });
+      await page.setContent(injectEmojiFallback(html), { waitUntil: 'load', timeout: 15_000 });
       // Wait for web fonts (templates often load Google Fonts) so the screenshot
       // uses the intended typeface, not a fallback. Non-fatal if it times out.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -264,7 +292,10 @@ export async function renderHtmlTemplate(
     const page    = await browser.newPage();
     try {
       await page.setViewportSize({ width: W, height: H });
-      await page.setContent(finalHtml, { waitUntil: 'load', timeout: 15_000 });
+      await page.setContent(injectEmojiFallback(finalHtml), { waitUntil: 'load', timeout: 15_000 });
+      // Wait for web fonts (incl. the injected emoji font) before the screenshot.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await page.evaluate(() => (globalThis as any).document.fonts.ready).catch(() => {});
       await page.waitForTimeout(300);
       const screenshot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
       pngBuffer = Buffer.from(screenshot);
