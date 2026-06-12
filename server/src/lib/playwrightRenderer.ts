@@ -169,6 +169,12 @@ export async function renderHtmlString(
     return null;
   }
 
+  // Channel copy rule: dashes are "-", never em/en. Inputs are normalized
+  // upstream, but the model can reintroduce typographic dashes when composing;
+  // in markup these characters can only occur in text content, so a global
+  // replace is safe.
+  html = html.replace(/[—–―]/g, '-');
+
   const { W, H } = getDimensions(aspectRatio);
   let pngBuffer: Buffer;
 

@@ -347,10 +347,10 @@ ${refBody}`
     : '';
 
   const styleRule = refCss
-    ? `4. The cover MUST be recognizable as THIS channel's design: reuse the template's fonts, type scale, badge/chip/card components and footer from the design system above — restyled to sit on a photo. Make panels and cards SEMI-TRANSPARENT (rgba backgrounds, backdrop-filter: blur) so the photo shows through them. Pick only the components that fit this post — do not cram in everything.
-5. FORBIDDEN: the generic "small accent bar + plain white headline" photo-caption look. That is what the cheap mode produces; you are here to lay the channel's design language over the photo.`
-    : `4. Compose a clean, branded layout in the channel's primary color: a strong punchy headline, optional one-line subheadline, a small tag/badge, and the channel logo. Give it structure (badge, headline block, footer) — not just a bare caption on a photo.
-5. Use the brand primary color for accents (a tag, a highlighted word, borders) so the cover reads as branded, not as a stock photo with text.`;
+    ? `5. The cover MUST be recognizable as THIS channel's design: reuse the template's fonts, type scale, badge/chip/card components and footer from the design system above — restyled to sit on a photo. Make panels and cards SEMI-TRANSPARENT (rgba backgrounds, backdrop-filter: blur) so the photo shows through them. Pick only the components that fit this post — do not cram in everything.
+6. FORBIDDEN: the generic "small accent bar + plain white headline" photo-caption look. That is what the cheap mode produces; you are here to lay the channel's design language over the photo.`
+    : `5. Compose a clean, branded layout in the channel's primary color: a strong punchy headline, optional one-line subheadline, a small tag/badge, and the channel logo. Give it structure (badge, headline block, footer) — not just a bare caption on a photo.
+6. Use the brand primary color for accents (a tag, a highlighted word, borders) so the cover reads as branded, not as a stock photo with text.`;
 
   const systemPrompt = `You are an expert HTML/CSS designer. You build the channel's branded cover layer ON TOP of a full-bleed background photo, following the channel's own template design system when given. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
 
@@ -368,13 +368,14 @@ ${contentLines.join('\n')}${postBodyBlock}${artBlock}
 1. <body> is ${w}px × ${h}px, position:relative, overflow:hidden, margin:0.
 2. Set the body background to the photo, covering the whole canvas:
    background: #0b0b0f url('${input.bgImageUrl}') center/cover no-repeat;
-3. Add dark gradient SCRIMS (e.g. linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,.15))) UNDER the text so EVERY word is fully readable on any photo. Readability is the #1 rule.
+3. ZONING: the photo is composed with its focal subject in the UPPER part of the frame. Keep roughly the upper 40% of the canvas free of text — no headline, no badges over the photo's subject (only a small logo in a corner is allowed there). ALL text (badge, headline, subheadline, cards, footer) stacks in the LOWER part of the canvas.
+4. Lay a continuous dark gradient scrim UNDER the whole text zone (e.g. linear-gradient(to top, rgba(0,0,0,.9) 0%, rgba(0,0,0,.6) 40%, rgba(0,0,0,0) 72%)) so EVERY word is fully readable. Large headline text must NEVER sit on a bright, unscrimmed area of the photo. Readability is the #1 rule.
 ${styleRule}
-6. Let the photo breathe — at least half of it must stay clearly visible; never cover the canvas with an opaque panel.
-7. ALL text must come from the post. No invented numbers or metrics. Keep the headline short (a few words).
-8. NEVER use emoji or Unicode pictographs (📷 🚀 ✨ etc.) anywhere in the markup — the render server has no emoji font and they come out as empty boxes. For chips, tags and list markers use plain text, CSS shapes, or small inline SVG icons.
-9. Embed all CSS in <style>. No <script>, no <canvas>.
-10. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;
+7. Let the photo breathe — its upper half must stay clearly visible; never cover the whole canvas with an opaque panel.
+8. ALL text must come from the post. No invented numbers or metrics. Keep the headline short (a few words). Use "-" for dashes, never "—" or "–".
+9. NEVER use emoji or Unicode pictographs (📷 🚀 ✨ etc.) anywhere in the markup — the render server has no emoji font and they come out as empty boxes. For chips, tags and list markers use plain text, CSS shapes, or small inline SVG icons.
+10. Embed all CSS in <style>. No <script>, no <canvas>.
+11. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;
 
   try {
     const createRes = await fetch(
