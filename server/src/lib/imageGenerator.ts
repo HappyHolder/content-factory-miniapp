@@ -259,8 +259,15 @@ export async function generateImageForPost(
     : null;
   const brandColor = pickBrandColor(vkObj);
 
+  // Hybrid background: the HTML overlay lands in the lower half of the canvas,
+  // so steer the focal subject into the upper third and keep the bottom calm —
+  // otherwise the overlay panels cover whatever the model centers in the frame.
+  const compositionHint = input.backgroundOnly
+    ? '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay'
+    : '';
+
   // Logo is composited via sharp AFTER generation — never passed to the model
-  const prompt = `${userPrompt}${brandTokens}${NEGATIVE_SUFFIX}`;
+  const prompt = `${userPrompt}${brandTokens}${compositionHint}${NEGATIVE_SUFFIX}`;
 
   // Reference image: first uploaded reference from visualKit (or logo as fallback).
   // Passed as img2img input so the model inherits the brand's color palette and

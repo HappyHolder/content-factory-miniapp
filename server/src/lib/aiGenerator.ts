@@ -775,6 +775,27 @@ export async function classifyPostForTemplate(
   title:   string,
   excerpt: string,
 ): Promise<TemplateClassification> {
+  const c = await classifyPostRaw(title, excerpt);
+  // Cover text always uses "-": models and source titles like to emit em/en
+  // dashes. Normalized here once, so every cover engine (Sonnet overlay, HTML
+  // templates, Satori, fallback overlay) gets clean text.
+  const fix = <T extends string | undefined>(s: T): T =>
+    (s === undefined ? s : s.replace(/[—–―]/g, '-')) as T;
+  return {
+    ...c,
+    headline:    fix(c.headline),
+    subheadline: fix(c.subheadline),
+    stat:        fix(c.stat),
+    category:    fix(c.category),
+    statCards:   c.statCards?.map(card =>
+      ({ ...card, label: fix(card.label), value: fix(card.value), desc: fix(card.desc) })),
+  };
+}
+
+async function classifyPostRaw(
+  title:   string,
+  excerpt: string,
+): Promise<TemplateClassification> {
 
   // Heuristic fallback (used when DeepSeek is unavailable or fails)
   function heuristic(): TemplateClassification {
