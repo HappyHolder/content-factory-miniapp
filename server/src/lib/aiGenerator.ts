@@ -837,7 +837,7 @@ async function classifyPostRaw(
     '  (milestone) statCards: SECONDARY stats from the post body (NOT the same as stat above). ' +
     'Extract 2-4 DIFFERENT supporting numbers. Each: {label: short uppercase, value: number string, desc?: short context}. ' +
     'Example: if stat="1000+ Vibers", statCards should be things like miners count, posts count, tokens mined — NOT Vibers again.\n' +
-    '  (news) category: very short uppercase label, e.g. "BREAKING", "UPDATE", "LAUNCH", "АНОНС", "НОВОСТЬ"\n' +
+    '  (news) category: very short uppercase label in the SAME LANGUAGE as the post — for a Russian post use e.g. "АНОНС", "НОВОСТЬ", "ОБНОВЛЕНИЕ" (never "UPDATE"), for an English post e.g. "BREAKING", "UPDATE", "LAUNCH"\n' +
     '  (news) subheadline: 1 sentence summary, max 15 words, same language as post\n' +
     '  (atmospheric) subheadline: optional 1-sentence teaser, same language as post';
 
