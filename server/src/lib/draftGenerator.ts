@@ -16,7 +16,22 @@ import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplat
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
 import { renderHtmlTemplate, renderHtmlString } from './playwrightRenderer';
-import { generateHtmlCover, generateHtmlOverlay } from './claudeHtmlGenerator';
+import { generateHtmlCover, generateHtmlOverlay, buildFallbackOverlayHtml } from './claudeHtmlGenerator';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Parses visualKit.htmlTemplates into a clean { name, url } list. */
+function parseHtmlTemplates(vkObj: Record<string, unknown>): { name: string; url: string }[] {
+  const raw = vkObj['htmlTemplates'];
+  return Array.isArray(raw)
+    ? (raw as unknown[])
+        .filter((t): t is { name: string; url: string } =>
+          !!t && typeof t === 'object' &&
+          typeof (t as Record<string, unknown>)['name'] === 'string' &&
+          typeof (t as Record<string, unknown>)['url']  === 'string' &&
+          !!(t as Record<string, unknown>)['url'])
+    : [];
+}
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -256,53 +271,110 @@ export async function createDraftPostForChannel(
   const aspectRatio = (typeof vkObj?.['aspectRatio'] === 'string'
     ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
 
-  // ── AI+HTML hybrid: Flux themed background + Sonnet overlay on top ──────────
+  // ── AI+HTML hybrid: Flux themed background + channel-styled overlay on top ──
   if (coverMode === 'ai_html' && useBrandKit && vkObj) {
     const brand = extractBrand(visualKit);
     let classification: Awaited<ReturnType<typeof classifyPostForTemplate>> | null = null;
+    let bgUrl: string | null = null;
     try {
       classification = await classifyPostForTemplate(title, sourceSummary);
 
-      // 1. Themed background prompt: user's image prompt, or AI-generated scene.
+      // 1. The channel's HTML template — the overlay must speak the channel's
+      //    design language. Without it Sonnet converges on the same generic
+      //    scrim+accent-bar look the sharp overlay already draws in AI mode.
+      const htmlTemplates = parseHtmlTemplates(vkObj);
+      const chosen = htmlTemplates.length > 0
+        ? await selectHtmlTemplate(htmlTemplates, title, sourceSummary)
+        : null;
+      let referenceHtml: string | null = null;
+      if (chosen) {
+        try {
+          const res = await fetch(chosen.url);
+          if (res.ok) referenceHtml = await res.text();
+        } catch (err) {
+          console.warn('[draftGenerator] Hybrid: reference template fetch failed:', (err as Error).message);
+        }
+      }
+      console.log(`[draftGenerator] Hybrid: template=${chosen?.name ?? 'none'} (${htmlTemplates.length} in DB), refHtml=${referenceHtml?.length ?? 0} chars`);
+
+      // 2. Themed background prompt: user's image prompt, or AI-generated scene.
       let bgPrompt: string | null = imagePrompt?.trim() || null;
       if (!bgPrompt) {
         try {
           bgPrompt = await generateImagePromptWithAI({ title, excerpt: sourceSummary, visualKit });
         } catch (err) {
-          console.warn('[draftGenerator] Hybrid bg prompt failed:', (err as Error).message);
+          console.warn('[draftGenerator] Hybrid: bg prompt generation failed:', (err as Error).message);
         }
       }
 
+      // 3. Clean, text-free Flux background. One retry — a transient Replicate
+      //    failure here would otherwise degrade the cover to a no-photo Satori card.
       if (bgPrompt) {
-        // 2. Clean, text-free Flux background.
-        const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, backgroundOnly: true });
-        if (bg?.bannerUrl) {
-          // 3. Sonnet builds a readable branded overlay on top of the background.
-          const overlayHtml = await generateHtmlOverlay({
-            bgImageUrl:   bg.bannerUrl,
-            headline:     classification.headline || finalTitle,
-            subheadline:  classification.subheadline,
-            postContent:  input || undefined,
-            artDirection: imagePrompt?.trim() || undefined,
-            logoUrl:      brand.logoUrl ?? undefined,
-            primaryColor: brand.primaryColor,
-            aspectRatio,
-          });
-          if (overlayHtml) {
-            cover = await renderHtmlString(overlayHtml, aspectRatio);
+        for (let attempt = 1; attempt <= 2 && !bgUrl; attempt++) {
+          try {
+            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, backgroundOnly: true });
+            bgUrl = bg?.bannerUrl ?? null;
+            if (!bgUrl) console.warn(`[draftGenerator] Hybrid: Flux bg attempt ${attempt} returned no image`);
+          } catch (err) {
+            console.warn(`[draftGenerator] Hybrid: Flux bg attempt ${attempt} failed:`, (err as Error).message);
           }
+        }
+      }
+      console.log(`[draftGenerator] Hybrid: bgPrompt=${bgPrompt ? 'ok' : 'MISSING'}, bg=${bgUrl ?? 'FAILED'}`);
+
+      // 4. Sonnet composes the channel-styled overlay on the photo. One retry.
+      if (bgUrl) {
+        const overlayInput = {
+          bgImageUrl:    bgUrl,
+          referenceHtml: referenceHtml ?? undefined,
+          headline:      classification.headline || finalTitle,
+          subheadline:   classification.subheadline,
+          category:      classification.category,
+          postContent:   input || undefined,
+          artDirection:  imagePrompt?.trim() || undefined,
+          logoUrl:       brand.logoUrl ?? undefined,
+          primaryColor:  brand.primaryColor,
+          aspectRatio,
+        };
+        for (let attempt = 1; attempt <= 2 && !cover; attempt++) {
+          const overlayHtml = await generateHtmlOverlay(overlayInput);
+          if (!overlayHtml) {
+            console.warn(`[draftGenerator] Hybrid: overlay generation attempt ${attempt} produced nothing`);
+            continue;
+          }
+          cover = await renderHtmlString(overlayHtml, aspectRatio);
+          if (!cover) console.warn(`[draftGenerator] Hybrid: overlay render attempt ${attempt} failed`);
         }
       }
     } catch (err) {
       console.warn('[draftGenerator] AI+HTML hybrid failed (non-fatal):', (err as Error).message);
     }
 
-    // If the hybrid produced nothing, fall back to a branded Satori template —
-    // never to Flux+sharp, whose burned-in text is what this mode exists to avoid.
+    // The photo exists but Sonnet/render failed twice — render our own minimal
+    // branded overlay. Keeps the photo and crisp HTML text; never sharp.
+    if (!cover && bgUrl) {
+      console.warn('[draftGenerator] Hybrid: using deterministic overlay fallback');
+      try {
+        cover = await renderHtmlString(buildFallbackOverlayHtml({
+          bgImageUrl:   bgUrl,
+          headline:     classification?.headline || finalTitle,
+          subheadline:  classification?.subheadline,
+          category:     classification?.category,
+          logoUrl:      brand.logoUrl ?? undefined,
+          primaryColor: brand.primaryColor,
+          aspectRatio,
+        }), aspectRatio);
+      } catch (err) {
+        console.warn('[draftGenerator] Hybrid: fallback overlay render failed:', (err as Error).message);
+      }
+    }
+
+    // Last resort — no background photo at all (Flux down twice): branded Satori
+    // template. Never Flux+sharp, whose burned-in text this mode exists to avoid.
     if (!cover) {
       try {
         if (!classification) classification = await classifyPostForTemplate(title, sourceSummary);
-        console.warn('[draftGenerator] AI+HTML hybrid produced no cover — falling back to Satori');
+        console.warn('[draftGenerator] Hybrid: no photo and no overlay — falling back to Satori');
         cover = await renderTemplateCover({
           template:    classification.template,
           headline:    classification.headline || finalTitle,
@@ -314,7 +386,7 @@ export async function createDraftPostForChannel(
           aspectRatio,
         });
       } catch (err) {
-        console.warn('[draftGenerator] Hybrid Satori fallback failed (non-fatal):', (err as Error).message);
+        console.warn('[draftGenerator] Hybrid: Satori fallback failed (non-fatal):', (err as Error).message);
       }
     }
   }
@@ -329,16 +401,7 @@ export async function createDraftPostForChannel(
       const classification = await classifyPostForTemplate(title, sourceSummary);
 
       // Load named HTML templates (multi-template system)
-      const rawTemplates = vkObj['htmlTemplates'];
-      const htmlTemplates: { name: string; url: string }[] =
-        Array.isArray(rawTemplates)
-          ? (rawTemplates as unknown[])
-              .filter((t): t is { name: string; url: string } =>
-                !!t && typeof t === 'object' &&
-                typeof (t as Record<string, unknown>)['name'] === 'string' &&
-                typeof (t as Record<string, unknown>)['url']  === 'string' &&
-                !!(t as Record<string, unknown>)['url'])
-          : [];
+      const htmlTemplates = parseHtmlTemplates(vkObj);
 
       const chosen = htmlTemplates.length > 0
         ? await selectHtmlTemplate(htmlTemplates, title, sourceSummary)

@@ -236,14 +236,80 @@ ${layoutRule}
 export interface HtmlOverlayInput {
   /** Public URL of the clean, text-free Flux background image. */
   bgImageUrl:   string;
+  /**
+   * The channel's HTML cover template. The overlay reuses its design system
+   * (fonts, colors, badges, chips, cards) so the hybrid cover looks like THIS
+   * channel's covers — without it Sonnet converges on the same generic
+   * scrim+accent-bar look as the sharp overlay in pure AI mode.
+   */
+  referenceHtml?: string;
   headline:     string;
   subheadline?: string;
+  /** Short category label from classification, e.g. "ОБНОВЛЕНИЕ". */
+  category?:    string;
   postContent?: string;
   /** Free-text composition wishes from the user (image prompt). */
   artDirection?: string;
   logoUrl?:     string;
   primaryColor: string;
   aspectRatio?: string;
+}
+
+/**
+ * Deterministic minimal overlay — no AI involved. Used when the Flux background
+ * succeeded but Sonnet overlay generation/render failed: keeps the photo and
+ * crisp HTML text instead of degrading to a no-photo Satori card.
+ */
+export function buildFallbackOverlayHtml(input: HtmlOverlayInput): string {
+  const { w, h } = dims(input.aspectRatio);
+  const esc = (s: string) => s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const sub = input.subheadline
+    ? `<p class="sub">${esc(input.subheadline)}</p>` : '';
+  const logo = input.logoUrl
+    ? `<img class="logo" src="${input.logoUrl}" alt="">` : '';
+  const tag = input.category
+    ? `<span class="tag">${esc(input.category)}</span>` : '';
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    width:${w}px; height:${h}px; position:relative; overflow:hidden;
+    background:#0b0b0f url('${input.bgImageUrl}') center/cover no-repeat;
+    font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+  }
+  .scrim {
+    position:absolute; inset:0;
+    background:linear-gradient(to top, rgba(5,8,14,.92) 0%, rgba(5,8,14,.55) 30%, rgba(5,8,14,0) 62%);
+  }
+  .content {
+    position:absolute; left:${Math.round(w * 0.065)}px; right:${Math.round(w * 0.065)}px;
+    bottom:${Math.round(h * 0.07)}px; color:#fff;
+  }
+  .tag {
+    display:inline-block; padding:${Math.round(h * 0.011)}px ${Math.round(w * 0.022)}px;
+    border:2px solid ${input.primaryColor}; border-radius:999px;
+    color:${input.primaryColor}; font-size:${Math.round(h * 0.024)}px;
+    font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    margin-bottom:${Math.round(h * 0.028)}px;
+  }
+  h1 { font-size:${Math.round(h * 0.078)}px; line-height:1.08; font-weight:800; letter-spacing:-.01em; }
+  .sub { margin-top:${Math.round(h * 0.022)}px; font-size:${Math.round(h * 0.034)}px; line-height:1.35; color:rgba(255,255,255,.82); }
+  .logo {
+    position:absolute; top:${Math.round(h * 0.05)}px; right:${Math.round(w * 0.065)}px;
+    width:${Math.round(h * 0.085)}px; height:${Math.round(h * 0.085)}px;
+    border-radius:50%; object-fit:cover;
+  }
+</style></head>
+<body>
+  <div class="scrim"></div>
+  ${logo}
+  <div class="content">
+    ${tag}
+    <h1>${esc(input.headline)}</h1>
+    ${sub}
+  </div>
+</body></html>`;
 }
 
 /**
@@ -262,16 +328,38 @@ export async function generateHtmlOverlay(input: HtmlOverlayInput): Promise<stri
 
   const contentLines = [`Headline: "${input.headline}"`];
   if (input.subheadline) contentLines.push(`Subheadline: "${input.subheadline}"`);
+  if (input.category)    contentLines.push(`Category label: "${input.category}"`);
   const postBodyBlock = input.postContent ? `\nFULL POST TEXT:\n${input.postContent.slice(0, 1500)}` : '';
   const artBlock = input.artDirection ? `\nUSER ART DIRECTION (top priority for composition): ${input.artDirection.slice(0, 400)}` : '';
 
-  const systemPrompt = `You are an expert HTML/CSS designer. You build a clean, readable text-and-graphic overlay that sits ON TOP of a full-bleed background photo. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
+  // The channel's template design system. Without it the model has nothing to
+  // anchor on and produces the same generic scrim+bar+headline composition the
+  // sharp overlay already draws in AI mode — the whole hybrid becomes pointless.
+  const refCss  = input.referenceHtml ? extractCss(input.referenceHtml) : '';
+  const refBody = input.referenceHtml ? extractBodyStructure(input.referenceHtml) : '';
+  const designBlock = refCss
+    ? `
+━━━ CHANNEL DESIGN SYSTEM (CSS from the channel's cover template — its fonts, colors, effects) ━━━
+${refCss}
+
+━━━ CHANNEL TEMPLATE MARKUP (the components this channel uses: badges, chips, cards, footer) ━━━
+${refBody}`
+    : '';
+
+  const styleRule = refCss
+    ? `4. The cover MUST be recognizable as THIS channel's design: reuse the template's fonts, type scale, badge/chip/card components and footer from the design system above — restyled to sit on a photo. Make panels and cards SEMI-TRANSPARENT (rgba backgrounds, backdrop-filter: blur) so the photo shows through them. Pick only the components that fit this post — do not cram in everything.
+5. FORBIDDEN: the generic "small accent bar + plain white headline" photo-caption look. That is what the cheap mode produces; you are here to lay the channel's design language over the photo.`
+    : `4. Compose a clean, branded layout in the channel's primary color: a strong punchy headline, optional one-line subheadline, a small tag/badge, and the channel logo. Give it structure (badge, headline block, footer) — not just a bare caption on a photo.
+5. Use the brand primary color for accents (a tag, a highlighted word, borders) so the cover reads as branded, not as a stock photo with text.`;
+
+  const systemPrompt = `You are an expert HTML/CSS designer. You build the channel's branded cover layer ON TOP of a full-bleed background photo, following the channel's own template design system when given. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
 
   const userPrompt = `Build the overlay for a social-media cover. There is a full-bleed BACKGROUND PHOTO behind it (URL below) — your job is the readable branded layer on top.
 
 BACKGROUND IMAGE URL: ${input.bgImageUrl}
 BRAND PRIMARY COLOR: ${input.primaryColor}
 ${input.logoUrl ? `LOGO URL: ${input.logoUrl}` : ''}
+${designBlock}
 
 ━━━ THIS POST ━━━
 ${contentLines.join('\n')}${postBodyBlock}${artBlock}
@@ -281,12 +369,12 @@ ${contentLines.join('\n')}${postBodyBlock}${artBlock}
 2. Set the body background to the photo, covering the whole canvas:
    background: #0b0b0f url('${input.bgImageUrl}') center/cover no-repeat;
 3. Add dark gradient SCRIMS (e.g. linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,.15))) UNDER the text so EVERY word is fully readable on any photo. Readability is the #1 rule.
-4. Compose a clean, minimal, branded layout: a strong punchy headline, optional one-line subheadline, and the channel handle/logo. Use the brand primary color only for small accents (a bar, a word, a tag).
-5. Let the photo breathe — keep large areas of it visible; do NOT cover the whole image with panels.
-6. ALL text must come from the post. No invented numbers or metrics. Keep the headline short (a few words).
-7. NEVER use emoji or Unicode pictographs (📷 🚀 ✨ etc.) anywhere in the markup — the render server has no emoji font and they come out as empty boxes. For chips, tags and list markers use plain text, CSS shapes, or small inline SVG icons.
-8. Embed all CSS in <style>. No <script>, no <canvas>.
-9. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;
+${styleRule}
+6. Let the photo breathe — at least half of it must stay clearly visible; never cover the canvas with an opaque panel.
+7. ALL text must come from the post. No invented numbers or metrics. Keep the headline short (a few words).
+8. NEVER use emoji or Unicode pictographs (📷 🚀 ✨ etc.) anywhere in the markup — the render server has no emoji font and they come out as empty boxes. For chips, tags and list markers use plain text, CSS shapes, or small inline SVG icons.
+9. Embed all CSS in <style>. No <script>, no <canvas>.
+10. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;
 
   try {
     const createRes = await fetch(
