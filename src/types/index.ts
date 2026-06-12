@@ -15,6 +15,7 @@ export type ParagraphStyle = 'short' | 'medium' | 'long'
 export type ListUsage = 'never' | 'when_relevant' | 'always'
 export type CoverAspectRatio = '16:9' | '4:5' | '1:1' | '9:16'
 export type LogoUsage = 'always' | 'when_relevant' | 'never'
+export type CoverLanguage = 'auto' | 'ru' | 'en'
 
 export interface ChannelAbout {
   topic: string
@@ -134,6 +135,8 @@ export interface VisualKit {
   //   'html'    — user HTML templates / Sonnet structured cover
   //   'ai_html' — hybrid: Flux themed background + Sonnet overlay on top
   coverMode?: 'ai' | 'html' | 'ai_html'
+  // Language of the text on covers: 'auto' = follow the post language
+  coverLanguage?: CoverLanguage
 }
 
 export interface HtmlTemplateItem {

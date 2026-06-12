@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
 import { useApp } from '@/context/AppContext'
-import type { VisualKit, HtmlTemplateItem, ReferenceItem, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage } from '@/types'
+import type { VisualKit, HtmlTemplateItem, ReferenceItem, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage, CoverLanguage } from '@/types'
 import { cn } from '@/lib/utils'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
@@ -446,6 +446,18 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           { value: '4:5',  label: t('channelStyle.covers.ratio4x5')  },
           { value: '1:1',  label: t('channelStyle.covers.ratio1x1')  },
           { value: '9:16', label: t('channelStyle.covers.ratio9x16') },
+        ]}
+      />
+
+      {/* Cover text language — all modes */}
+      <OptionPills<CoverLanguage>
+        label={t('channelStyle.covers.coverLanguage')}
+        value={data.coverLanguage ?? 'auto'}
+        onChange={v => set('coverLanguage', v)}
+        options={[
+          { value: 'auto', label: t('channelStyle.covers.langAuto') },
+          { value: 'ru',   label: t('channelStyle.covers.langRu')   },
+          { value: 'en',   label: t('channelStyle.covers.langEn')   },
         ]}
       />
 

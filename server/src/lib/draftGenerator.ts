@@ -270,6 +270,10 @@ export async function createDraftPostForChannel(
   }
   const aspectRatio = (typeof vkObj?.['aspectRatio'] === 'string'
     ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
+  // Cover text language: 'auto' (default) follows the post language.
+  const rawCoverLang = vkObj?.['coverLanguage'];
+  const coverLanguage: 'ru' | 'en' | undefined =
+    rawCoverLang === 'ru' || rawCoverLang === 'en' ? rawCoverLang as 'ru' | 'en' : undefined;
 
   // ── AI+HTML hybrid: Flux themed background + channel-styled overlay on top ──
   if (coverMode === 'ai_html' && useBrandKit && vkObj) {
@@ -277,7 +281,7 @@ export async function createDraftPostForChannel(
     let classification: Awaited<ReturnType<typeof classifyPostForTemplate>> | null = null;
     let bgUrl: string | null = null;
     try {
-      classification = await classifyPostForTemplate(title, sourceSummary);
+      classification = await classifyPostForTemplate(title, sourceSummary, coverLanguage);
 
       // 1. The channel's HTML template — the overlay must speak the channel's
       //    design language. Without it Sonnet converges on the same generic
@@ -327,6 +331,7 @@ export async function createDraftPostForChannel(
         const overlayInput = {
           bgImageUrl:    bgUrl,
           referenceHtml: referenceHtml ?? undefined,
+          coverLanguage,
           headline:      classification.headline || finalTitle,
           subheadline:   classification.subheadline,
           category:      classification.category,
@@ -373,7 +378,7 @@ export async function createDraftPostForChannel(
     // template. Never Flux+sharp, whose burned-in text this mode exists to avoid.
     if (!cover) {
       try {
-        if (!classification) classification = await classifyPostForTemplate(title, sourceSummary);
+        if (!classification) classification = await classifyPostForTemplate(title, sourceSummary, coverLanguage);
         console.warn('[draftGenerator] Hybrid: no photo and no overlay — falling back to Satori');
         cover = await renderTemplateCover({
           template:    classification.template,
@@ -398,7 +403,7 @@ export async function createDraftPostForChannel(
   if (coverMode === 'html' && useBrandKit && vkObj) {
     try {
       const brand = extractBrand(visualKit);
-      const classification = await classifyPostForTemplate(title, sourceSummary);
+      const classification = await classifyPostForTemplate(title, sourceSummary, coverLanguage);
 
       // Load named HTML templates (multi-template system)
       const htmlTemplates = parseHtmlTemplates(vkObj);
@@ -429,6 +434,7 @@ export async function createDraftPostForChannel(
               title:        classification.headline || finalTitle,
               content:      input || finalTitle,
               artDirection: imagePrompt?.trim() || undefined,
+              coverLanguage,
             });
             if (filled) {
               cover = await renderHtmlString(filled, aspectRatio);
@@ -438,6 +444,7 @@ export async function createDraftPostForChannel(
             // template as the design to follow, with the post's real content.
             const generatedHtml = await generateHtmlCover({
               referenceHtml: refHtml,
+              coverLanguage,
               headline:      classification.headline || finalTitle,
               subheadline:   classification.subheadline,
               stat:          classification.stat,
@@ -509,11 +516,22 @@ export async function createDraftPostForChannel(
     }
 
     if (resolvedImagePrompt) {
+      // Sharp burns the post title onto the cover; when the channel pins a
+      // cover language, take a translated headline from the classifier instead.
+      let aiHeadline = finalTitle;
+      if (coverLanguage && useBrandKit && vkObj?.['textOnCover'] !== false) {
+        try {
+          const c = await classifyPostForTemplate(title, sourceSummary, coverLanguage);
+          aiHeadline = c.headline || finalTitle;
+        } catch (err) {
+          console.warn('[draftGenerator] Cover-language headline failed, using title:', (err as Error).message);
+        }
+      }
       try {
         cover = await generateImageForPost({
           prompt:   resolvedImagePrompt,
           visualKit,
-          headline: finalTitle,
+          headline: aiHeadline,
         });
       } catch (err) {
         console.warn('[draftGenerator] Image generation failed (non-fatal):', (err as Error).message);

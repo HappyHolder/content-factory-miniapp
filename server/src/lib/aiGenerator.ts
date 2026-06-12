@@ -655,7 +655,7 @@ function extractStyleAndBody(html: string): string {
  */
 export async function fillTemplateSlots(
   templateHtml: string,
-  post: { title: string; content: string; artDirection?: string },
+  post: { title: string; content: string; artDirection?: string; coverLanguage?: 'ru' | 'en' },
 ): Promise<string | null> {
   const slots = Array.from(new Set(
     [...templateHtml.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]),
@@ -679,7 +679,11 @@ export async function fillTemplateSlots(
     'Naming hints (common conventions, when present): *_VALUE = one metric/number/keyword, *_LABEL = its caption; ' +
     'TITLE/HEADLINE (or a TITLE split into _WHITE/_ACCENT parts) = the huge headline, keep it to 2-3 short words total.\n\n' +
     'General rules:\n' +
-    '- Write values in the SAME language as the post. No markdown, no line breaks.\n' +
+    `- Write values in ${
+      post.coverLanguage === 'ru' ? 'Russian, translating from the post language when needed'
+      : post.coverLanguage === 'en' ? 'English, translating from the post language when needed'
+      : 'the SAME language as the post'
+    }. No markdown, no line breaks.\n` +
     '- Keep each value short enough to fit its element without wrapping awkwardly.\n' +
     '- Use a number ONLY if that exact number appears in the post. ' +
     'NEVER invent facts, numbers, metrics, or statistics. ' +
@@ -774,8 +778,10 @@ export interface TemplateClassification {
 export async function classifyPostForTemplate(
   title:   string,
   excerpt: string,
+  /** Pin the cover text language; undefined = follow the post language. */
+  coverLanguage?: 'ru' | 'en',
 ): Promise<TemplateClassification> {
-  const c = await classifyPostRaw(title, excerpt);
+  const c = await classifyPostRaw(title, excerpt, coverLanguage);
   // Cover text always uses "-": models and source titles like to emit em/en
   // dashes. Normalized here once, so every cover engine (Sonnet overlay, HTML
   // templates, Satori, fallback overlay) gets clean text.
@@ -795,6 +801,7 @@ export async function classifyPostForTemplate(
 async function classifyPostRaw(
   title:   string,
   excerpt: string,
+  coverLanguage?: 'ru' | 'en',
 ): Promise<TemplateClassification> {
 
   // Heuristic fallback (used when DeepSeek is unavailable or fails)
@@ -839,7 +846,10 @@ async function classifyPostRaw(
     'Example: if stat="1000+ Vibers", statCards should be things like miners count, posts count, tokens mined — NOT Vibers again.\n' +
     '  (news) category: very short uppercase label in the SAME LANGUAGE as the post — for a Russian post use e.g. "АНОНС", "НОВОСТЬ", "ОБНОВЛЕНИЕ" (never "UPDATE"), for an English post e.g. "BREAKING", "UPDATE", "LAUNCH"\n' +
     '  (news) subheadline: 1 sentence summary, max 15 words, same language as post\n' +
-    '  (atmospheric) subheadline: optional 1-sentence teaser, same language as post';
+    '  (atmospheric) subheadline: optional 1-sentence teaser, same language as post' +
+    (coverLanguage
+      ? `\n\nLANGUAGE OVERRIDE: write ALL text fields (headline, subheadline, category, statCards labels and descs) in ${coverLanguage === 'ru' ? 'Russian' : 'English'}, translating from the post language when needed. This overrides the per-field language notes above.`
+      : '');
 
   const userPrompt = `Post title: ${title}\nExcerpt: ${excerpt.slice(0, 400)}`;
 

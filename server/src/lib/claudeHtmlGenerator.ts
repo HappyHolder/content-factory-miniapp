@@ -27,6 +27,15 @@ export interface HtmlCoverInput {
   primaryColor:   string;
   bgColor:        string;
   aspectRatio?:   string;
+  /** Pin the cover text language; undefined = follow the post language. */
+  coverLanguage?: 'ru' | 'en';
+}
+
+/** Extra prompt sentence pinning the cover text language, or ''. */
+function coverLanguageRule(coverLanguage?: 'ru' | 'en'): string {
+  if (!coverLanguage) return '';
+  const lang = coverLanguage === 'ru' ? 'Russian' : 'English';
+  return ` Write ALL cover text in ${lang}, translating the post content faithfully when needed.`;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -160,7 +169,7 @@ ${artDirectionBlock}
 ━━━ YOUR BRIEF ━━━
 1. Use the CSS design system above — same colors, fonts, visual effects, icons (embed the CSS in <style>)
 ${layoutRule}
-3. ALL text must come from the post — no placeholder phrases, no invented content/numbers, and no leftover sample text from the template.
+3. ALL text must come from the post — no placeholder phrases, no invented content/numbers, and no leftover sample text from the template.${coverLanguageRule(input.coverLanguage)}
 4. Keep the template's icon/SVG style; reuse icons only where they fit the chosen composition.
 5. Do NOT add emoji or Unicode pictographs that are not already in the template — the render server has no emoji font and they come out as empty boxes. Prefer the template's own icons/SVG.
 6. Remove <canvas> and <script> tags
@@ -253,6 +262,8 @@ export interface HtmlOverlayInput {
   logoUrl?:     string;
   primaryColor: string;
   aspectRatio?: string;
+  /** Pin the cover text language; undefined = follow the post language. */
+  coverLanguage?: 'ru' | 'en';
 }
 
 /**
@@ -372,7 +383,7 @@ ${contentLines.join('\n')}${postBodyBlock}${artBlock}
 4. Lay a continuous dark gradient scrim UNDER the whole text zone (e.g. linear-gradient(to top, rgba(0,0,0,.9) 0%, rgba(0,0,0,.6) 40%, rgba(0,0,0,0) 72%)) so EVERY word is fully readable. Large headline text must NEVER sit on a bright, unscrimmed area of the photo. Readability is the #1 rule.
 ${styleRule}
 7. Let the photo breathe — its upper half must stay clearly visible; never cover the whole canvas with an opaque panel.
-8. ALL text must come from the post. No invented numbers or metrics. Keep the headline short (a few words). Use "-" for dashes, never "—" or "–".
+8. ALL text must come from the post. No invented numbers or metrics. Keep the headline short (a few words). Use "-" for dashes, never "—" or "–".${coverLanguageRule(input.coverLanguage)}
 9. NEVER use emoji or Unicode pictographs (📷 🚀 ✨ etc.) anywhere in the markup — the render server has no emoji font and they come out as empty boxes. For chips, tags and list markers use plain text, CSS shapes, or small inline SVG icons.
 10. Embed all CSS in <style>. No <script>, no <canvas>.
 11. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;
