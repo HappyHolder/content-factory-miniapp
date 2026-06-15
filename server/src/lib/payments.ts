@@ -8,9 +8,9 @@ import { TIER_LIMITS } from './subscriptionLimits';
 export interface PlanPrice { stars: number; ton: number; }
 
 export const PLAN_PRICING: Record<Exclude<PlanTier, 'FREE'>, PlanPrice> = {
-  STARTER:    { stars: 350,  ton: 3  },
-  CREATOR:    { stars: 1100, ton: 7  },
-  STUDIO_PRO: { stars: 7000, ton: 50 },
+  STARTER:    { stars: 650,   ton: 5  },  // Blogger
+  CREATOR:    { stars: 1800,  ton: 15 },  // Business
+  STUDIO_PRO: { stars: 10000, ton: 80 },  // Agency
 };
 
 // Paid plans grant access for this many days.

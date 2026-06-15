@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check, Ticket, Loader2, Star, Gem } from 'lucide-react'
+import { Check, Ticket, Loader2, Star } from 'lucide-react'
+import { GramMark } from '@/components/icons/GramMark'
 import { useTonConnectUI } from '@tonconnect/ui-react'
 import { beginCell } from '@ton/core'
 import { useApp } from '@/context/AppContext'
@@ -43,7 +44,7 @@ const PLAN_CONFIG: PlanConfig[] = [
   },
   {
     tier: 'starter',
-    price: '$5',
+    price: '5 Gram',
     nameKey: 'plans.starter',
     featureKeys: ['plans.posts30', 'plans.creates20', 'plans.channel1', 'plans.aiAssistant'],
     upgradeKey: 'plans.upgradeToStarter',
@@ -51,7 +52,7 @@ const PLAN_CONFIG: PlanConfig[] = [
   },
   {
     tier: 'creator',
-    price: '$20',
+    price: '15 Gram',
     nameKey: 'plans.creator',
     featureKeys: ['plans.posts150', 'plans.creates60', 'plans.channels3', 'plans.scheduledPosts', 'plans.aiAssistant', 'plans.storiesPostingSoon'],
     upgradeKey: 'plans.upgradeToCreator',
@@ -59,7 +60,7 @@ const PLAN_CONFIG: PlanConfig[] = [
   },
   {
     tier: 'studio_pro',
-    price: '$70',
+    price: '80 Gram',
     nameKey: 'plans.studioPro',
     featureKeys: ['plans.posts700', 'plans.createsUnlimited', 'plans.channels10', 'plans.scheduledPosts', 'plans.aiAssistant', 'plans.storiesPostingSoon', 'plans.postPromotionSoon', 'plans.videoGenerationSoon', 'plans.chatActivityBot'],
     upgradeKey: 'plans.upgradeToPro',
@@ -167,7 +168,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
       if (/reject|cancel|abort|declin|user.*close/i.test(msg)) {
         showToast(t('plans.payCancelled'))
       } else {
-        showToast(msg ? `TON: ${msg}` : t('plans.payFailed'), 'error')
+        showToast(msg ? `Gram: ${msg}` : t('plans.payFailed'), 'error')
       }
     } finally {
       setPaying(false)
@@ -369,10 +370,10 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
               className="w-full flex items-center justify-between px-4 py-3.5 rounded-[14px] bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.07] transition-colors disabled:opacity-50"
             >
               <span className="flex items-center gap-2.5">
-                <Gem size={18} className="text-[#3AA6FF]" />
-                <span className="text-[14px] font-medium text-white">TON</span>
+                <GramMark size={18} />
+                <span className="text-[14px] font-medium text-white">Gram</span>
               </span>
-              <span className="text-[14px] font-bold text-white">{PLAN_PRICING[payTier].ton} TON</span>
+              <span className="text-[14px] font-bold text-white">{PLAN_PRICING[payTier].ton} Gram</span>
             </button>
 
             <p className="text-center text-[11px] text-[#55555D] pt-1">

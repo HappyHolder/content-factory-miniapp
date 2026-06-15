@@ -5,10 +5,11 @@ import type { PlanTier } from '@/types'
 export const TON_RECEIVING_WALLET = 'UQCP9v_ALOuDm-EkXSoWHqvvER9Il4-yKiZOzc1Fd732VfHZ'
 
 // Per-plan prices (display + transaction amount). Must match server PLAN_PRICING.
+// `ton` is the on-chain TON amount sent (the UI labels it "Gram").
 export const PLAN_PRICING: Record<Exclude<PlanTier, 'free'>, { stars: number; ton: number }> = {
-  starter:    { stars: 350,  ton: 3  },
-  creator:    { stars: 1100, ton: 7  },
-  studio_pro: { stars: 7000, ton: 50 },
+  starter:    { stars: 650,   ton: 5  },  // Blogger
+  creator:    { stars: 1800,  ton: 15 },  // Business
+  studio_pro: { stars: 10000, ton: 80 },  // Agency
 }
 
 /** Maps the frontend planTier ('studio_pro') to the server enum ('STUDIO_PRO'). */

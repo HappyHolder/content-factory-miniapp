@@ -11,10 +11,16 @@ import { applyTierExpiry, applyMonthlyQuotaReset } from '../lib/subscriptionLimi
 
 const router = Router();
 
+// Display names for the paid tiers (DB enum stays STARTER/CREATOR/STUDIO_PRO).
+const TIER_DISPLAY: Record<PaidTier, string> = {
+  STARTER:    'Blogger',
+  CREATOR:    'Business',
+  STUDIO_PRO: 'Agency',
+};
 const PLAN_TITLE: Record<PaidTier, string> = {
-  STARTER:    'Publium · Starter',
-  CREATOR:    'Publium · Creator',
-  STUDIO_PRO: 'Publium · Studio Pro',
+  STARTER:    `Publium · ${TIER_DISPLAY.STARTER}`,
+  CREATOR:    `Publium · ${TIER_DISPLAY.CREATOR}`,
+  STUDIO_PRO: `Publium · ${TIER_DISPLAY.STUDIO_PRO}`,
 };
 
 /** Resolves the authenticated user from initData. Writes an error response and returns null on failure. */
@@ -79,7 +85,7 @@ router.post('/stars/create-invoice', async (req: Request, res: Response): Promis
   try {
     const invoiceUrl = await createStarsInvoiceLink({
       title:       PLAN_TITLE[tier],
-      description: `Подписка ${tier} на 30 дней`,
+      description: `Подписка ${TIER_DISPLAY[tier]} на 30 дней`,
       payload,
       amountStars: price.stars,
       token:       env.TELEGRAM_BOT_TOKEN,
