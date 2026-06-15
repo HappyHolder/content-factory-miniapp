@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { prisma } from '../db';
 import { env } from '../env';
 import fs from 'fs';
@@ -222,7 +223,12 @@ async function sendDraftNotification(chatId: number, draft: DraftPost | null): P
 router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   // ── 1. Authenticate the request ──────────────────────────────────────────
   const incomingSecret = req.headers['x-telegram-bot-api-secret-token'];
-  if (incomingSecret !== env.TELEGRAM_WEBHOOK_SECRET) {
+  const expectedSecret = env.TELEGRAM_WEBHOOK_SECRET;
+  const secretOk =
+    typeof incomingSecret === 'string' &&
+    incomingSecret.length === expectedSecret.length &&
+    crypto.timingSafeEqual(Buffer.from(incomingSecret), Buffer.from(expectedSecret));
+  if (!secretOk) {
     // 401 tells Telegram this endpoint rejected the delivery → no endless retry.
     res.status(401).json({ error: 'Unauthorized' });
     return;

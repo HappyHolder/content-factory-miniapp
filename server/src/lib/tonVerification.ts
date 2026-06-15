@@ -36,7 +36,24 @@ export function addressesMatch(a: string, b: string): boolean {
   return rawA === rawB;
 }
 
-interface TonTx { now?: number; hash?: string; in_msg?: { source?: string; value?: string }; }
+interface TonInMsg {
+  source?: string;
+  value?: string;
+  comment?: string;
+  decoded_body?: { comment?: string };
+  message_content?: { decoded?: { type?: string; comment?: string } };
+}
+interface TonTx { now?: number; hash?: string; in_msg?: TonInMsg; }
+
+/** Reads the text comment attached to an incoming message, across TonCenter shapes. */
+function extractComment(inMsg: TonInMsg): string | null {
+  const c =
+    inMsg.message_content?.decoded?.comment ??
+    inMsg.decoded_body?.comment ??
+    inMsg.comment ??
+    null;
+  return c ? c.trim() : null;
+}
 
 export interface VerifyResult {
   ok: boolean;
@@ -57,8 +74,14 @@ export async function verifyTonDeposit(opts: {
   receivingWallet: string;
   apiKey: string;
   isHashUsed: (hash: string) => Promise<boolean>;
+  /**
+   * Required text comment identifying the paying user (their Telegram id). Binds
+   * the on-chain deposit to a specific account so an attacker cannot claim
+   * someone else's incoming transaction by supplying their wallet address.
+   */
+  expectedComment?: string;
 }): Promise<VerifyResult> {
-  const { expectedTon, senderWallet, receivingWallet, apiKey, isHashUsed } = opts;
+  const { expectedTon, senderWallet, receivingWallet, apiKey, isHashUsed, expectedComment } = opts;
   const expectedNano = BigInt(Math.round(expectedTon * 1e9));
   const since = Math.floor(Date.now() / 1000) - MATCH_WINDOW_SEC;
 
@@ -85,6 +108,9 @@ export async function verifyTonDeposit(opts: {
         if (!inMsg) continue;
         if (!addressesMatch(inMsg.source ?? '', senderWallet)) continue;
         if (BigInt(inMsg.value || '0') < expectedNano) continue;
+        // Bind the deposit to the paying user: the transfer must carry their
+        // Telegram id as a text comment, otherwise it is not their payment.
+        if (expectedComment && extractComment(inMsg) !== expectedComment) continue;
         const txHash = tx.hash;
         if (!txHash) continue;
         if (await isHashUsed(txHash)) continue;

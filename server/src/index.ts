@@ -27,7 +27,20 @@ app.use(express.json());
 // and a safe fallback. The directory is created on boot so static serving works
 // before the first upload.
 fs.mkdirSync(env.STORAGE_DIR, { recursive: true });
-app.use('/uploads', express.static(env.STORAGE_DIR, { maxAge: '30d', immutable: true }));
+app.use('/uploads', express.static(env.STORAGE_DIR, {
+  maxAge: '30d',
+  immutable: true,
+  // Stored-XSS guard: never serve uploaded HTML/SVG as executable content.
+  // (In production Caddy does the same; this covers the dev server and is a
+  // defense-in-depth fallback.) Templates are only fetched server-side.
+  setHeaders: (res, filePath) => {
+    if (/\.(html?|xhtml|svg)$/i.test(filePath)) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    }
+  },
+}));
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/health',   healthRouter);

@@ -18,7 +18,7 @@ const PLAN_TITLE: Record<PaidTier, string> = {
 };
 
 /** Resolves the authenticated user from initData. Writes an error response and returns null on failure. */
-async function resolveUser(initData: unknown, res: Response): Promise<{ id: string } | null> {
+async function resolveUser(initData: unknown, res: Response): Promise<{ id: string; telegramId: string } | null> {
   if (typeof initData !== 'string' || !initData.trim()) {
     res.status(400).json({ error: 'initData is required' }); return null;
   }
@@ -31,7 +31,7 @@ async function resolveUser(initData: unknown, res: Response): Promise<{ id: stri
   const telegramId = String(parsed.user.id);
   const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
   if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return null; }
-  return dbUser;
+  return { id: dbUser.id, telegramId };
 }
 
 // ─── POST /api/payments/subscription ──────────────────────────────────────────
@@ -112,6 +112,9 @@ router.post('/ton/verify', async (req: Request, res: Response): Promise<void> =>
     senderWallet: senderWallet.trim(),
     receivingWallet: env.TON_RECEIVING_WALLET,
     apiKey: env.TONCENTER_API_KEY,
+    // Binds the deposit to this user — the transfer must carry their Telegram id
+    // as a comment, so a stranger's wallet/tx cannot be claimed here.
+    expectedComment: dbUser.telegramId,
     isHashUsed: async (hash) => !!(await prisma.tonPayment.findUnique({ where: { txHash: hash }, select: { id: true } }).catch(() => null)),
   });
 

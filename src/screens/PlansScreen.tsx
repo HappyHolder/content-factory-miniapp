@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Ticket, Loader2, Star, Gem } from 'lucide-react'
 import { useTonConnectUI } from '@tonconnect/ui-react'
+import { beginCell } from '@ton/core'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
-import { getTelegramInitData, openTelegramInvoice } from '@/lib/telegram'
+import { getTelegramInitData, getTelegramUserId, openTelegramInvoice } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { PLAN_PRICING, TON_RECEIVING_WALLET, tierToServer, tonToNano } from '@/lib/payments'
 import type { PlanTier } from '@/types'
@@ -132,12 +133,19 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
       return
     }
 
+    // The deposit must be tagged with the user's Telegram id so the backend can
+    // bind it to this account (otherwise a stranger could claim the payment).
+    const uid = getTelegramUserId()
+    if (!uid) { showToast(t('plans.payStarsOnly'), 'error'); return }
+
     setPaying(true)
     try {
       const amount = PLAN_PRICING[tier].ton
+      // Text comment payload: 32 zero bits + the Telegram id, per TON's comment format.
+      const commentPayload = beginCell().storeUint(0, 32).storeStringTail(uid).endCell().toBoc().toString('base64')
       await tonConnectUI.sendTransaction({
         validUntil: Math.floor(Date.now() / 1000) + 600,
-        messages: [{ address: TON_RECEIVING_WALLET, amount: tonToNano(amount) }],
+        messages: [{ address: TON_RECEIVING_WALLET, amount: tonToNano(amount), payload: commentPayload }],
       })
       // Wallet that just paid (raw "0:…" — backend matches friendly/raw)
       const sender = tonConnectUI.account?.address

@@ -12,6 +12,13 @@
 	# /uploads/covers/x.jpg  ->  /srv/uploads/covers/x.jpg (mounted volume, read-only).
 	handle /uploads/* {
 		root * /srv
+		# Neutralize uploaded HTML/SVG so it can never execute in the publium.ru
+		# origin (stored XSS). These are only fetched server-side by the cover
+		# renderer; they never need to run in a browser.
+		@active path *.html *.htm *.xhtml *.svg
+		header @active Content-Type "text/plain; charset=utf-8"
+		header @active Content-Disposition attachment
+		header @active X-Content-Type-Options nosniff
 		file_server
 	}
 

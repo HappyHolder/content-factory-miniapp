@@ -159,6 +159,27 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  // ── 7b. Verify the REQUESTING USER is an admin/creator of the channel ──────
+  // Without this, the bot-admin check alone lets anyone who knows the @handle
+  // connect a channel the bot was added to (and then publish/spam to it). Only a
+  // real channel administrator may bind a channel to their account.
+  let userMember;
+  try {
+    userMember = await getChatMember(`@${handle}`, parsed.user.id, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    if (err instanceof TelegramApiError) {
+      res.status(403).json({ error: 'You must be an administrator of this channel to connect it.' });
+      return;
+    }
+    console.error('[channels/connect] user getChatMember failed:', err);
+    res.status(500).json({ error: 'Could not reach Telegram. Try again.' });
+    return;
+  }
+  if (userMember.status !== 'administrator' && userMember.status !== 'creator') {
+    res.status(403).json({ error: 'Only an administrator of this channel can connect it.' });
+    return;
+  }
+
   // ── 8. Check channel limit for subscription tier ─────────────────────────
   try {
     const userSub = await prisma.subscription.findUnique({

@@ -31,6 +31,7 @@
 // playwright is imported lazily (dynamic import) so the server starts fine
 // even when Chromium binaries are not installed.
 import { putObject }         from './storage';
+import { isBlockedRequestUrl } from './ssrfGuard';
 import type { GeneratedCover } from './imageGenerator';
 import type { TemplateBrand }  from './templateRenderer';
 import type { TemplateClassification } from './aiGenerator';
@@ -79,6 +80,23 @@ async function getBrowser(): Promise<Browser> {
     _browser = null;
   });
   return _browser;
+}
+
+// ─── SSRF guard ─────────────────────────────────────────────────────────────
+// Cover HTML (user-uploaded templates and AI-generated markup) is rendered in a
+// real browser. Intercept every subresource request and abort any that targets
+// a non-public address or a non-http(s) scheme, so a crafted template cannot
+// probe the internal network or read local files into the screenshot.
+async function guardPage(page: Browser): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await page.route('**/*', async (route: any) => {
+    try {
+      if (await isBlockedRequestUrl(route.request().url())) return route.abort();
+      return route.continue();
+    } catch {
+      return route.abort();
+    }
+  });
 }
 
 // ─── Dimensions ───────────────────────────────────────────────────────────────
@@ -175,6 +193,7 @@ export async function renderHtmlString(
   try {
     const browser = await getBrowser();
     const page    = await browser.newPage();
+    await guardPage(page);
     try {
       await page.setViewportSize({ width: W, height: H });
       // 'load' instead of 'networkidle' — canvas requestAnimationFrame loops never
@@ -285,6 +304,7 @@ export async function renderHtmlTemplate(
   try {
     const browser = await getBrowser();
     const page    = await browser.newPage();
+    await guardPage(page);
     try {
       await page.setViewportSize({ width: W, height: H });
       await page.setContent(injectEmojiFallback(finalHtml), { waitUntil: 'load', timeout: 15_000 });

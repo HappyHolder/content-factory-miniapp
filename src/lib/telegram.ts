@@ -4,6 +4,7 @@
 
 interface TelegramWebApp {
   initData: string
+  initDataUnsafe?: { user?: { id?: number } }
   ready?: () => void
   openInvoice?: (url: string, callback: (status: string) => void) => void
 }
@@ -27,6 +28,16 @@ export function getTelegramInitData(): string | null {
   return typeof initData === 'string' && initData.trim().length > 0
     ? initData
     : null
+}
+
+/**
+ * Returns the current Telegram user's numeric id (as a string), or null outside
+ * Telegram. Used to tag TON payments with a comment so the backend can bind a
+ * deposit to the paying account.
+ */
+export function getTelegramUserId(): string | null {
+  const id = getWebApp()?.initDataUnsafe?.user?.id
+  return typeof id === 'number' && Number.isFinite(id) ? String(id) : null
 }
 
 /**
