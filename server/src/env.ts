@@ -22,7 +22,7 @@ const AI_PROVIDER = (process.env['AI_PROVIDER'] ?? 'placeholder') as 'placeholde
 if (AI_PROVIDER === 'deepseek' && !process.env['DEEPSEEK_API_KEY']) {
   throw new Error(
     '[env] DEEPSEEK_API_KEY is required when AI_PROVIDER=deepseek.\n' +
-    '      Set it in server/.env or in your Render environment variables.'
+    '      Set it in server/.env (dev) or deploy/.env (the Docker stack).'
   );
 }
 

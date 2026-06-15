@@ -8,8 +8,8 @@
  *   - Pure setInterval — no extra dependencies.
  *   - Runs once at server startup (to catch posts missed during downtime),
  *     then every 60 s.
- *   - Single-instance safe: Render runs one server process per service,
- *     so no distributed lock is needed for this app.
+ *   - Single-instance safe: the stack runs one `api` container, so no
+ *     distributed lock is needed for this app.
  *   - Delivery order: Telegram send THEN DB update (same as the manual
  *     publish route). If the DB update fails after a successful send the
  *     post remains SCHEDULED and will be retried; Telegram may receive a

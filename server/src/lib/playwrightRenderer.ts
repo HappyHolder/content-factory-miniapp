@@ -70,7 +70,7 @@ async function getBrowser(): Promise<Browser> {
   }).catch((err: Error) => {
     console.error(
       '[playwrightRenderer] FATAL: Chromium launch failed.\n' +
-      '  Make sure your Render Build Command includes: npx playwright install chromium\n' +
+      '  The Docker image installs it via: npx playwright install --with-deps chromium\n' +
       '  Error:', err.message,
     );
     throw err;

@@ -119,7 +119,7 @@ export const en = {
     payCancelled:       'Payment cancelled',
     postPromotionSoon:  'Post promotion — soon',
     videoGenerationSoon: 'Video generation — soon',
-    footer:             'All plans include mock data · Payments not implemented',
+    footer:             'Pay with Telegram Stars or Gram · 30-day subscription',
   },
   posts: {
     tabs: {

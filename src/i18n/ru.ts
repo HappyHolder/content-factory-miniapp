@@ -119,7 +119,7 @@ export const ru: Dict = {
     payCancelled:       'Оплата отменена',
     postPromotionSoon:  'Продвижение постов — soon',
     videoGenerationSoon: 'Генерация видео — soon',
-    footer:             'Все планы содержат тестовые данные · Оплата не реализована',
+    footer:             'Оплата через Telegram Stars или Gram · подписка на 30 дней',
   },
   posts: {
     tabs: {

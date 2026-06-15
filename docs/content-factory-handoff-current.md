@@ -6,17 +6,21 @@
 > "Current state (live)" for the accurate overview.
 >
 > **What actually changed since this doc was written:**
-> - **Backend is deployed** on Render (`content-factory-api.onrender.com`), not a "scaffold only".
-> - **Prisma migrations ARE run** — see `server/prisma/migrations/` (11 migrations on Neon).
+> - **Self-hosted on a Beget VPS** via Docker Compose (Caddy + API + PostgreSQL),
+>   live at `https://publium.ru`. (No longer Render/Neon/Vercel — those were retired.)
+> - **Storage:** local filesystem served at `/uploads` by Caddy (was Vercel Blob).
+> - **Prisma migrations ARE run** — see `server/prisma/migrations/` (self-hosted Postgres).
 > - **Real API routes exist:** auth, channels, brandkits, posts (generate/list/publish/
 >   schedule/delete/regenerate/upload), bot webhook, chat, promo, admin, payments.
 > - **Auth is real** — Telegram `initData` HMAC validation on every route.
 > - **AI is real** — DeepSeek for text + chat assistant; Replicate for cover images.
-> - **There IS a FREE tier now** (freemium). Stars/TON prices: Starter 350⭐/3 TON,
->   Creator 1100⭐/7 TON, Studio Pro 7000⭐/50 TON. Prices live in
->   `server/src/lib/payments.ts` and `src/lib/payments.ts` (keep in sync).
+> - **There IS a FREE tier** (freemium). Paid tiers renamed (DB enum unchanged):
+>   **Blogger** 650⭐/5 Gram, **Business** 1800⭐/15 Gram, **Agency** 10000⭐/80 Gram.
+>   "Gram" is the UI label for TON. Prices live in `server/src/lib/payments.ts` and
+>   `src/lib/payments.ts` (keep in sync).
 > - **Per-post regen caps are 3 text / 3 visual** (`subscriptionLimits.ts`), enforced server-side.
-> - **Deployment:** push to `main` auto-deploys both Render (backend) and Vercel (frontend).
+> - **Deployment:** push to GitHub (`HappyHolder/publium-miniapp`), then on the VPS
+>   `git pull && cd deploy && docker compose up -d --build`. See `deploy/README.md`.
 
 ---
 
@@ -30,7 +34,7 @@ This is a **polished frontend MVP prototype**. All data is mocked. The backend s
 
 ## Repository
 
-**GitHub:** https://github.com/HappyHolder/content-factory-miniapp  
+**GitHub:** https://github.com/HappyHolder/publium-miniapp  
 **Branch:** `main`  
 **Latest commits:**
 - `88d87e4` — Polish localization and active channel UX

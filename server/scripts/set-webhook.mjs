@@ -78,7 +78,7 @@ async function main() {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (!secret) {
     console.error('✗ TELEGRAM_WEBHOOK_SECRET is missing in server/.env.');
-    console.error('  It MUST match the value set in the Render environment, or the');
+    console.error('  It MUST match the value set in the deployment environment, or the');
     console.error('  backend will reject every webhook delivery with 401.');
     process.exit(1);
   }

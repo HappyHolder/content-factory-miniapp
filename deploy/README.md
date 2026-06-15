@@ -45,7 +45,11 @@ Internet ──443──> Caddy ──/api/*──> api:8787 ──> db:5432
    (or set it once via the Bot API with `WEBHOOK_URL=https://<domain>/api/bot/webhook`).
    Also set @Publiumbot's Mini App / menu-button URL to `https://<domain>`.
 
-## Data migration (from the old cloud, while it is still alive)
+## Data migration (from the old cloud) — SKIPPED
+
+> This deployment started **fresh** (empty database, no Vercel Blob import). The
+> steps below are kept only for reference if a future migration from the old
+> Render/Neon/Vercel stack is ever needed.
 
 1. **Database** — dump Neon (use the **DIRECT_URL**, not the pooled one) and restore into the container:
    ```bash
