@@ -97,20 +97,28 @@ export async function verifyTonDeposit(opts: {
 
       const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) {
+        // 429 (rate limit) / transient 5xx — retry within the window rather than
+        // failing instantly, so a momentary TonCenter limit doesn't lose a real payment.
+        console.warn(`[tonVerify] attempt ${attempt}/${RETRY_COUNT}: TonCenter HTTP ${res.status}`);
+        if (attempt < RETRY_COUNT) { await new Promise(r => setTimeout(r, RETRY_DELAY_MS)); continue; }
         return { ok: false, error: 'toncenter_api_error', hint: `HTTP ${res.status}` };
       }
       const data = await res.json() as { transactions?: TonTx[] };
       const txs = Array.isArray(data.transactions) ? data.transactions : [];
+      console.log(`[tonVerify] attempt ${attempt}: ${txs.length} txs; want sender=${senderWallet.slice(0, 12)}… value>=${expectedNano} comment=${JSON.stringify(expectedComment ?? null)}`);
 
       for (const tx of txs) {
         if ((tx.now || 0) < since) continue;
         const inMsg = tx.in_msg;
         if (!inMsg) continue;
-        if (!addressesMatch(inMsg.source ?? '', senderWallet)) continue;
-        if (BigInt(inMsg.value || '0') < expectedNano) continue;
-        // Bind the deposit to the paying user: the transfer must carry their
-        // Telegram id as a text comment, otherwise it is not their payment.
-        if (expectedComment && extractComment(inMsg) !== expectedComment) continue;
+        const srcOk = addressesMatch(inMsg.source ?? '', senderWallet);
+        const amtOk = BigInt(inMsg.value || '0') >= expectedNano;
+        const cmt   = extractComment(inMsg);
+        const cmtOk = !expectedComment || cmt === expectedComment;
+        if (!srcOk || !amtOk || !cmtOk) {
+          console.log(`[tonVerify]  skip: src=${(inMsg.source ?? '').slice(0, 12)}…(${srcOk}) value=${inMsg.value}(${amtOk}) comment=${JSON.stringify(cmt)}(${cmtOk})`);
+          continue;
+        }
         const txHash = tx.hash;
         if (!txHash) continue;
         if (await isHashUsed(txHash)) continue;
