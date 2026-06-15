@@ -301,15 +301,24 @@ export async function createDraftPostForChannel(
       }
       console.log(`[draftGenerator] Hybrid: template=${chosen?.name ?? 'none'} (${htmlTemplates.length} in DB), refHtml=${referenceHtml?.length ?? 0} chars`);
 
-      // 2. Themed background prompt: user's image prompt, or AI-generated scene.
-      let bgPrompt: string | null = imagePrompt?.trim() || null;
-      if (!bgPrompt) {
-        try {
-          bgPrompt = await generateImagePromptWithAI({ title, excerpt: sourceSummary, visualKit });
-        } catch (err) {
-          console.warn('[draftGenerator] Hybrid: bg prompt generation failed:', (err as Error).message);
-        }
+      // 2. Themed background prompt. Always distil through the art director so the
+      //    Flux background is a clean, text-free scene — even when the user pastes
+      //    the article text into the image-prompt field (raw long text makes Flux
+      //    render people + burned-in gibberish). The user's image prompt is passed
+      //    only as an art-direction hint; the raw text is a last-resort fallback if
+      //    the distiller is unavailable.
+      let bgPrompt: string | null = null;
+      try {
+        bgPrompt = await generateImagePromptWithAI({
+          title,
+          excerpt: sourceSummary,
+          visualKit,
+          artDirection: imagePrompt?.trim() || undefined,
+        });
+      } catch (err) {
+        console.warn('[draftGenerator] Hybrid: bg prompt generation failed:', (err as Error).message);
       }
+      if (!bgPrompt) bgPrompt = imagePrompt?.trim() || null;
 
       // 3. Clean, text-free Flux background. One retry — a transient Replicate
       //    failure here would otherwise degrade the cover to a no-photo Satori card.
@@ -501,19 +510,25 @@ export async function createDraftPostForChannel(
   // html and ai_html handle their own fallbacks above and must never reach
   // Flux+sharp with its burned-in text.
   if (!cover && coverMode === 'ai') {
-    let resolvedImagePrompt: string | null = imagePrompt?.trim() || null;
+    // Always distil through the art director so the Flux prompt is a clean,
+    // text-free scene even when the user pasted the article into the image-prompt
+    // field. The user's prompt is passed as an art-direction hint; the raw text is
+    // only a fallback when distillation is unavailable (e.g. no AI provider).
+    let resolvedImagePrompt: string | null = null;
 
-    if (!resolvedImagePrompt && useBrandKit) {
+    if (useBrandKit) {
       try {
         resolvedImagePrompt = await generateImagePromptWithAI({
           title,
           excerpt: sourceSummary,
           visualKit,
+          artDirection: imagePrompt?.trim() || undefined,
         });
       } catch (err) {
         console.warn('[draftGenerator] Auto image prompt generation failed:', (err as Error).message);
       }
     }
+    if (!resolvedImagePrompt) resolvedImagePrompt = imagePrompt?.trim() || null;
 
     if (resolvedImagePrompt) {
       // Sharp burns the post title onto the cover; when the channel pins a

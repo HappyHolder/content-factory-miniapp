@@ -549,6 +549,13 @@ export interface GenerateImagePromptParams {
   title:     string;
   excerpt:   string;
   visualKit: unknown;
+  /**
+   * Optional free-text art direction from the user's "image prompt" field.
+   * Used only as a hint for subject/style/mood — never copied verbatim into the
+   * output, so pasting the article text here still yields a clean, text-free
+   * scene instead of a Flux image with burned-in gibberish.
+   */
+  artDirection?: string;
 }
 
 /**
@@ -565,7 +572,7 @@ export async function generateImagePromptWithAI(
 ): Promise<string | null> {
   if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
 
-  const { title, excerpt, visualKit } = params;
+  const { title, excerpt, visualKit, artDirection } = params;
   const styleDesc = buildVisualStyleDescription(visualKit);
 
   const systemPrompt =
@@ -581,12 +588,16 @@ export async function generateImagePromptWithAI(
     'Use an atmospheric, on-brand background (colors, lighting, mood); avoid empty abstract gradients, nebulae, or galaxies ' +
     'unless the brand style explicitly calls for them. ' +
     'Do NOT include any instructions, rules, or "do not" phrases in the output. ' +
+    'If the user provides art direction, follow its subject, style and mood, but ' +
+    'never copy its sentences and never render any text from it — distil it into a ' +
+    'purely pictorial scene. ' +
     'Write in English. Output ONLY the visual description, nothing else.';
 
   const userPrompt =
     `Post topic: ${title}\n` +
     `Brief: ${excerpt.slice(0, 200)}\n` +
     (styleDesc ? `Brand style: ${styleDesc}\n` : '') +
+    (artDirection ? `User art direction (a hint for subject/style/mood only): ${artDirection.slice(0, 400)}\n` : '') +
     'Image prompt:';
 
   const controller = new AbortController();
