@@ -1,3 +1,4 @@
+import './polyfills' // must be first — sets up Buffer for @ton/core
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { TonConnectUIProvider } from '@tonconnect/ui-react'
