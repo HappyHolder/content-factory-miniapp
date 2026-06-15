@@ -10,7 +10,7 @@
 
 const TONCENTER_BASE   = 'https://toncenter.com/api/v3';
 const MATCH_WINDOW_SEC = 600;   // 10 minutes
-const RETRY_COUNT      = 5;
+const RETRY_COUNT      = 8;   // extra headroom: TonCenter 429s + indexing delay
 const RETRY_DELAY_MS   = 4_000;
 
 /** Decode a user-friendly TON address (UQ…/EQ…) to raw "workchain:hexhash". */
@@ -105,20 +105,16 @@ export async function verifyTonDeposit(opts: {
       }
       const data = await res.json() as { transactions?: TonTx[] };
       const txs = Array.isArray(data.transactions) ? data.transactions : [];
-      console.log(`[tonVerify] attempt ${attempt}: ${txs.length} txs; want sender=${senderWallet.slice(0, 12)}… value>=${expectedNano} comment=${JSON.stringify(expectedComment ?? null)}`);
 
       for (const tx of txs) {
         if ((tx.now || 0) < since) continue;
         const inMsg = tx.in_msg;
         if (!inMsg) continue;
-        const srcOk = addressesMatch(inMsg.source ?? '', senderWallet);
-        const amtOk = BigInt(inMsg.value || '0') >= expectedNano;
-        const cmt   = extractComment(inMsg);
-        const cmtOk = !expectedComment || cmt === expectedComment;
-        if (!srcOk || !amtOk || !cmtOk) {
-          console.log(`[tonVerify]  skip: src=${(inMsg.source ?? '').slice(0, 12)}…(${srcOk}) value=${inMsg.value}(${amtOk}) comment=${JSON.stringify(cmt)}(${cmtOk})`);
-          continue;
-        }
+        if (!addressesMatch(inMsg.source ?? '', senderWallet)) continue;
+        if (BigInt(inMsg.value || '0') < expectedNano) continue;
+        // Bind the deposit to the paying user: the transfer must carry their
+        // Telegram id as a text comment, otherwise it is not their payment.
+        if (expectedComment && extractComment(inMsg) !== expectedComment) continue;
         const txHash = tx.hash;
         if (!txHash) continue;
         if (await isHashUsed(txHash)) continue;
