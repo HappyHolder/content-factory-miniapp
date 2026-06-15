@@ -14,8 +14,7 @@ import fs   from 'fs';
 import path from 'path';
 import satori        from 'satori';
 import { Resvg }     from '@resvg/resvg-js';
-import { put }       from '@vercel/blob';
-import { env }       from '../env';
+import { putObject } from './storage';
 import type { GeneratedCover } from './imageGenerator';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -322,11 +321,6 @@ function buildNews(input: TemplateCoverInput, W: number, H: number): N {
 export async function renderTemplateCover(
   input: TemplateCoverInput,
 ): Promise<GeneratedCover | null> {
-  if (!env.BLOB_READ_WRITE_TOKEN) {
-    console.warn('[templateRenderer] BLOB_READ_WRITE_TOKEN not set');
-    return null;
-  }
-
   try {
     const { W, H } = getDimensions(input.aspectRatio);
     const fonts    = await getFonts();
@@ -347,12 +341,12 @@ export async function renderTemplateCover(
     const resvg  = new Resvg(svg, { fitTo: { mode: 'width', value: W } });
     const pngBuf = Buffer.from(resvg.render().asPng());
 
-    const blob = await put(`covers/template-${Date.now()}.png`, pngBuf, {
-      access: 'public', token: env.BLOB_READ_WRITE_TOKEN, contentType: 'image/png',
+    const obj = await putObject(`covers/template-${Date.now()}.png`, pngBuf, {
+      contentType: 'image/png',
     });
 
-    console.log(`[templateRenderer] ${input.template} ${W}×${H} → ${blob.url}`);
-    return { bannerUrl: blob.url, coverBaseUrl: null };
+    console.log(`[templateRenderer] ${input.template} ${W}×${H} → ${obj.url}`);
+    return { bannerUrl: obj.url, coverBaseUrl: null };
 
   } catch (err) {
     console.error('[templateRenderer] Render failed:', (err as Error).message, (err as Error).stack?.split('\n')[1]);

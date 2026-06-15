@@ -10,13 +10,13 @@ router.get('/', async (_req: Request, res: Response) => {
 
     res.json({
       ok: true,
-      service: 'content-factory-api',
+      service: 'publium-api',
       db: 'connected',
     });
   } catch (error) {
     res.status(503).json({
       ok: false,
-      service: 'content-factory-api',
+      service: 'publium-api',
       db: 'disconnected',
     });
   }

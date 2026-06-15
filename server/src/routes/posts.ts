@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { put } from '@vercel/blob';
+import { putObject } from '../lib/storage';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -858,7 +858,7 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
 //
 // Permanently deletes a GeneratedPost and all its PostVariant rows from the DB.
 //
-// ⚠  Published posts: deleting here removes the post from Content Factory ONLY.
+// ⚠  Published posts: deleting here removes the post from Publium ONLY.
 //    The Telegram channel message is NOT deleted because message IDs are not
 //    stored in this app. The post will simply disappear from the Posts list.
 //
@@ -1391,13 +1391,13 @@ router.post(
       res.status(403).json({ error: 'Variant not found or access denied' }); return;
     }
 
-    // Upload to Vercel Blob
+    // Upload to local storage
     const ext      = file.originalname.split('.').pop() ?? 'jpg';
     const filename = `posts/${dbUser.id}/${variantId}-${Date.now()}.${ext}`;
     let bannerUrl: string;
     try {
-      const blob = await put(filename, file.buffer, { access: 'public', contentType: file.mimetype });
-      bannerUrl  = blob.url;
+      const obj = await putObject(filename, file.buffer, { contentType: file.mimetype });
+      bannerUrl  = obj.url;
     } catch (err) {
       console.error('[posts/upload-image] Blob upload failed:', (err as Error).message);
       res.status(502).json({ error: 'Image upload failed' }); return;

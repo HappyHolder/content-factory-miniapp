@@ -2,7 +2,7 @@
 
 Drop the 4 intro-slide images here, named exactly:
 
-- `slide1.png` — Content Factory (о проекте)
+- `slide1.png` — Publium (о проекте)
 - `slide2.png` — 3 поста из одной идеи
 - `slide3.png` — В стиле твоего канала
 - `slide4.png` — Публикуй в пару тапов

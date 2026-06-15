@@ -1,4 +1,4 @@
-# Content Factory — Telegram Mini App
+# Publium — Telegram Mini App
 
 A polished frontend MVP prototype for a Telegram-native AI content tool built for channel owners.
 
@@ -25,7 +25,7 @@ Open [http://localhost:5173](http://localhost:5173)
 
 ## What is this
 
-Content Factory is a Telegram Mini App where channel owners configure their **Brand Kit** and generate ready-to-publish posts from any input — a link, idea, text snippet, or forwarded post.
+Publium is a Telegram Mini App where channel owners configure their **Brand Kit** and generate ready-to-publish posts from any input — a link, idea, text snippet, or forwarded post.
 
 The AI applies the user's Brand Kit (voice, tone, emoji rules, link kit, visual style) and produces 2–3 post variants with a banner preview and Telegram inline buttons — ready to publish or schedule.
 
@@ -57,12 +57,13 @@ app runs end to end against a real database, Telegram bot, AI, and payments.
 
 | Area | Status |
 |---|---|
-| Backend | Express + Prisma, deployed on **Render** (`content-factory-api.onrender.com`) |
-| Database | **Neon** PostgreSQL, Prisma migrations applied (`server/prisma/migrations/`) |
+| Backend | Express + Prisma, self-hosted on a **VPS** via Docker Compose (see `deploy/`) |
+| Database | Self-hosted **PostgreSQL** (Docker), Prisma migrations applied (`server/prisma/migrations/`) |
+| Storage | Local filesystem served at `/uploads` by Caddy (`server/src/lib/storage.ts`) |
 | Auth | Real — Telegram `initData` HMAC validation on every request (`server/src/lib/telegram.ts`) |
 | AI text | DeepSeek (`AI_PROVIDER=deepseek`) with a deterministic placeholder fallback |
-| AI images | Replicate → uploaded to Vercel Blob |
-| Telegram bot | Live `@ai_tg_studio_bot` — `/start`, auto-draft from messages, payment webhooks |
+| AI images | Replicate → stored locally |
+| Telegram bot | Live `@Publiumbot` — `/start`, auto-draft from messages, payment webhooks |
 | Publishing | Real Telegram Bot API send (`POST /api/posts/publish`) |
 | Scheduling | In-process 60s poller auto-publishes due posts (`server/src/lib/scheduler.ts`) |
 | Payments | Telegram Stars (XTR) + TON via TonConnect; promo codes; tiered subscriptions |

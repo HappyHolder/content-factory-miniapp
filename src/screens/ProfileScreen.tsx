@@ -240,7 +240,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
         </motion.div>
 
         <div className="pb-2 text-center">
-          <p className="text-[11px] text-[#66666E]">Content Factory v0.1.0 · MVP prototype</p>
+          <p className="text-[11px] text-[#66666E]">Publium v0.1.0</p>
         </div>
       </div>
 

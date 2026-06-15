@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { put } from '@vercel/blob';
+import { putObject } from '../lib/storage';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -117,7 +117,7 @@ const VALID_SECTIONS = [
 
 // ─── POST /api/brandkits/upload-asset ────────────────────────────────────────
 //
-// Uploads a BrandKit visual asset (logo or reference image) to Vercel Blob and
+// Uploads a BrandKit visual asset (logo or reference image) to local storage and
 // returns the public URL. Does NOT write to the DB — the caller adds the URL to
 // visualKit locally and persists via the existing PATCH endpoint.
 //
@@ -132,19 +132,12 @@ const VALID_SECTIONS = [
 // Response 401: invalid initData / user not found
 // Response 403: channel belongs to another user
 // Response 404: channel not found
-// Response 503: BLOB_READ_WRITE_TOKEN not configured
 // Response 500: upload or DB error
 
 router.post(
   '/upload-asset',
   upload.single('file'),   // multer parses multipart; populates req.file + req.body
   async (req: Request, res: Response): Promise<void> => {
-
-    // ── 0. Blob token guard ─────────────────────────────────────────────────
-    if (!env.BLOB_READ_WRITE_TOKEN) {
-      res.status(503).json({ error: 'File upload is not configured on this server.' });
-      return;
-    }
 
     // ── 1. Extract fields from multipart body ───────────────────────────────
     const initData   = req.body['initData']   as unknown;
@@ -212,15 +205,13 @@ router.post(
       ? `brandkits/${channelId}/logo-${timestamp}-${safeName}`
       : `brandkits/${channelId}/references/ref-${timestamp}-${safeName}`;
 
-    // ── 7. Upload to Vercel Blob ─────────────────────────────────────────────
+    // ── 7. Upload to local storage ───────────────────────────────────────────
     let blobUrl: string;
     try {
-      const blob = await put(pathname, file.buffer, {
-        access:      'public',
-        token:       env.BLOB_READ_WRITE_TOKEN,
+      const obj = await putObject(pathname, file.buffer, {
         contentType: file.mimetype,
       });
-      blobUrl = blob.url;
+      blobUrl = obj.url;
     } catch (err) {
       console.error('[brandkits/upload-asset] Blob upload failed:', (err as Error).message);
       res.status(500).json({ error: 'File upload failed. Try again.' }); return;
@@ -237,7 +228,7 @@ router.post(
 
 // ─── POST /api/brandkits/upload-html-template ────────────────────────────────
 //
-// Uploads a user-designed HTML cover template to Vercel Blob.
+// Uploads a user-designed HTML cover template to local storage.
 // The HTML is stored as-is; the renderer fetches it at cover-generation time
 // and replaces {{slot}} placeholders with actual post content.
 //
@@ -247,16 +238,12 @@ router.post(
 //   file      — .html file (max 500 KB)
 //
 // Response 200: { url: string }
-// Response 400/401/403/404/503/500: error
+// Response 400/401/403/404/500: error
 
 router.post(
   '/upload-html-template',
   uploadHtml.single('file'),
   async (req: Request, res: Response): Promise<void> => {
-    if (!env.BLOB_READ_WRITE_TOKEN) {
-      res.status(503).json({ error: 'File upload is not configured on this server.' }); return;
-    }
-
     const initData  = req.body['initData']  as unknown;
     const channelId = req.body['channelId'] as unknown;
     const file      = req.file;
@@ -282,12 +269,12 @@ router.post(
 
     try {
       const safeName = safeFileName(file.originalname);
-      const blob = await put(
+      const obj = await putObject(
         `brandkits/${channelId}/templates/cover-${Date.now()}-${safeName}`,
         file.buffer,
-        { access: 'public', token: env.BLOB_READ_WRITE_TOKEN, contentType: 'text/html; charset=utf-8' },
+        { contentType: 'text/html; charset=utf-8' },
       );
-      res.json({ url: blob.url });
+      res.json({ url: obj.url });
     } catch (err) {
       console.error('[brandkits/upload-html-template] Blob upload failed:', (err as Error).message);
       res.status(500).json({ error: 'Upload failed. Try again.' });

@@ -1,11 +1,11 @@
-# Content Factory — Brandbook & UI System
+# Publium — Brandbook & UI System
 > Generated from actual source code. Last updated: May 2026.
 
 ---
 
 ## Product
 
-**Name:** Content Factory  
+**Name:** Publium  
 **Type:** Telegram Mini App  
 **Purpose:** AI-powered content creation tool for Telegram channel owners. Users configure a per-channel style kit, then generate ready-to-publish posts from any input (link, idea, text, forwarded post). The AI applies the channel's voice, emoji rules, link kit, and visual style, producing 2–3 variants with a banner and inline buttons.
 

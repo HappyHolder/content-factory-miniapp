@@ -5,11 +5,11 @@
 //   npm run set-webhook          → set the webhook (reads .env)
 //   npm run set-webhook -- info  → only print current getWebhookInfo (no change)
 //
-// Required env (server/.env, must match the Render environment):
+// Required env (server/.env, must match the deploy environment):
 //   TELEGRAM_BOT_TOKEN
-//   TELEGRAM_WEBHOOK_SECRET   ← must equal the value set on Render
+//   TELEGRAM_WEBHOOK_SECRET   ← must equal the value the backend verifies
 // Optional:
-//   WEBHOOK_URL               ← defaults to the production Render URL below
+//   WEBHOOK_URL               ← defaults to the production URL below
 //
 // IMPORTANT: allowed_updates MUST include "pre_checkout_query", otherwise
 // Telegram never delivers the pre-checkout and Stars payments hang forever.
@@ -22,7 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 const TG_API = 'https://api.telegram.org';
-const DEFAULT_URL = 'https://content-factory-api.onrender.com/api/bot/webhook';
+const DEFAULT_URL = 'https://publium.ru/api/bot/webhook';
 const ALLOWED_UPDATES = ['message', 'pre_checkout_query'];
 
 const token = process.env.TELEGRAM_BOT_TOKEN;

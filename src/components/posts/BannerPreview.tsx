@@ -49,7 +49,7 @@ export function BannerPreview({ banner, onRegenerate, onChangeTemplate, onRemove
               <div className="w-7 h-7 rounded-lg bg-[rgba(255,106,0,0.20)] border border-[rgba(255,106,0,0.38)] flex items-center justify-center">
                 <div className="w-3 h-3 rounded-sm" style={{ background: banner.accentColor }} />
               </div>
-              <span className="text-[11px] font-semibold text-[#A1A1AA] tracking-wide uppercase">Content Factory</span>
+              <span className="text-[11px] font-semibold text-[#A1A1AA] tracking-wide uppercase">Publium</span>
             </div>
             {banner.watermark && (
               <span className="text-[9px] text-[#66666E] font-medium opacity-70">CF</span>

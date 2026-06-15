@@ -1,4 +1,4 @@
-# Content Factory — Project Handoff Document
+# Publium — Project Handoff Document
 
 > ⚠️ **OUTDATED (most sections below describe the May 2026 prototype).**
 > As of June 2026 the project is live, not a mock prototype. The corrections in
@@ -22,7 +22,7 @@
 
 ## What this project is
 
-**Content Factory** is a Telegram Mini App for channel owners who want to generate AI-powered posts. Users configure a per-channel **Channel Style** (voice, emoji rules, visuals, links, signature, post structure rules) and then generate 2–3 post variants from any input — a link, idea, text, or forwarded post.
+**Publium** is a Telegram Mini App for channel owners who want to generate AI-powered posts. Users configure a per-channel **Channel Style** (voice, emoji rules, visuals, links, signature, post structure rules) and then generate 2–3 post variants from any input — a link, idea, text, or forwarded post.
 
 This is a **polished frontend MVP prototype**. All data is mocked. The backend scaffold exists but has zero migrations run and is not connected to the frontend.
 
@@ -181,7 +181,7 @@ These are tracked in state but not yet enforced server-side.
 | `src/App.tsx` | Root routing and screen stack |
 | `src/styles/globals.css` scroll rules | `overflow: hidden` on html/body is load-bearing |
 | Pricing tiers and prices | Product decision, not a code decision |
-| Product name | Always "Content Factory" |
+| Product name | Always "Publium" |
 | `server/prisma/schema.prisma` | Schema not finalized; migrations not run |
 | `server/.env` | Contains real secrets |
 | Backend API routes | Don't add without backend plan |

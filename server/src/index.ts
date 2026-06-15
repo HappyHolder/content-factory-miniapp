@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'fs';
 import { env } from './env';
 import healthRouter from './routes/health';
 import authRouter from './routes/auth';
@@ -20,6 +21,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ─── Static file storage (replaces Vercel Blob) ─────────────────────────────────
+// Serve uploaded/generated files at /uploads. In production nginx serves this
+// path directly from the same volume for speed; this handler is the dev server
+// and a safe fallback. The directory is created on boot so static serving works
+// before the first upload.
+fs.mkdirSync(env.STORAGE_DIR, { recursive: true });
+app.use('/uploads', express.static(env.STORAGE_DIR, { maxAge: '30d', immutable: true }));
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/health',   healthRouter);
 app.use('/api/auth',     authRouter);
@@ -36,7 +45,7 @@ app.use('/api/payments',  paymentsRouter);
 // ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(env.PORT, () => {
   console.log(
-    `[content-factory-api] Running on port ${env.PORT} (${env.NODE_ENV})`
+    `[publium-api] Running on port ${env.PORT} (${env.NODE_ENV})`
   );
   startScheduler();
 });

@@ -12,9 +12,9 @@ import { applyTierExpiry, applyMonthlyQuotaReset } from '../lib/subscriptionLimi
 const router = Router();
 
 const PLAN_TITLE: Record<PaidTier, string> = {
-  STARTER:    'Content Factory · Starter',
-  CREATOR:    'Content Factory · Creator',
-  STUDIO_PRO: 'Content Factory · Studio Pro',
+  STARTER:    'Publium · Starter',
+  CREATOR:    'Publium · Creator',
+  STUDIO_PRO: 'Publium · Studio Pro',
 };
 
 /** Resolves the authenticated user from initData. Writes an error response and returns null on failure. */

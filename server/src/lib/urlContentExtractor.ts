@@ -136,7 +136,7 @@ export async function fetchArticle(url: string): Promise<ExtractedArticle | null
       redirect: 'follow',
       headers: {
         // A real UA + Accept reduces bot-blocking and SPA shells.
-        'User-Agent': 'Mozilla/5.0 (compatible; ContentFactoryBot/1.0; +https://t.me/ai_tg_studio_bot)',
+        'User-Agent': 'Mozilla/5.0 (compatible; PubliumBot/1.0; +https://t.me/Publiumbot)',
         'Accept': 'text/html,application/xhtml+xml',
         'Accept-Language': 'ru,en;q=0.8',
       },

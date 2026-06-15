@@ -148,7 +148,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   const canSearch = !!env.TAVILY_API_KEY;
 
   const systemPrompt =
-    `You are a personal AI content assistant inside the "Content Factory" Telegram Mini App.\n` +
+    `You are a personal AI content assistant inside the "Publium" Telegram Mini App.\n` +
     (userName ? `You are talking with ${userName}.\n` : '') +
     `\nThe user manages ${allChannels.length} Telegram channel(s). Currently active: ${activeLabel}.\n` +
     `\nAll connected channels and their styles:\n${channelsSummary}\n` +

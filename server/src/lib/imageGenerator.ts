@@ -17,7 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
-import { put } from '@vercel/blob';
+import { putObject } from './storage';
 import { env } from '../env';
 
 // Bundled Cyrillic-capable font for the headline overlay. Resolved across the
@@ -421,12 +421,10 @@ async function downloadImage(url: string): Promise<Buffer> {
 
 /** Uploads a composited cover JPEG to Blob and returns its public URL. */
 async function uploadCover(buf: Buffer, kind: 'cover' | 'base'): Promise<string> {
-  const blob = await put(`covers/${kind}-${Date.now()}.jpg`, buf, {
-    access: 'public',
-    token:  env.BLOB_READ_WRITE_TOKEN,
+  const obj = await putObject(`covers/${kind}-${Date.now()}.jpg`, buf, {
     contentType: 'image/jpeg',
   });
-  return blob.url;
+  return obj.url;
 }
 
 /**
@@ -502,8 +500,6 @@ async function composeCover(
   coverUrl: string,
   opts: { logoUrl: string | null; headline: string | null; brandColor: string | null },
 ): Promise<GeneratedCover> {
-  if (!env.BLOB_READ_WRITE_TOKEN) return { bannerUrl: coverUrl, coverBaseUrl: null };
-
   try {
     const coverBuf = await downloadImage(coverUrl);
 
@@ -550,8 +546,6 @@ export async function renderCoverFromBase(
   headline: string | null,
   visualKit: unknown,
 ): Promise<string | null> {
-  if (!env.BLOB_READ_WRITE_TOKEN) return null;
-
   const vkObj = (visualKit && typeof visualKit === 'object')
     ? visualKit as Record<string, unknown>
     : null;

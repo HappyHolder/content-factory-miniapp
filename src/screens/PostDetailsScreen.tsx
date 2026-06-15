@@ -675,7 +675,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         )}
 
         {/* Delete — available for all statuses.
-            Deletes the post from Content Factory only.
+            Deletes the post from Publium only.
             Published posts are NOT removed from the Telegram channel
             because message IDs are not stored. */}
         <Button

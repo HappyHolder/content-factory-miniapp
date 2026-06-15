@@ -1,0 +1,12 @@
+node_modules
+dist
+server
+deploy
+.git
+.github
+docs
+scripts
+uploads
+*.log
+.env
+.env.*

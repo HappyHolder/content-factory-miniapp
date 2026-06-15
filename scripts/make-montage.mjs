@@ -56,7 +56,7 @@ const html = `<!DOCTYPE html>
   ${items}
   <div style="position:absolute;bottom:${PAD - 10}px;left:0;right:0;text-align:center;">
     <span style="font-size:11px;font-weight:500;color:${ACCENT};opacity:0.55;letter-spacing:0.08em;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;">
-      CONTENT FACTORY — TELEGRAM MINI APP
+      PUBLIUM — TELEGRAM MINI APP
     </span>
   </div>
 </body>

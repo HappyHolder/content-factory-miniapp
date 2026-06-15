@@ -11,7 +11,7 @@ const ZipStream = require('zip-stream').default
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
-const OUT  = join(ROOT, '..', 'content-factory-miniapp-final.zip')
+const OUT  = join(ROOT, '..', 'publium-miniapp-final.zip')
 
 const zip    = new ZipStream({ level: 9 })
 const output = createWriteStream(OUT)

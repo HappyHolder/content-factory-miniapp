@@ -1,0 +1,19 @@
+# Publium frontend (Vite SPA) — built, then served by Caddy with automatic HTTPS.
+FROM node:20-bookworm-slim AS build
+WORKDIR /app
+# puppeteer (a devDependency used only by local screenshot scripts) tries to
+# download a browser on install and fails in this slim image. The frontend build
+# doesn't need it, so skip the browser download.
+ENV PUPPETEER_SKIP_DOWNLOAD=1
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+# Same-origin API: the SPA calls /api/* and Caddy proxies it to the backend, so
+# no absolute API URL is baked into the bundle.
+ENV VITE_API_BASE_URL=""
+RUN npm run build
+
+# Caddy serves the static build. The Caddyfile is mounted at runtime (compose),
+# so the domain can change without rebuilding this image.
+FROM caddy:2-alpine
+COPY --from=build /app/dist /srv

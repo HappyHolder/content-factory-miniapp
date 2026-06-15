@@ -1,0 +1,24 @@
+# Publium edge — automatic HTTPS (Let's Encrypt) for {$DOMAIN}.
+# Serves the SPA, proxies the API, and serves uploaded/generated files.
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Backend API.
+	handle /api/* {
+		reverse_proxy api:8787
+	}
+
+	# Uploaded & generated files (covers, logos, templates).
+	# /uploads/covers/x.jpg  ->  /srv/uploads/covers/x.jpg (mounted volume, read-only).
+	handle /uploads/* {
+		root * /srv
+		file_server
+	}
+
+	# SPA: serve the static build, fall back to index.html for client-side routes.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

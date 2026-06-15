@@ -1,0 +1,86 @@
+name: publium
+
+# Run from this directory: `docker compose up -d --build`
+# Reads variables from deploy/.env (copy deploy/.env.example -> deploy/.env).
+
+services:
+  # ── PostgreSQL (self-hosted, replaces Neon) ──────────────────────────────────
+  db:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # ── Backend API (Express + Prisma + Playwright) ──────────────────────────────
+  api:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Internal Postgres — pooled and direct are the same host inside the network.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      DIRECT_URL:   postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      PORT: "8787"
+      NODE_ENV: production
+      # Local filesystem storage (replaces Vercel Blob).
+      STORAGE_DIR: /data/uploads
+      PUBLIC_BASE_URL: https://${DOMAIN}
+      # Telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+      WEBHOOK_URL: https://${DOMAIN}/api/bot/webhook
+      MINI_APP_URL: https://${DOMAIN}
+      ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS}
+      # AI text
+      AI_PROVIDER: ${AI_PROVIDER}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      # AI images
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN}
+      IMAGE_MODEL: ${IMAGE_MODEL}
+      COVER_ENGINE: ${COVER_ENGINE}
+      # Web search (optional)
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
+      # TON payments
+      TON_RECEIVING_WALLET: ${TON_RECEIVING_WALLET}
+      TONCENTER_API_KEY: ${TONCENTER_API_KEY}
+    volumes:
+      - uploads:/data/uploads
+
+  # ── Edge: Caddy (SPA + reverse proxy + static files + auto HTTPS) ─────────────
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - uploads:/srv/uploads:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:

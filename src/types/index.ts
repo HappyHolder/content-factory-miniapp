@@ -141,7 +141,7 @@ export interface VisualKit {
 
 export interface HtmlTemplateItem {
   name: string       // rubric label shown in UI, used by AI for matching
-  url:  string       // Vercel Blob URL of the .html file
+  url:  string       // public URL of the stored .html file
 }
 
 export interface Signature {

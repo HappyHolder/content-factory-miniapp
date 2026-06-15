@@ -134,7 +134,7 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
   } catch (err) {
     if (err instanceof TelegramApiError) {
       res.status(403).json({
-        error: `Bot is not an admin in @${handle}. Add @ai_tg_studio_bot as a channel admin first.`,
+        error: `Bot is not an admin in @${handle}. Add @Publiumbot as a channel admin first.`,
       });
       return;
     }
@@ -145,7 +145,7 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
 
   if (member.status !== 'administrator' && member.status !== 'creator') {
     res.status(403).json({
-      error: `Bot is not an admin in @${handle}. Add @ai_tg_studio_bot as a channel admin first.`,
+      error: `Bot is not an admin in @${handle}. Add @Publiumbot as a channel admin first.`,
     });
     return;
   }

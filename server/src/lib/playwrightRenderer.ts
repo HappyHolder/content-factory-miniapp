@@ -3,11 +3,11 @@
  *
  * Renders user-uploaded HTML cover templates to PNG via Playwright + Chromium.
  * The user designs their own HTML/CSS, uploads it, and this module:
- *   1. Fetches the stored HTML from Vercel Blob
+ *   1. Fetches the stored HTML from local storage
  *   2. Replaces {{slot}} placeholders with actual post content
  *   3. Injects brand CSS variables (--primary, --bg, --accent, --logo)
  *   4. Takes a full-page screenshot at the template's declared dimensions
- *   5. Uploads the PNG to Vercel Blob and returns a GeneratedCover
+ *   5. Uploads the PNG to local storage and returns a GeneratedCover
  *
  * Available slots in user templates:
  *   {{headline}}     — post cover headline (max ~60 chars)
@@ -30,8 +30,7 @@
 
 // playwright is imported lazily (dynamic import) so the server starts fine
 // even when Chromium binaries are not installed.
-import { put }               from '@vercel/blob';
-import { env }               from '../env';
+import { putObject }         from './storage';
 import type { GeneratedCover } from './imageGenerator';
 import type { TemplateBrand }  from './templateRenderer';
 import type { TemplateClassification } from './aiGenerator';
@@ -42,7 +41,7 @@ type Browser = any;
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface HtmlRenderInput {
-  /** Vercel Blob URL of the user's HTML template file */
+  /** Public URL of the user's stored HTML template file */
   htmlTemplateUrl:  string;
   brand:            TemplateBrand;
   classification:   TemplateClassification;
@@ -164,11 +163,6 @@ export async function renderHtmlString(
   html:         string,
   aspectRatio?: string,
 ): Promise<GeneratedCover | null> {
-  if (!env.BLOB_READ_WRITE_TOKEN) {
-    console.warn('[playwrightRenderer] BLOB_READ_WRITE_TOKEN not set');
-    return null;
-  }
-
   // Channel copy rule: dashes are "-", never em/en. Inputs are normalized
   // upstream, but the model can reintroduce typographic dashes when composing;
   // in markup these characters can only occur in text content, so a global
@@ -238,11 +232,11 @@ export async function renderHtmlString(
   }
 
   try {
-    const blob = await put(`covers/ai-html-${Date.now()}.png`, pngBuffer, {
-      access: 'public', token: env.BLOB_READ_WRITE_TOKEN, contentType: 'image/png',
+    const obj = await putObject(`covers/ai-html-${Date.now()}.png`, pngBuffer, {
+      contentType: 'image/png',
     });
-    console.log(`[playwrightRenderer] AI HTML cover ${W}×${H} → ${blob.url}`);
-    return { bannerUrl: blob.url, coverBaseUrl: null };
+    console.log(`[playwrightRenderer] AI HTML cover ${W}×${H} → ${obj.url}`);
+    return { bannerUrl: obj.url, coverBaseUrl: null };
   } catch (err) {
     console.warn('[playwrightRenderer] Blob upload failed:', (err as Error).message);
     return null;
@@ -256,11 +250,6 @@ export async function renderHtmlString(
 export async function renderHtmlTemplate(
   input: HtmlRenderInput,
 ): Promise<GeneratedCover | null> {
-  if (!env.BLOB_READ_WRITE_TOKEN) {
-    console.warn('[playwrightRenderer] BLOB_READ_WRITE_TOKEN not set');
-    return null;
-  }
-
   let html: string;
   try {
     const res = await fetch(input.htmlTemplateUrl);
@@ -314,11 +303,11 @@ export async function renderHtmlTemplate(
   }
 
   try {
-    const blob = await put(`covers/html-${Date.now()}.png`, pngBuffer, {
-      access: 'public', token: env.BLOB_READ_WRITE_TOKEN, contentType: 'image/png',
+    const obj = await putObject(`covers/html-${Date.now()}.png`, pngBuffer, {
+      contentType: 'image/png',
     });
-    console.log(`[playwrightRenderer] HTML template ${W}×${H} → ${blob.url}`);
-    return { bannerUrl: blob.url, coverBaseUrl: null };
+    console.log(`[playwrightRenderer] HTML template ${W}×${H} → ${obj.url}`);
+    return { bannerUrl: obj.url, coverBaseUrl: null };
   } catch (err) {
     console.warn('[playwrightRenderer] Blob upload failed:', (err as Error).message);
     return null;

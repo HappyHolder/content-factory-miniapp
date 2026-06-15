@@ -61,8 +61,13 @@ export const env = {
   // Set higher than your HTTP gateway timeout if you want to see the result;
   // keep lower if you prefer a fast explicit failure over a gateway 502.
   // Default: 120 000 ms (2 min). Override via IMAGE_GENERATION_POLL_TIMEOUT_MS.
-  // Vercel Blob — optional; upload endpoint returns 503 if absent
-  BLOB_READ_WRITE_TOKEN: process.env['BLOB_READ_WRITE_TOKEN'] ?? '',
+  // Local filesystem object storage (replaces Vercel Blob).
+  // STORAGE_DIR: where uploaded/generated files are written (a Docker volume in
+  // prod). PUBLIC_BASE_URL: the public origin those files are served from, used
+  // to build the URLs stored in the DB and sent to Telegram — set it to the real
+  // https://<domain> in production.
+  STORAGE_DIR:     process.env['STORAGE_DIR']     ?? path.resolve(process.cwd(), 'uploads'),
+  PUBLIC_BASE_URL: (process.env['PUBLIC_BASE_URL'] ?? 'http://localhost:8787').replace(/\/+$/, ''),
   IMAGE_GENERATION_POLL_TIMEOUT_MS:
     parseInt(process.env['IMAGE_GENERATION_POLL_TIMEOUT_MS'] ?? '300000', 10),
   ADMIN_TELEGRAM_IDS,
