@@ -213,6 +213,8 @@ export interface GeneratedPost {
   publishedAt?: Date
   textRegensUsed?: number
   imageRegensUsed?: number
+  coverMode?: 'ai' | 'html' | 'ai_html'
+  coverAspectRatio?: CoverAspectRatio
 }
 
 // Represents a bot-saved source input returned by POST /api/sources.

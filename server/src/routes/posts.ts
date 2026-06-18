@@ -322,6 +322,8 @@ router.post('/list', async (req: Request, res: Response): Promise<void> => {
       publishedAt:       post.publishedAt?.toISOString() ?? null,
       textRegensUsed:    post.textRegensUsed,
       imageRegensUsed:   post.imageRegensUsed,
+      coverMode:         post.coverMode,
+      coverAspectRatio:  post.coverAspectRatio,
     })),
   });
 });
@@ -1034,6 +1036,8 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
       sourceSummary:   string | null;
       imagePrompt:     string | null;
       imageRegensUsed: number;
+      coverMode:       string | null;
+      coverAspectRatio:string | null;
       channel: {
         userId:   string;
         brandKit: { visualKit: unknown } | null;
@@ -1056,6 +1060,8 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
             sourceSummary:   true,
             imagePrompt:     true,
             imageRegensUsed: true,
+            coverMode:       true,
+            coverAspectRatio:true,
             channel: {
               select: {
                 userId:   true,
@@ -1087,9 +1093,9 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   // generic neural image, so it is disabled for HTML-mode channels.
   {
     const vk = variant.generatedPost.channel.brandKit?.visualKit;
-    const mode = (vk && typeof vk === 'object')
+    const mode = variant.generatedPost.coverMode ?? ((vk && typeof vk === 'object')
       ? (vk as Record<string, unknown>)['coverMode']
-      : undefined;
+      : undefined);
     if (mode === 'html' || mode === 'ai_html') {
       res.status(403).json({
         error: 'Перегенерация визуала недоступна в этом режиме обложек.',
@@ -1114,6 +1120,14 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   // Priority: saved imagePrompt → AI-generated → simple title fallback.
   // Never uses variantText (post body prose renders as visible text on image).
   const visualKit = variant.generatedPost.channel.brandKit?.visualKit ?? undefined;
+  const vkObj = visualKit && typeof visualKit === 'object'
+    ? visualKit as Record<string, unknown>
+    : null;
+  const rawAspectRatio = variant.generatedPost.coverAspectRatio ?? vkObj?.['aspectRatio'];
+  const aspectRatio: '1:1' | '16:9' | '4:5' | '9:16' =
+    rawAspectRatio === '16:9' || rawAspectRatio === '4:5' || rawAspectRatio === '9:16'
+      ? rawAspectRatio
+      : '1:1';
 
   let prompt = buildVisualPromptFromVariant({
     savedImagePrompt: variant.generatedPost.imagePrompt,
@@ -1137,7 +1151,12 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   // ── 6. Generate new image via Replicate ───────────────────────────────────
   let cover: Awaited<ReturnType<typeof generateImageForPost>> = null;
   try {
-    cover = await generateImageForPost({ prompt, visualKit, headline: variant.generatedPost.title });
+    cover = await generateImageForPost({
+      prompt,
+      visualKit,
+      aspectRatio,
+      headline: variant.generatedPost.title,
+    });
   } catch (err) {
     console.warn('[posts/regenerate-visual] generateImageForPost threw:', (err as Error).message);
   }
@@ -1384,7 +1403,11 @@ router.post(
     // Check variant belongs to user's post
     const variant = await prisma.postVariant.findUnique({
       where:  { id: variantId },
-      select: { id: true, generatedPost: { select: { channel: { select: { userId: true } } } } },
+      select: {
+        id: true,
+        generatedPostId: true,
+        generatedPost: { select: { channel: { select: { userId: true } } } },
+      },
     }).catch(() => null);
 
     if (!variant || variant.generatedPost.channel.userId !== dbUser.id) {
@@ -1405,7 +1428,10 @@ router.post(
 
     // Save to DB
     try {
-      await prisma.postVariant.update({ where: { id: variantId }, data: { bannerUrl } });
+      await prisma.postVariant.updateMany({
+        where: { generatedPostId: variant.generatedPostId },
+        data:  { bannerUrl },
+      });
     } catch (err) {
       console.error('[posts/upload-image] DB update failed:', (err as Error).message);
       res.status(500).json({ error: 'Internal server error' }); return;

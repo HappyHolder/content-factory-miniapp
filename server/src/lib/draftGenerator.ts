@@ -71,6 +71,8 @@ export interface DraftPost {
   publishedAt:       null;
   textRegensUsed:    number;
   imageRegensUsed:   number;
+  coverMode:         'ai' | 'html' | 'ai_html';
+  coverAspectRatio:  '1:1' | '16:9' | '4:5' | '9:16';
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -262,18 +264,31 @@ export async function createDraftPostForChannel(
   // Per-generation override (Create tab switch) wins over the channel setting.
   const rawCoverMode = coverModeOverride
     ?? (typeof vkObj?.['coverMode'] === 'string' ? vkObj['coverMode'] as string : 'ai');
+  const normalizedCoverMode: 'ai' | 'html' | 'ai_html' =
+    rawCoverMode === 'html' || rawCoverMode === 'ai_html' ? rawCoverMode : 'ai';
   // HTML and AI+HTML modes use Sonnet (paid); FREE tier is coerced to AI/Flux.
-  const isPaidMode = rawCoverMode === 'html' || rawCoverMode === 'ai_html';
-  const coverMode = (isPaidMode && !allowHtmlCovers) ? 'ai' : rawCoverMode;
+  const isPaidMode = normalizedCoverMode === 'html' || normalizedCoverMode === 'ai_html';
+  const coverMode: 'ai' | 'html' | 'ai_html' =
+    (isPaidMode && !allowHtmlCovers) ? 'ai' : normalizedCoverMode;
   if (isPaidMode && !allowHtmlCovers) {
     console.warn('[draftGenerator] Paid cover mode not allowed on this plan — using AI/Flux');
   }
-  const aspectRatio = (typeof vkObj?.['aspectRatio'] === 'string'
-    ? vkObj['aspectRatio'] : '1:1') as '1:1' | '16:9' | '4:5' | '9:16';
+  const rawAspectRatio = vkObj?.['aspectRatio'];
+  const aspectRatio: '1:1' | '16:9' | '4:5' | '9:16' =
+    rawAspectRatio === '16:9' || rawAspectRatio === '4:5' || rawAspectRatio === '9:16'
+      ? rawAspectRatio
+      : '1:1';
   // Cover text language: 'auto' (default) follows the post language.
   const rawCoverLang = vkObj?.['coverLanguage'];
   const coverLanguage: 'ru' | 'en' | undefined =
     rawCoverLang === 'ru' || rawCoverLang === 'en' ? rawCoverLang as 'ru' | 'en' : undefined;
+
+  // Persist what this post actually used. The channel setting may change later,
+  // and Create can override it for a single generation.
+  await prisma.generatedPost.update({
+    where: { id: dbPost.id },
+    data:  { coverMode, coverAspectRatio: aspectRatio },
+  });
 
   // ── AI+HTML hybrid: Flux themed background + channel-styled overlay on top ──
   if (coverMode === 'ai_html' && useBrandKit && vkObj) {
@@ -325,7 +340,7 @@ export async function createDraftPostForChannel(
       if (bgPrompt) {
         for (let attempt = 1; attempt <= 2 && !bgUrl; attempt++) {
           try {
-            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, backgroundOnly: true });
+            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true });
             bgUrl = bg?.bannerUrl ?? null;
             if (!bgUrl) console.warn(`[draftGenerator] Hybrid: Flux bg attempt ${attempt} returned no image`);
           } catch (err) {
@@ -546,6 +561,7 @@ export async function createDraftPostForChannel(
         cover = await generateImageForPost({
           prompt:   resolvedImagePrompt,
           visualKit,
+          aspectRatio,
           headline: aiHeadline,
         });
       } catch (err) {
@@ -605,5 +621,7 @@ export async function createDraftPostForChannel(
     publishedAt:       null,
     textRegensUsed:    0,
     imageRegensUsed:   0,
+    coverMode,
+    coverAspectRatio: aspectRatio,
   };
 }

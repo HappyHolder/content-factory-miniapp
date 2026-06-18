@@ -186,6 +186,7 @@ export function buildVisualKitPromptHints(visualKit: unknown): string {
 export interface GenerateImageInput {
   prompt:     string;
   visualKit?: unknown;
+  aspectRatio?: '1:1' | '16:9' | '4:5' | '9:16';
   /**
    * Short headline (usually the post title) to overlay on the cover as real,
    * crisp text via sharp — only applied when visualKit.textOnCover !== false.
@@ -242,6 +243,11 @@ export async function generateImageForPost(
   const vkObj = (input.visualKit && typeof input.visualKit === 'object')
     ? input.visualKit as Record<string, unknown>
     : null;
+  const rawAspectRatio = input.aspectRatio ?? vkObj?.['aspectRatio'];
+  const aspectRatio: '1:1' | '16:9' | '4:5' | '9:16' =
+    rawAspectRatio === '16:9' || rawAspectRatio === '4:5' || rawAspectRatio === '9:16'
+      ? rawAspectRatio
+      : '1:1';
   const brandTokens = buildVisualKitPromptHints(input.visualKit);
   const logoUrl = !input.backgroundOnly
     && typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
@@ -281,23 +287,28 @@ export async function generateImageForPost(
   // gpt-image uses `image: string`.
   const isGptImage  = model.includes('gpt-image');
   const isFlux2Max  = model.includes('flux-2-max');
+  const gptImageSize = aspectRatio === '16:9'
+    ? '1536x1024'
+    : aspectRatio === '4:5' || aspectRatio === '9:16'
+      ? '1024x1536'
+      : '1024x1024';
   const modelInput: Record<string, unknown> = isGptImage
     ? {
         prompt,
-        size:    '1024x1024',
+        size:    gptImageSize,
         quality: 'high',
         ...(refImageUrl ? { image: refImageUrl } : {}),
       }
     : isFlux2Max
     ? {
         prompt,
-        aspect_ratio: '1:1',
+        aspect_ratio: aspectRatio,
         resolution:   '1 MP',
         ...(refImageUrl ? { input_images: [refImageUrl] } : {}),
       }
     : {
         prompt,
-        aspect_ratio: '1:1',
+        aspect_ratio: aspectRatio,
         ...(refImageUrl ? { image: refImageUrl, prompt_strength: 0.35 } : {}),
       };
 

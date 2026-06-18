@@ -132,6 +132,8 @@ interface ListApiPost {
   publishedAt:       string | null
   textRegensUsed:    number
   imageRegensUsed:   number
+  coverMode:         'ai' | 'html' | 'ai_html' | null
+  coverAspectRatio:  '1:1' | '16:9' | '4:5' | '9:16' | null
 }
 
 function mapListPost(p: ListApiPost): GeneratedPost {
@@ -152,6 +154,8 @@ function mapListPost(p: ListApiPost): GeneratedPost {
     publishedAt:       p.publishedAt != null ? new Date(p.publishedAt) : undefined,
     textRegensUsed:    p.textRegensUsed,
     imageRegensUsed:   p.imageRegensUsed,
+    coverMode:         p.coverMode ?? undefined,
+    coverAspectRatio:  p.coverAspectRatio ?? undefined,
   }
 }
 

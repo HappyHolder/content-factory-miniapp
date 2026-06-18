@@ -27,7 +27,7 @@ const MAX_TEXT_REGENS = 3
 const MAX_IMAGE_REGENS = 3
 
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
-  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost, updateVariantBannerUrl, deletePost } = useApp()
+  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost, deletePost } = useApp()
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
@@ -57,8 +57,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   ) || []
   // HTML / AI+HTML cover modes → visual regeneration (Flux) and the cover-text
   // overlay editor are disabled (the cover is composed, not a Flux+sharp overlay).
-  const isHtmlCoverMode = brandKit?.visualKit?.coverMode === 'html'
-    || brandKit?.visualKit?.coverMode === 'ai_html'
+  const effectiveCoverMode = post.coverMode ?? brandKit?.visualKit?.coverMode ?? 'ai'
+  const isHtmlCoverMode = effectiveCoverMode === 'html' || effectiveCoverMode === 'ai_html'
+  const coverAspectRatio = post.coverAspectRatio ?? brandKit?.visualKit?.aspectRatio ?? '1:1'
+  const coverCssAspectRatio = coverAspectRatio.replace(':', ' / ')
 
   // Per-post regeneration remaining counts
   const textRegensLeft  = Math.max(0, MAX_TEXT_REGENS  - (post.textRegensUsed  ?? 0))
@@ -276,7 +278,9 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
       if (displayBannerUrl && displayBannerUrl !== data.bannerUrl) {
         setBannerHistory(h => [...h, displayBannerUrl])
       }
-      updateVariantBannerUrl(post.id, selectedVariant.id, data.bannerUrl)
+      updatePost(post.id, {
+        variants: post.variants.map(v => ({ ...v, bannerUrl: data.bannerUrl })),
+      })
       showToast('Картинка прикреплена!')
       setOpenSection('banner')
     } catch {
@@ -481,8 +485,8 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                     <img
                       src={displayBannerUrl}
                       alt={post.title}
-                      className="w-full rounded-[14px] object-cover"
-                      style={{ aspectRatio: '1 / 1' }}
+                      className="w-full rounded-[14px] object-contain bg-black"
+                      style={{ aspectRatio: coverCssAspectRatio }}
                     />
                     <Button
                       variant="secondary"
