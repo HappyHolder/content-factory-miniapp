@@ -25,18 +25,28 @@ interface ChatScreenProps {
   setHistoryLoaded: React.Dispatch<React.SetStateAction<boolean>>
   onSend: (text: string) => void
   loading: boolean
+  /** True while the AI tab is the visible one. The screen stays mounted (hidden)
+   *  when other tabs are active, so we use this to re-pin to the bottom on entry. */
+  active: boolean
   onBack: () => void
   onScrollBtnChange: (visible: boolean, scrollFn: () => void) => void
 }
 
-export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, loading, onBack, onScrollBtnChange }: ChatScreenProps) {
+export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, loading, active, onBack, onScrollBtnChange }: ChatScreenProps) {
   const { activeChannel, authStatus } = useApp()
   const bottomRef    = useRef<HTMLDivElement>(null)
   const scrollRef    = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
 
   const scrollToBottom = useCallback((smooth = true) => {
-    bottomRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
+    if (smooth) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    } else {
+      // Direct scrollTop is reliable even in older webviews where
+      // scrollIntoView({behavior:'instant'}) is a no-op.
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    }
   }, [])
 
   // Show/hide scroll-to-bottom button based on scroll position
@@ -69,6 +79,19 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
         setTimeout(() => scrollToBottom(false), 50)
       })
   }, [authStatus, historyLoaded, setHistoryLoaded, setMessages, scrollToBottom])
+
+  // Re-pin to the bottom whenever the AI tab becomes visible. The screen is kept
+  // mounted but display:none while other tabs are active, so its scroll position
+  // isn't restored on return — and a hidden container can't be measured. Two rAFs
+  // wait for layout after it becomes visible, then jump to the latest message.
+  useEffect(() => {
+    if (!active || !historyLoaded) return
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => scrollToBottom(false))
+    })
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2) }
+  }, [active, historyLoaded, scrollToBottom])
 
   // Auto-scroll on new message / loading indicator
   useEffect(() => {

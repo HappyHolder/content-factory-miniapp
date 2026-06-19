@@ -27,8 +27,16 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
   // FREE users have no AI input — keep the bar in normal tabs mode on the AI tab.
   const isAI = active === 'ai' && aiEnabled
   const [input, setInput] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const prevIsAI = useRef(false)
+
+  // Auto-grow the textarea up to ~5 lines, then scroll internally.
+  const autoGrow = () => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+  }
   // Track if we've mounted — skip animation on first render
   const mounted = useRef(false)
 
@@ -55,15 +63,22 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
     if (!input.trim() || aiLoading) return
     onAISend(input.trim())
     setInput('')
+    if (inputRef.current) inputRef.current.style.height = 'auto'
   }
 
   return (
     <nav
       className={cn(
-        'bottom-nav flex items-center',
-        isAI ? 'px-4' : 'px-2'
+        'bottom-nav flex',
+        isAI ? 'px-4 items-end' : 'px-2 items-center'
       )}
-      style={{ transition: 'padding 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+      style={{
+        transition: 'padding 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        // In AI mode let the bar grow upward with the textarea (pill → rounded box).
+        ...(isAI
+          ? { height: 'auto', minHeight: '58px', borderRadius: '26px', paddingTop: '8px', paddingBottom: '8px' }
+          : {}),
+      }}
     >
       {/* Scroll-to-bottom button — absolute inside fixed nav = perfectly centered above bar */}
       <AnimatePresence>
@@ -92,7 +107,7 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
           /* ── AI input mode ── */
           <motion.div
             key="ai-input"
-            className="flex items-center gap-2 w-full"
+            className="flex items-end gap-2 w-full"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -107,13 +122,16 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
               <Bot size={14} className="text-[#FF6A00]" />
             </motion.div>
 
-            <input
+            <textarea
               ref={inputRef}
               value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSend()}
+              rows={1}
+              onChange={e => { setInput(e.target.value); autoGrow() }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+              }}
               placeholder="Напиши сообщение…"
-              className="flex-1 bg-transparent text-[13px] text-white placeholder:text-[#55555D] outline-none min-w-0"
+              className="flex-1 bg-transparent text-[13px] leading-[1.4] text-white placeholder:text-[#55555D] outline-none min-w-0 resize-none overflow-y-auto no-scrollbar py-1 max-h-[120px]"
             />
 
             <motion.button

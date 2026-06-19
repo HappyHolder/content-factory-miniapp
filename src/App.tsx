@@ -145,6 +145,7 @@ function AppContent() {
                   setHistoryLoaded={setChatHistoryLoaded}
                   onSend={sendChatMessage}
                   loading={chatLoading}
+                  active={activeTab === 'ai'}
                   onBack={() => { setActiveTab('posts'); setShowChatScrollBtn(false) }}
                   onScrollBtnChange={(visible, fn) => { setShowChatScrollBtn(visible); chatScrollFn.current = fn }}
                 />
