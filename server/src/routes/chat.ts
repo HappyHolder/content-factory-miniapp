@@ -147,9 +147,22 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
   const canSearch = !!env.TAVILY_API_KEY;
 
+  // Anchor the model to the real current date. Without this it falls back to its
+  // training cutoff and gets the year/month wrong — and builds web_search queries
+  // for the wrong year (e.g. returning last edition of a tournament).
+  const now = new Date();
+  const MSK_TZ = 'Europe/Moscow';
+  const todayLine = now.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: MSK_TZ,
+  });
+  const currentYear = Number(now.toLocaleDateString('en-US', { year: 'numeric', timeZone: MSK_TZ }));
+
   const systemPrompt =
     `You are a personal AI content assistant inside the "Publium" Telegram Mini App.\n` +
     (userName ? `You are talking with ${userName}.\n` : '') +
+    `\nCURRENT DATE: today is ${todayLine} (Moscow time, MSK). The current year is ${currentYear}. ` +
+    `This is the single source of truth for the date — use it for anything about "today", "now", "current", "this year", or "this season". ` +
+    `Do NOT rely on your own memory for the date; your training data is older than today.\n` +
     `\nThe user manages ${allChannels.length} Telegram channel(s). Currently active: ${activeLabel}.\n` +
     `\nAll connected channels and their styles:\n${channelsSummary}\n` +
     `\nYou help with: content ideas, post drafts, image prompts, content strategy, audience engagement, post editing.\n` +
@@ -157,7 +170,9 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     `If the user asks about a different channel, switch context accordingly.\n` +
     `Always respond in the same language the user writes in.\n` +
     (canSearch
-      ? `You can search the web with the web_search tool for fresh or factual information (news, prices, recent events, statistics). Use it when the user asks about something current or you are not sure of a fact, then answer in your own words and briefly mention the sources.\n`
+      ? `You have a web_search tool. You do NOT inherently know anything that happened after your training cutoff, including recent or live events. ` +
+        `For ANYTHING time-sensitive or factual — sports fixtures/scores, news, prices, "what is happening now", recent statistics, "latest" anything — you MUST call web_search before answering, and you MUST build the query using the current year ${currentYear} (e.g. "FIFA World Cup ${currentYear} schedule") rather than a year from memory. ` +
+        `Never answer such questions from memory. After searching, answer in your own words and briefly mention the sources. If the search returns nothing useful, say so plainly instead of guessing.\n`
       : '') +
     `Be concise, practical, and creative. Give actionable advice.`;
 
