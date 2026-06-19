@@ -308,6 +308,7 @@ export const ru: Dict = {
       language:         'Язык',
       langRU:           'Русский',
       langEN:           'English',
+      langBI:           '🇷🇺+🇬🇧 Два языка',
       addressStyle:     'Стиль обращения',
       addressTy:        'ты (неформально)',
       addressVy:        'вы (формально)',

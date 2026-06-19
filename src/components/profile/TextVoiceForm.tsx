@@ -65,6 +65,7 @@ export function TextVoiceForm({ channelId, initialVoice }: TextVoiceFormProps) {
         options={[
           { value: 'RU', label: t('channelStyle.textVoice.langRU') },
           { value: 'EN', label: t('channelStyle.textVoice.langEN') },
+          { value: 'BI', label: t('channelStyle.textVoice.langBI') },
         ]}
       />
 

@@ -5,7 +5,7 @@ export type SourceType = 'bot' | 'link' | 'prompt' | 'text' | 'photo' | 'forward
 export type Tone = 'expert' | 'calm' | 'founder' | 'crypto' | 'bold' | 'meme' | 'any'
 export type PostLength = 'short' | 'medium' | 'long' | 'any'
 export type AddressStyle = 'ты' | 'вы' | 'any'
-export type Language = 'RU' | 'EN'
+export type Language = 'RU' | 'EN' | 'BI'
 export type LinkUsage = 'inline' | 'button' | 'signature' | 'when_relevant' | 'always'
 export type BannerTemplate = 'dark_glass' | 'minimal' | 'branded' | 'news'
 

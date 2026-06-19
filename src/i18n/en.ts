@@ -308,6 +308,7 @@ export const en = {
       language:         'Language',
       langRU:           'Russian',
       langEN:           'English',
+      langBI:           '🇷🇺+🇬🇧 Bilingual',
       addressStyle:     'Address style',
       addressTy:        'ты (informal)',
       addressVy:        'вы (formal)',

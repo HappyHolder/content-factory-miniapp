@@ -58,15 +58,9 @@ function buildPlaceholderVariants(input: string): VariantDraft[] {
     `→ The details will determine the outcome\n\n` +
     `More signal, less noise.`;
 
-  const textC =
-    `${short}\n\n` +
-    `Here's the real point: this changes the picture.\n\n` +
-    `Not hype. Signal worth tracking.`;
-
   return [
     { label: 'Variant A', text: textA },
     { label: 'Variant B', text: textB },
-    { label: 'Variant C', text: textC },
   ];
 }
 
@@ -278,10 +272,19 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
     );
   } else if (language === 'EN') {
     systemParts.push('Write ENTIRELY in English.');
+  } else if (language === 'BI') {
+    // Bilingual: each variant carries the SAME post in both languages, stacked.
+    systemParts.push(
+      'Write each variant BILINGUALLY in one post: first the full post in Russian, then a separator line, then the SAME post in English. ' +
+      'Both language versions must say the same thing and follow the channel style. ' +
+      'Format the "text" field of every variant EXACTLY as:\n' +
+      '<full Russian post>\n\n———\n\n<full English post>\n' +
+      'Use exactly "———" as the separator between the two languages. Do NOT prefix the versions with language labels like "RU:"/"EN:".'
+    );
   }
 
-  // Address style hard constraint (meaningful only for Russian)
-  if (language === 'RU') {
+  // Address style hard constraint (the Russian voice — also the RU half of bilingual)
+  if (language === 'RU' || language === 'BI') {
     if (addressStyle === 'ты') {
       systemParts.push('Address readers using ты (informal "you"). Use informal verb forms throughout.');
     } else if (addressStyle === 'вы') {
@@ -319,17 +322,21 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
     );
   }
 
-  // Variant diversity contract
+  // Variant contract: 2 strong, publishable variants — NOT forced format gymnastics.
+  // Forcing maximally-different formats made 1 variant fit and the rest off-style;
+  // here both must be something the owner would actually post, with only light variation.
   systemParts.push(
-    'Generate exactly 3 variants. Each variant MUST take a meaningfully different angle, format, or rhythm. ' +
-    'For example: one concise and direct, one structured with a hook and numbered or bulleted points, ' +
-    'one punchy and hook-first. Do NOT produce 3 nearly-identical versions.'
+    'Generate exactly 2 variants. Both must be strong, publishable, and fully in the channel style — ' +
+    'each one something the channel owner would actually post. ' +
+    'Vary them only lightly (a different opening hook, angle, or rhythm). ' +
+    'Do NOT force an off-style format (e.g. bullet lists or a "hook" structure) if it does not suit this channel, ' +
+    'and do NOT produce two near-identical versions.'
   );
 
   // JSON output format
   systemParts.push(
     'Return ONLY valid JSON: {"variants":[{"label":"Variant A","text":"..."},' +
-    '{"label":"Variant B","text":"..."},{"label":"Variant C","text":"..."}]}' +
+    '{"label":"Variant B","text":"..."}]}' +
     '\nDo NOT include any explanation, markdown code fences, or keys besides "variants".'
   );
 
@@ -345,7 +352,7 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
     userParts.push(`=== Channel Style Profile ===\n${context}`);
   }
 
-  userParts.push(`=== Content to transform into 3 post variants ===\n${input}`);
+  userParts.push(`=== Content to transform into 2 post variants ===\n${input}`);
 
   const userPrompt = userParts.join('\n\n');
 
@@ -416,13 +423,14 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
 
   const variants = (parsed as { variants: unknown[] })['variants'];
 
-  if (variants.length !== 3) {
-    console.error(`[aiGenerator] DeepSeek returned ${variants.length} variants (expected 3) — falling back`);
+  if (variants.length === 0) {
+    console.error('[aiGenerator] DeepSeek returned no variants — falling back');
     return buildPlaceholderVariants(input);
   }
 
+  // Expect 2; take the first 2 valid ones (tolerate a model that returns more).
   const drafts: VariantDraft[] = [];
-  for (const v of variants) {
+  for (const v of variants.slice(0, 2)) {
     if (
       !v ||
       typeof v !== 'object' ||
@@ -1001,12 +1009,12 @@ export async function selectHtmlTemplate(
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 /**
- * Returns 3 VariantDraft objects.
+ * Returns up to 2 VariantDraft objects.
  *
  * - AI_PROVIDER=placeholder (default): returns deterministic templates, no network call.
  * - AI_PROVIDER=deepseek: calls DeepSeek API with full Channel Style context;
- *   falls back to placeholder on any error (non-200, timeout, bad JSON, wrong
- *   variant count, invalid shape).
+ *   falls back to placeholder on any error (non-200, timeout, bad JSON,
+ *   empty/invalid variants).
  */
 export async function generatePostVariants(params: GenerateParams): Promise<VariantDraft[]> {
   if (env.AI_PROVIDER === 'deepseek') {
