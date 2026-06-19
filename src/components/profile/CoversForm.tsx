@@ -54,9 +54,11 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   // HTML cover mode is a paid feature — locked on the FREE plan.
   const canUseHtml = state.user.subscription.planTier !== 'free'
 
-  // On first render, if brandColors is absent, seed from legacy primaryColor/secondaryColor.
+  // Seed brandColors from legacy primaryColor/secondaryColor ONLY when the key is
+  // absent. An explicitly-saved array (even empty) is authoritative — otherwise
+  // deleting all colors would be re-seeded from the legacy fields on every reopen.
   const [data, setData] = useState<VisualKit>(() => {
-    if (initialData.brandColors && initialData.brandColors.length > 0) return initialData
+    if (Array.isArray(initialData.brandColors)) return initialData
     const derived = deriveInitialBrandColors(initialData, language === 'ru')
     return derived.length > 0 ? { ...initialData, brandColors: derived } : initialData
   })
@@ -121,8 +123,11 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   const handleSave = () => {
     const saveData = { ...data }
     const colors = saveData.brandColors ?? []
-    if (colors[0]?.hex && isValidHex(colors[0].hex)) saveData.primaryColor = colors[0].hex
-    if (colors[1]?.hex && isValidHex(colors[1].hex)) saveData.secondaryColor = colors[1].hex
+    // Keep legacy primary/secondary in sync — and CLEAR them (empty = "no color",
+    // every consumer hex-validates) when their token is gone, otherwise a removed
+    // color is re-seeded from these fields on reopen.
+    saveData.primaryColor   = colors[0]?.hex && isValidHex(colors[0].hex) ? colors[0].hex : ''
+    saveData.secondaryColor = colors[1]?.hex && isValidHex(colors[1].hex) ? colors[1].hex : ''
     updateBrandKit(channelId, { visualKit: saveData })
   }
 
