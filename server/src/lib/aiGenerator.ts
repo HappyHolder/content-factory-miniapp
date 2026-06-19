@@ -242,6 +242,18 @@ function buildStyleContext(brandKit: unknown): StyleContext {
   return { context: lines.join('\n'), language, addressStyle, signatureBlock, signatureUsage, customNote: customNotes.join('\n'), examplePosts };
 }
 
+/**
+ * Pulls a JSON object out of a model response that may be wrapped in markdown
+ * code fences or carry stray prose around it. Returns the outermost {…} slice.
+ */
+function extractJsonObject(raw: string): string {
+  let s = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  const start = s.indexOf('{');
+  const end   = s.lastIndexOf('}');
+  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  return s;
+}
+
 async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraft[]> {
   const { input, sourceType, channel, brandKit } = params;
 
@@ -361,6 +373,7 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
   const timeoutId  = setTimeout(() => controller.abort(), 30_000);
 
   let raw: string;
+  let finishReason = '';
   try {
     const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
       method:  'POST',
@@ -376,7 +389,10 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
           { role: 'system', content: systemPrompt },
           { role: 'user',   content: userPrompt   },
         ],
-        max_tokens:  2048,
+        // 4096 (not 2048): bilingual variants carry the post in BOTH languages,
+        // so 2 variants can exceed 2048 tokens. Truncated output is invalid JSON
+        // and silently fell back to the placeholder.
+        max_tokens:  4096,
         // 0.7 + top_p 0.9 (DeepSeek's recommended range for grounded copy) —
         // 0.8 with no top_p let the model drift into generic "AI" filler.
         temperature: 0.7,
@@ -391,9 +407,10 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
     }
 
     const data = await response.json() as {
-      choices?: { message?: { content?: string } }[];
+      choices?: { message?: { content?: string }; finish_reason?: string }[];
     };
     raw = data.choices?.[0]?.message?.content ?? '';
+    finishReason = data.choices?.[0]?.finish_reason ?? '';
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     // AbortError = timeout; log message only, no key or token exposure
@@ -406,9 +423,14 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
   // ── Parse and validate the JSON response ──────────────────────────────────
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(extractJsonObject(raw));
   } catch {
-    console.error('[aiGenerator] DeepSeek response is not valid JSON — falling back to placeholder');
+    // Log finish_reason + the response tail so truncation (finish_reason:"length")
+    // vs malformed output is diagnosable instead of silently degrading.
+    console.error(
+      `[aiGenerator] DeepSeek response is not valid JSON — falling back to placeholder ` +
+      `(finish_reason=${finishReason || 'n/a'}, len=${raw.length}, tail=${JSON.stringify(raw.slice(-160))})`
+    );
     return buildPlaceholderVariants(input);
   }
 
