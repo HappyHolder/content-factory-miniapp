@@ -1,6 +1,8 @@
 // Thin wrappers over the Telegram Bot API using native fetch (no extra deps).
 // All functions throw TelegramApiError on a non-ok response.
 
+import { env } from '../env';
+
 const TG_API = 'https://api.telegram.org';
 
 // ─── Response shapes ──────────────────────────────────────────────────────────
@@ -116,9 +118,22 @@ export interface TelegramWebAppKeyboard {
 export type AnyInlineKeyboard = TelegramInlineKeyboard | TelegramWebAppKeyboard;
 
 /**
+ * Telegram Bot API LinkPreviewOptions (Bot API ≥ 7.0). Lets us attach a large
+ * preview card (our OG page → cover image) to a plain text message and place it
+ * above the text. `url` need not appear in the text itself.
+ */
+export interface LinkPreviewOptions {
+  url:                  string;
+  prefer_large_media?:  boolean;
+  show_above_text?:     boolean;
+  is_disabled?:         boolean;
+}
+
+/**
  * Sends a plain-text message to a Telegram chat via sendMessage.
  * chatId may be a numeric user/chat ID or a public username string ("@channelname").
  * Pass replyMarkup to attach an inline keyboard (link buttons) to the message.
+ * Pass linkPreview to render a preview card (e.g. the cover as a large preview).
  * Throws TelegramApiError on a non-ok response or network failure.
  * Never logs the token.
  */
@@ -127,6 +142,7 @@ export async function sendBotMessage(
   text: string,
   token: string,
   replyMarkup?: AnyInlineKeyboard,
+  linkPreview?: LinkPreviewOptions,
 ): Promise<void> {
   const url = `${TG_API}/bot${token}/sendMessage`;
   let res: Response;
@@ -138,6 +154,7 @@ export async function sendBotMessage(
         chat_id: chatId,
         text,
         ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+        ...(linkPreview ? { link_preview_options: linkPreview } : {}),
       }),
     });
   } catch (err) {
@@ -153,13 +170,14 @@ export async function sendBotMessage(
   }
 }
 
-// ─── Photo caption limit ──────────────────────────────────────────────────────
-// Telegram enforces a 1 024-character limit on sendPhoto captions.
-// Posts longer than this are truncated to 1 021 chars + "…" rather than
-// failing the publish. The full text is not sent in a follow-up message
-// (multi-message threading is out of scope for Phase 2 MVP).
+// ─── Telegram length limits ─────────────────────────────────────────────────
+// sendPhoto caption ≤ 1 024 chars; sendMessage text ≤ 4 096 chars.
+// Short posts ride along as a photo caption (native attached image). Longer
+// posts are sent as a full text message with the cover shown as a large
+// link-preview card (see sendChannelPost), so no content is lost.
 
 const TELEGRAM_CAPTION_LIMIT = 1_024;
+const TELEGRAM_MESSAGE_LIMIT = 4_096;
 
 /**
  * Truncates post text to fit the Telegram photo caption limit.
@@ -168,6 +186,53 @@ const TELEGRAM_CAPTION_LIMIT = 1_024;
 export function buildPhotoCaption(text: string): string {
   if (text.length <= TELEGRAM_CAPTION_LIMIT) return text;
   return text.slice(0, TELEGRAM_CAPTION_LIMIT - 1) + '…';
+}
+
+/** Truncates post text to the Telegram sendMessage limit (4 096 chars). */
+export function buildMessageText(text: string): string {
+  if (text.length <= TELEGRAM_MESSAGE_LIMIT) return text;
+  return text.slice(0, TELEGRAM_MESSAGE_LIMIT - 1) + '…';
+}
+
+/**
+ * Builds the public URL of our OG preview page for a given cover image. Telegram
+ * fetches this page, reads its og:image (the cover) and renders a large preview
+ * card. Keyed by the cover URL so each post gets a unique, non-stale preview.
+ */
+export function buildOgPageUrl(imageUrl: string, title?: string): string {
+  const params = new URLSearchParams({ i: imageUrl });
+  if (title && title.trim()) params.set('t', title.trim().slice(0, 200));
+  return `${env.PUBLIC_BASE_URL}/api/og?${params.toString()}`;
+}
+
+/**
+ * Publishes a post to a channel, choosing the right Telegram method:
+ *   • cover + text ≤ 1024  → sendPhoto with the text as caption (native photo)
+ *   • cover + text > 1024  → sendMessage with full text + the cover as a large
+ *                            link-preview card above it (no content truncated)
+ *   • no cover             → plain sendMessage
+ * Throws TelegramApiError on failure (callers handle retry / status).
+ */
+export async function sendChannelPost(params: {
+  chatId:      number | string;
+  text:        string;
+  bannerUrl:   string | null;
+  title?:      string;
+  token:       string;
+  replyMarkup?: AnyInlineKeyboard;
+}): Promise<void> {
+  const { chatId, text, bannerUrl, title, token, replyMarkup } = params;
+
+  if (bannerUrl && text.length <= TELEGRAM_CAPTION_LIMIT) {
+    await sendBotPhoto(chatId, bannerUrl, text, token, replyMarkup);
+    return;
+  }
+
+  const linkPreview: LinkPreviewOptions | undefined = bannerUrl
+    ? { url: buildOgPageUrl(bannerUrl, title), prefer_large_media: true, show_above_text: true }
+    : undefined;
+
+  await sendBotMessage(chatId, buildMessageText(text), token, replyMarkup, linkPreview);
 }
 
 /**

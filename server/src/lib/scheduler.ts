@@ -18,7 +18,7 @@
 
 import { prisma } from '../db';
 import { env } from '../env';
-import { sendBotMessage, sendBotPhoto, TelegramInlineKeyboard } from './telegramBot';
+import { sendChannelPost, TelegramInlineKeyboard } from './telegramBot';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +49,7 @@ async function publishDuePosts(): Promise<void> {
   // ── Find all due posts ────────────────────────────────────────────────────
   let duePosts: {
     id:                string;
+    title:             string;
     selectedVariantId: string | null;
     linkButtons:       unknown;
     channel:           { handle: string | null };
@@ -63,6 +64,7 @@ async function publishDuePosts(): Promise<void> {
       },
       select: {
         id:                true,
+        title:             true,
         selectedVariantId: true,
         linkButtons:       true,
         channel: {
@@ -123,24 +125,17 @@ async function publishDuePosts(): Promise<void> {
       }
     }
 
-    // Send to Telegram — photo if bannerUrl present, otherwise plain text
+    // Send to Telegram — short post → native photo+caption; long post → full
+    // text message with the cover as a large preview card (sendChannelPost).
     try {
-      if (selectedVariant.bannerUrl) {
-        await sendBotPhoto(
-          `@${post.channel.handle}`,
-          selectedVariant.bannerUrl,
-          selectedVariant.text,
-          env.TELEGRAM_BOT_TOKEN,
-          replyMarkup,
-        );
-      } else {
-        await sendBotMessage(
-          `@${post.channel.handle}`,
-          selectedVariant.text,
-          env.TELEGRAM_BOT_TOKEN,
-          replyMarkup,
-        );
-      }
+      await sendChannelPost({
+        chatId:      `@${post.channel.handle}`,
+        text:        selectedVariant.text,
+        bannerUrl:   selectedVariant.bannerUrl,
+        title:       post.title,
+        token:       env.TELEGRAM_BOT_TOKEN,
+        replyMarkup,
+      });
     } catch (err) {
       console.error(`[scheduler] Post ${post.id}: Telegram send failed — will retry next poll:`, (err as Error).message);
       // Leave status=SCHEDULED so the next sweep retries.

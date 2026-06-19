@@ -13,6 +13,7 @@ import chatRouter from './routes/chat';
 import adminRouter from './routes/admin';
 import promoRouter from './routes/promo';
 import paymentsRouter from './routes/payments';
+import ogRouter from './routes/og';
 import { startScheduler } from './lib/scheduler';
 
 const app = express();
@@ -54,6 +55,7 @@ app.use('/api/chat',      chatRouter);
 app.use('/api/admin',     adminRouter);
 app.use('/api/promo',     promoRouter);
 app.use('/api/payments',  paymentsRouter);
+app.use('/api/og',        ogRouter);
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 app.listen(env.PORT, () => {

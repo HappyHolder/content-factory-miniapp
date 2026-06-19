@@ -4,7 +4,7 @@ import { putObject } from '../lib/storage';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { sendBotMessage, sendBotPhoto, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
+import { sendChannelPost, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { generateImageForPost, buildVisualKitPromptHints, renderCoverFromBase } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
@@ -397,6 +397,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     status:            string;
     selectedVariantId: string | null;
     linkButtons:       unknown;           // Json? — LinkItem[] stored by draftGenerator
+    title:  string;
     channel: {
       userId: string;
       handle: string | null;
@@ -411,6 +412,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       select: {
         id:                true,
         status:            true,
+        title:             true,
         selectedVariantId: true,
         linkButtons:       true,
         channel: {
@@ -482,25 +484,17 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   // ── 10. Send to Telegram channel ─────────────────────────────────────────
   // DB is only updated AFTER a successful Telegram delivery so status never
   // shows PUBLISHED for a message that was never actually sent.
-  // If the selected variant has a generated image URL, use sendPhoto (with the
-  // post text as caption); otherwise fall back to plain sendMessage.
+  // sendChannelPost picks the method: short post → native photo+caption;
+  // long post → full text message with the cover as a large preview card.
   try {
-    if (selectedVariant.bannerUrl) {
-      await sendBotPhoto(
-        `@${post.channel.handle}`,
-        selectedVariant.bannerUrl,
-        selectedVariant.text,
-        env.TELEGRAM_BOT_TOKEN,
-        replyMarkup,
-      );
-    } else {
-      await sendBotMessage(
-        `@${post.channel.handle}`,
-        selectedVariant.text,
-        env.TELEGRAM_BOT_TOKEN,
-        replyMarkup,
-      );
-    }
+    await sendChannelPost({
+      chatId:      `@${post.channel.handle}`,
+      text:        selectedVariant.text,
+      bannerUrl:   selectedVariant.bannerUrl,
+      title:       post.title,
+      token:       env.TELEGRAM_BOT_TOKEN,
+      replyMarkup,
+    });
   } catch (err) {
     const msg = err instanceof TelegramApiError
       ? err.message
