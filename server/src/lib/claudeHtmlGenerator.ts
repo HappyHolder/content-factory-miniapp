@@ -74,6 +74,130 @@ function extractClassPalette(html: string): string {
   return Array.from(classes).join(' ');
 }
 
+// ─── Logo placement extraction ─────────────────────────────────────────────────
+// In AI+HTML mode the overlay model would otherwise draw the logo wherever it
+// likes (different corner/size every run, temperature > 0). Instead we read the
+// logo's geometry from the channel's template CSS and inject the brand logo with
+// exactly that placement, so it lands in the spot/size the template declares.
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Geometry declarations we carry over from the template's logo rule. */
+const LOGO_GEOM_KEYS = [
+  'position', 'top', 'right', 'bottom', 'left', 'inset',
+  'width', 'height', 'max-width', 'max-height', 'min-width', 'min-height',
+  'margin', 'transform', 'border-radius', 'object-fit',
+];
+
+/** Splits a CSS string into flat { selector, body } rules (good enough for logo lookup). */
+function parseCssRules(css: string): Array<{ selector: string; body: string }> {
+  const rules: Array<{ selector: string; body: string }> = [];
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(css))) {
+    rules.push({ selector: m[1].trim(), body: m[2].trim() });
+  }
+  return rules;
+}
+
+/** Parses a declaration block ("a:b; c:d") into a lowercased-key map. */
+function declToMap(body: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const decl of body.split(';')) {
+    const i = decl.indexOf(':');
+    if (i < 0) continue;
+    const k = decl.slice(0, i).trim().toLowerCase();
+    const v = decl.slice(i + 1).trim();
+    if (k && v) map[k] = v;
+  }
+  return map;
+}
+
+/**
+ * Reads the logo element's geometry from a channel template: finds class names
+ * containing "logo" used in the body, then merges the geometry declarations from
+ * any CSS rule targeting those classes. Returns null when the template has no
+ * recognizable logo styling (caller then uses a default top-right placement).
+ */
+function extractLogoPlacement(html: string): Record<string, string> | null {
+  const css = extractCss(html);
+  if (!css) return null;
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  const body = bodyMatch ? bodyMatch[1] : html;
+
+  const logoClasses = new Set<string>();
+  for (const m of body.matchAll(/class="([^"]*)"/g)) {
+    for (const c of m[1].split(/\s+/).filter(Boolean)) {
+      if (/logo/i.test(c)) logoClasses.add(c);
+    }
+  }
+  if (logoClasses.size === 0) return null;
+
+  const rules = parseCssRules(css);
+  const merged: Record<string, string> = {};
+  for (const cls of logoClasses) {
+    const clsRe = new RegExp(`\\.${escapeRegExp(cls)}(?![\\w-])`);
+    for (const r of rules) {
+      if (!clsRe.test(r.selector)) continue;
+      const map = declToMap(r.body);
+      for (const k of LOGO_GEOM_KEYS) {
+        if (map[k] != null) merged[k] = map[k];
+      }
+    }
+  }
+  return Object.keys(merged).length ? merged : null;
+}
+
+/**
+ * Builds the CSS body for the injected logo from extracted template geometry,
+ * filling in safe defaults (absolute position, top-right corner, ~12% width)
+ * for anything the template didn't specify.
+ */
+function buildLogoCss(decls: Record<string, string> | null, w: number, h: number): string {
+  const d: Record<string, string> = { ...(decls ?? {}) };
+  if (!/absolute|fixed/.test(d['position'] ?? '')) d['position'] = 'absolute';
+  const hasCoord = ['top', 'right', 'bottom', 'left', 'inset'].some(k => d[k]);
+  if (!hasCoord) {
+    d['top']   = `${Math.round(h * 0.05)}px`;
+    d['right'] = `${Math.round(w * 0.05)}px`;
+  }
+  const hasSize = ['width', 'height', 'max-width', 'max-height'].some(k => d[k]);
+  if (!hasSize) d['width'] = `${Math.round(w * 0.12)}px`;
+  if (!d['object-fit']) d['object-fit'] = 'contain';
+  d['z-index'] = '50';
+  return Object.entries(d).map(([k, v]) => `${k}:${v}`).join(';');
+}
+
+/**
+ * Injects the brand logo into model-generated overlay HTML at the template's
+ * declared placement. Removes any logo the model drew that points at our logo
+ * URL (so we never double it), then appends a fixed-placement <img>.
+ */
+function injectBrandLogo(
+  html: string,
+  logoUrl: string,
+  decls: Record<string, string> | null,
+  w: number,
+  h: number,
+): string {
+  let out = html.replace(
+    new RegExp(`<img[^>]*src=["']${escapeRegExp(logoUrl)}["'][^>]*>`, 'gi'),
+    '',
+  );
+  const css = `.__brandlogo{${buildLogoCss(decls, w, h)}}`;
+  const tag = `<img class="__brandlogo" src="${logoUrl}" alt="">`;
+
+  if (/<\/style>/i.test(out))          out = out.replace(/<\/style>/i, `${css}</style>`);
+  else if (/<head[^>]*>/i.test(out))   out = out.replace(/<head[^>]*>/i, `$&<style>${css}</style>`);
+  else                                 out = out.replace(/<body[^>]*>/i, `<style>${css}</style>$&`);
+
+  if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, `${tag}</body>`);
+  else                       out += tag;
+  return out;
+}
+
 // ─── Replicate polling ────────────────────────────────────────────────────────
 
 interface Prediction {
@@ -357,10 +481,15 @@ ${refCss}
 ${refBody}`
     : '';
 
+  // The logo is placed deterministically AFTER generation (injectBrandLogo) at the
+  // template's own declared position/size — never by the model, which would put it
+  // in a different corner/size every run. Read its placement from the template now.
+  const logoPlacement = input.referenceHtml ? extractLogoPlacement(input.referenceHtml) : null;
+
   const styleRule = refCss
     ? `5. The cover MUST be recognizable as THIS channel's design: reuse the template's fonts, type scale, badge/chip/card components and footer from the design system above — restyled to sit on a photo. Make panels and cards SEMI-TRANSPARENT (rgba backgrounds, backdrop-filter: blur) so the photo shows through them. Pick only the components that fit this post — do not cram in everything.
 6. FORBIDDEN: the generic "small accent bar + plain white headline" photo-caption look. That is what the cheap mode produces; you are here to lay the channel's design language over the photo.`
-    : `5. Compose a clean, branded layout in the channel's primary color: a strong punchy headline, optional one-line subheadline, a small tag/badge, and the channel logo. Give it structure (badge, headline block, footer) — not just a bare caption on a photo.
+    : `5. Compose a clean, branded layout in the channel's primary color: a strong punchy headline, optional one-line subheadline, a small tag/badge. Give it structure (badge, headline block, footer) — not just a bare caption on a photo.
 6. Use the brand primary color for accents (a tag, a highlighted word, borders) so the cover reads as branded, not as a stock photo with text.`;
 
   const systemPrompt = `You are an expert HTML/CSS designer. You build the channel's branded cover layer ON TOP of a full-bleed background photo, following the channel's own template design system when given. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
@@ -369,7 +498,6 @@ ${refBody}`
 
 BACKGROUND IMAGE URL: ${input.bgImageUrl}
 BRAND PRIMARY COLOR: ${input.primaryColor}
-${input.logoUrl ? `LOGO URL: ${input.logoUrl}` : ''}
 ${designBlock}
 
 ━━━ THIS POST ━━━
@@ -379,7 +507,7 @@ ${contentLines.join('\n')}${postBodyBlock}${artBlock}
 1. <body> is ${w}px × ${h}px, position:relative, overflow:hidden, margin:0.
 2. Set the body background to the photo, covering the whole canvas:
    background: #0b0b0f url('${input.bgImageUrl}') center/cover no-repeat;
-3. ZONING: the photo is composed with its focal subject in the UPPER part of the frame. Keep roughly the upper 40% of the canvas free of text — no headline, no badges over the photo's subject (only a small logo in a corner is allowed there). ALL text (badge, headline, subheadline, cards, footer) stacks in the LOWER part of the canvas.
+3. ZONING: the photo is composed with its focal subject in the UPPER part of the frame. Keep roughly the upper 40% of the canvas free of text — no headline, no badges over the photo's subject. Do NOT draw a logo yourself: the channel logo is added automatically afterwards at a fixed spot — just leave the top-right corner clear for it. ALL text (badge, headline, subheadline, cards, footer) stacks in the LOWER part of the canvas.
 4. Lay a continuous dark gradient scrim UNDER the whole text zone (e.g. linear-gradient(to top, rgba(0,0,0,.9) 0%, rgba(0,0,0,.6) 40%, rgba(0,0,0,0) 72%)) so EVERY word is fully readable. Large headline text must NEVER sit on a bright, unscrimmed area of the photo. Readability is the #1 rule.
 ${styleRule}
 7. Let the photo breathe — its upper half must stay clearly visible; never cover the whole canvas with an opaque panel.
@@ -412,8 +540,12 @@ ${styleRule}
     const html = raw.replace(/^```html?\s*/i, '').replace(/```\s*$/, '').trim();
     if (!html.includes('<body') && !html.startsWith('<!')) return null;
 
-    console.log(`[htmlOverlay] Generated ${html.length}-char overlay (${w}×${h}) over Flux bg`);
-    return html;
+    // Deterministic logo placement: inject at the template's declared spot/size,
+    // overriding whatever (if anything) the model drew.
+    const finalHtml = input.logoUrl ? injectBrandLogo(html, input.logoUrl, logoPlacement, w, h) : html;
+
+    console.log(`[htmlOverlay] Generated ${html.length}-char overlay (${w}×${h}) over Flux bg, logo=${input.logoUrl ? (logoPlacement ? 'template-placed' : 'default-placed') : 'none'}`);
+    return finalHtml;
   } catch (err) {
     console.warn('[htmlOverlay] Error:', (err as Error).message);
     return null;
