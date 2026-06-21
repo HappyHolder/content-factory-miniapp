@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check, Ticket, Loader2, Star } from 'lucide-react'
+import { Check, Ticket, Loader2, Star, Sparkles } from 'lucide-react'
 import { GramMark } from '@/components/icons/GramMark'
 import { useTonConnectUI } from '@tonconnect/ui-react'
 import { beginCell } from '@ton/core'
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
 import { getTelegramInitData, getTelegramUserId, openTelegramInvoice } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
-import { PLAN_PRICING, TON_RECEIVING_WALLET, tierToServer, tonToNano } from '@/lib/payments'
+import { PLAN_PRICING, PLAN_PRICING_HIGH, TON_RECEIVING_WALLET, tierToServer, tonToNano } from '@/lib/payments'
 import type { PlanTier } from '@/types'
 import type { TranslationKey } from '@/i18n'
 
@@ -77,6 +77,9 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
   const [redeeming, setRedeeming] = useState(false)
   const [payTier, setPayTier] = useState<PaidTier | null>(null)
   const [paying, setPaying] = useState(false)
+  // LOW (base models) / HIGH (premium models). HIGH is preview-only for now —
+  // the purchase path is wired in a later phase (see docs/low-high-plan.md).
+  const [variant, setVariant] = useState<'low' | 'high'>('low')
 
   // Refresh subscription from the server (after a payment) and update the UI.
   const refreshSubscription = async () => {
@@ -241,12 +244,38 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
           </div>
         </motion.div>
 
+        {/* LOW / HIGH model toggle */}
+        <div>
+          <div className="flex rounded-[14px] border border-white/[0.07] bg-[rgba(255,255,255,0.03)] p-1">
+            {(['low', 'high'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setVariant(v)}
+                className={`flex-1 py-2 rounded-[11px] text-[13px] font-semibold transition-colors ${
+                  variant === v
+                    ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00] border border-[rgba(255,106,0,0.25)]'
+                    : 'text-[#A1A1AA] border border-transparent'
+                }`}
+              >
+                {t(v === 'low' ? 'plans.modelLow' : 'plans.modelHigh')}
+              </button>
+            ))}
+          </div>
+          {variant === 'high' && (
+            <p className="mt-2 text-[11px] text-[#55555D] text-center">{t('plans.highHint')}</p>
+          )}
+        </div>
+
         {PLAN_CONFIG.map((plan, i) => {
-          const isCurrent  = plan.tier === currentTier
+          const isHigh     = variant === 'high' && plan.tier !== 'free'
+          const isCurrent  = variant === 'low' && plan.tier === currentTier
           const isUpgrade  = !isCurrent && TIER_RANK[plan.tier] > TIER_RANK[currentTier]
 
           const planName = t(plan.nameKey)
           const priceDetail = t('plans.month')
+          const displayPrice = plan.tier === 'free'
+            ? plan.price
+            : `${(variant === 'high' ? PLAN_PRICING_HIGH : PLAN_PRICING)[plan.tier as PaidTier].ton} Gram`
 
           // Resolve CTA label
           const ctaKey = isUpgrade ? plan.upgradeKey : plan.downgradeKey
@@ -283,7 +312,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                   </div>
                   <div className="flex items-baseline gap-1">
                     <span className={`text-[22px] font-bold leading-none ${isCurrent ? 'text-[#FF6A00]' : 'text-white'}`}>
-                      {plan.price}
+                      {displayPrice}
                     </span>
                     <span className="text-[12px] text-[#55555D]">{priceDetail}</span>
                   </div>
@@ -306,10 +335,36 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                       <span className="text-[13px] text-[#A1A1AA]">{t(key)}</span>
                     </li>
                   ))}
+                  {plan.tier !== 'free' && (
+                    <>
+                      <li className="pt-1.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#55555D]">
+                          {t('plans.underHood')}
+                        </span>
+                      </li>
+                      {((variant === 'high'
+                        ? ['plans.engineTextHigh', 'plans.engineCoverHigh', 'plans.engineAssistantHigh']
+                        : ['plans.engineTextLow', 'plans.engineCoverLow', 'plans.engineAssistantLow']) as TranslationKey[]
+                      ).map(key => (
+                        <li key={key} className="flex items-center gap-2">
+                          <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
+                            isHigh ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00]' : 'bg-white/[0.06] text-[#55555D]'
+                          }`}>
+                            <Sparkles size={9} strokeWidth={2.5} />
+                          </div>
+                          <span className={`text-[13px] ${isHigh ? 'text-white' : 'text-[#A1A1AA]'}`}>{t(key)}</span>
+                        </li>
+                      ))}
+                    </>
+                  )}
                 </ul>
 
                 {/* CTA */}
-                {isCurrent ? (
+                {isHigh ? (
+                  <Button variant="ghost" size="md" fullWidth disabled>
+                    {t('plans.highSoon')}
+                  </Button>
+                ) : isCurrent ? (
                   <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-[12px] bg-[rgba(255,106,0,0.08)] border border-[rgba(255,106,0,0.20)] text-[13px] font-semibold text-[#FF6A00]">
                     <Check size={13} strokeWidth={2.5} />
                     {t('plans.currentPlan')}

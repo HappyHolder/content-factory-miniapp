@@ -12,6 +12,14 @@ export const PLAN_PRICING: Record<Exclude<PlanTier, 'free'>, { stars: number; to
   studio_pro: { stars: 10000, ton: 80 },  // Agency
 }
 
+// HIGH (Premium) variant — premium models under the hood. Display-only for now;
+// the purchase path is wired in a later phase (see docs/low-high-plan.md).
+export const PLAN_PRICING_HIGH: Record<Exclude<PlanTier, 'free'>, { stars: number; ton: number }> = {
+  starter:    { stars: 900,   ton: 7   },  // Blogger HIGH
+  creator:    { stars: 2500,  ton: 20  },  // Business HIGH
+  studio_pro: { stars: 13000, ton: 105 },  // Agency HIGH
+}
+
 /** Maps the frontend planTier ('studio_pro') to the server enum ('STUDIO_PRO'). */
 export function tierToServer(tier: PlanTier): string {
   return tier.toUpperCase()
