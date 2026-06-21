@@ -51,7 +51,7 @@ router.post('/subscription', async (req: Request, res: Response): Promise<void> 
 
   const sub = await prisma.subscription.findUnique({
     where:  { userId: dbUser.id },
-    select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true, expiresAt: true },
+    select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true, expiresAt: true },
   }).catch(() => null);
   if (!sub) { res.json({ subscription: null }); return; }
 
@@ -63,7 +63,7 @@ router.post('/subscription', async (req: Request, res: Response): Promise<void> 
     aiCreatesLimit: tierState.aiCreatesLimit, aiCreatesUsed: downgraded ? 0 : sub.aiCreatesUsed,
     quotaResetAt: sub.quotaResetAt,
   });
-  res.json({ subscription: serializeSub({ tier: tierState.tier, expiresAt: tierState.expiresAt, ...fresh }) });
+  res.json({ subscription: serializeSub({ tier: tierState.tier, modelTier: downgraded ? 'LOW' : sub.modelTier, expiresAt: tierState.expiresAt, ...fresh }) });
 });
 
 // ─── POST /api/payments/stars/create-invoice ─────────────────────────────────

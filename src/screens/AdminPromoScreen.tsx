@@ -18,6 +18,7 @@ type ApiTier = 'STARTER' | 'CREATOR' | 'STUDIO_PRO'
 interface PromoRow {
   code: string
   tier: ApiTier
+  modelTier: 'LOW' | 'HIGH'
   durationDays: number
   redeemed: boolean
   redeemedAt: string | null
@@ -35,6 +36,7 @@ const TIER_OPTIONS: ApiTier[] = ['STARTER', 'CREATOR', 'STUDIO_PRO']
 export function AdminPromoScreen({ onBack }: AdminPromoScreenProps) {
   const { showToast } = useApp()
   const [tier, setTier] = useState<ApiTier>('CREATOR')
+  const [modelTier, setModelTier] = useState<'LOW' | 'HIGH'>('LOW')
   const [days, setDays] = useState('10')
   const [isCreating, setIsCreating] = useState(false)
   const [lastCode, setLastCode] = useState<string | null>(null)
@@ -78,7 +80,7 @@ export function AdminPromoScreen({ onBack }: AdminPromoScreenProps) {
       const res = await fetch(`${API_BASE}/api/admin/promo/create`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData, tier, durationDays: n }),
+        body:    JSON.stringify({ initData, tier, modelTier, durationDays: n }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string }
@@ -132,6 +134,24 @@ export function AdminPromoScreen({ onBack }: AdminPromoScreenProps) {
                   }`}
                 >
                   {TIER_LABEL[opt]}
+                </button>
+              ))}
+            </div>
+
+            {/* Model variant */}
+            <label className="text-[11px] font-semibold text-[#55555D] uppercase tracking-wider">Модель</label>
+            <div className="grid grid-cols-2 gap-1.5 mt-1.5 mb-3">
+              {(['LOW', 'HIGH'] as const).map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => setModelTier(opt)}
+                  className={`py-2 rounded-[10px] text-[12px] font-semibold border transition-colors ${
+                    modelTier === opt
+                      ? 'bg-[rgba(255,106,0,0.12)] border-[rgba(255,106,0,0.32)] text-[#FF6A00]'
+                      : 'bg-white/[0.03] border-white/[0.07] text-[#A1A1AA] hover:bg-white/[0.05]'
+                  }`}
+                >
+                  {opt === 'LOW' ? 'Базовая' : 'Премиум (HIGH)'}
                 </button>
               ))}
             </div>
@@ -192,7 +212,9 @@ export function AdminPromoScreen({ onBack }: AdminPromoScreenProps) {
                         {r.code}
                       </p>
                       <p className="text-[11px] text-[#55555D]">
-                        {TIER_LABEL[r.tier]} · {r.durationDays} дн.
+                        {TIER_LABEL[r.tier]}
+                        {r.modelTier === 'HIGH' && <span className="text-[#FF6A00] font-semibold"> · HIGH</span>}
+                        {' · '}{r.durationDays} дн.
                       </p>
                     </div>
                     {r.redeemed ? (

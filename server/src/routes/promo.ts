@@ -2,8 +2,8 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { TIER_LIMITS } from '../lib/subscriptionLimits';
-import type { PlanTier } from '@prisma/client';
+import { limitsFor } from '../lib/subscriptionLimits';
+import type { PlanTier, ModelTier } from '@prisma/client';
 
 const router = Router();
 
@@ -81,7 +81,7 @@ router.post('/redeem', async (req: Request, res: Response): Promise<void> => {
   // The conditional updateMany (WHERE redeemedAt IS NULL) is a single SQL
   // UPDATE — only one concurrent request can flip it, preventing double-redeem.
   const now = new Date();
-  let granted: { tier: PlanTier; aiPostsLimit: number; aiPostsUsed: number; aiCreatesLimit: number | null; aiCreatesUsed: number; expiresAt: Date | null } | null = null;
+  let granted: { tier: PlanTier; modelTier: ModelTier; aiPostsLimit: number; aiPostsUsed: number; aiCreatesLimit: number | null; aiCreatesUsed: number; expiresAt: Date | null } | null = null;
 
   try {
     granted = await prisma.$transaction(async (tx) => {
@@ -96,17 +96,18 @@ router.post('/redeem', async (req: Request, res: Response): Promise<void> => {
 
       const promo = await tx.promoCode.findUnique({
         where:  { code: normalized },
-        select: { tier: true, durationDays: true },
+        select: { tier: true, modelTier: true, durationDays: true },
       });
       if (!promo) throw new Error('INVALID_CODE'); // unreachable, defensive
 
-      const limits    = TIER_LIMITS[promo.tier];
+      const limits    = limitsFor(promo.tier, promo.modelTier);
       const expiresAt = addDays(now, promo.durationDays);
 
       const sub = await tx.subscription.upsert({
         where:  { userId: dbUser.id },
         update: {
           tier:           promo.tier,
+          modelTier:      promo.modelTier,
           aiPostsLimit:   limits.aiPostsLimit,
           aiCreatesLimit: limits.aiCreatesLimit,
           aiPostsUsed:    0,
@@ -117,6 +118,7 @@ router.post('/redeem', async (req: Request, res: Response): Promise<void> => {
         create: {
           userId:         dbUser.id,
           tier:           promo.tier,
+          modelTier:      promo.modelTier,
           aiPostsLimit:   limits.aiPostsLimit,
           aiCreatesLimit: limits.aiCreatesLimit,
           aiPostsUsed:    0,
@@ -124,7 +126,7 @@ router.post('/redeem', async (req: Request, res: Response): Promise<void> => {
           quotaResetAt:   addOneMonth(now),
           expiresAt,
         },
-        select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
+        select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
       });
       return sub;
     });
@@ -141,6 +143,7 @@ router.post('/redeem', async (req: Request, res: Response): Promise<void> => {
   res.json({
     subscription: {
       tier:           granted!.tier,
+      modelTier:      granted!.modelTier,
       aiPostsLimit:   granted!.aiPostsLimit,
       aiPostsUsed:    granted!.aiPostsUsed,
       aiCreatesLimit: granted!.aiCreatesLimit,

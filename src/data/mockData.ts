@@ -8,6 +8,7 @@ export const mockUser: User = {
   username: 'alexfounder',
   subscription: {
     planTier: 'creator',
+    modelTier: 'low',
     planName: 'Creator',
     billingPeriod: 'monthly',
     renewsAt: 'Jun 25',

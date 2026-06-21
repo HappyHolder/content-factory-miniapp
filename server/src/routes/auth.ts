@@ -109,13 +109,13 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
 
   // ── Upsert Subscription (create on first login, keep existing if present) ──
   let dbSubscription: {
-    tier: string; aiPostsLimit: number; aiPostsUsed: number;
+    tier: string; modelTier: string; aiPostsLimit: number; aiPostsUsed: number;
     aiCreatesLimit: number | null; aiCreatesUsed: number; expiresAt: Date | null;
   } | null = null;
   try {
     const existingSub = await prisma.subscription.findUnique({
       where:  { userId: dbUser.id },
-      select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true, expiresAt: true },
+      select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true, expiresAt: true },
     });
     if (existingSub) {
       // 1) Lazily downgrade to STARTER if a promo/paid grant has expired.
@@ -137,7 +137,8 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
         aiCreatesUsed:  downgraded ? 0 : existingSub.aiCreatesUsed,
         quotaResetAt:   existingSub.quotaResetAt,
       });
-      dbSubscription = { tier: tierState.tier, expiresAt: tierState.expiresAt, ...fresh };
+      // Downgrade to FREE drops any premium grant back to LOW.
+      dbSubscription = { tier: tierState.tier, modelTier: downgraded ? 'LOW' : existingSub.modelTier, expiresAt: tierState.expiresAt, ...fresh };
     } else {
       const limits = TIER_LIMITS['FREE'];
       const nextReset = new Date();
@@ -152,7 +153,7 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
           aiCreatesUsed:  0,
           quotaResetAt:   nextReset,
         },
-        select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
+        select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
       });
     }
   } catch (err) {
@@ -180,6 +181,7 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
     brandKits: dbBrandKits,
     subscription: dbSubscription ? {
       tier:           dbSubscription.tier,
+      modelTier:      dbSubscription.modelTier,
       aiPostsLimit:   dbSubscription.aiPostsLimit,
       aiPostsUsed:    dbSubscription.aiPostsUsed,
       aiCreatesLimit: dbSubscription.aiCreatesLimit,

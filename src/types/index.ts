@@ -25,8 +25,12 @@ export interface ChannelAbout {
 
 export type PlanTier = 'free' | 'starter' | 'creator' | 'studio_pro'
 
+// Model strength variant within a plan: low = base models, high = premium.
+export type ModelTier = 'low' | 'high'
+
 export interface Subscription {
   planTier: PlanTier
+  modelTier: ModelTier
   planName: string
   billingPeriod: 'monthly'
   renewsAt: string

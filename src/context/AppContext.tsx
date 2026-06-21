@@ -102,6 +102,7 @@ interface AppContextValue {
   updateBrandKit: (channelId: string, kit: Partial<BrandKit>) => void
   applyServerSubscription: (sub: {
     tier: string
+    modelTier?: string
     aiPostsLimit: number
     aiPostsUsed: number
     aiCreatesLimit: number | null
@@ -246,6 +247,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }[]
       subscription: {
         tier:           string
+        modelTier?:     string
         aiPostsLimit:   number
         aiPostsUsed:    number
         aiCreatesLimit: number | null
@@ -364,6 +366,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           subscription: serverSub ? {
             ...prev.user.subscription,
             planTier:       serverSub.tier.toLowerCase().replace('_pro', '_pro') as import('@/types').PlanTier,
+            modelTier:      (serverSub.modelTier?.toLowerCase() ?? 'low') as import('@/types').ModelTier,
             aiPostsLimit:   serverSub.aiPostsLimit,
             aiPostsUsed:    serverSub.aiPostsUsed,
             aiCreatesLimit: serverSub.aiCreatesLimit,
@@ -515,6 +518,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const applyServerSubscription = useCallback((sub: {
     tier: string
+    modelTier?: string
     aiPostsLimit: number
     aiPostsUsed: number
     aiCreatesLimit: number | null
@@ -533,6 +537,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...prev.user.subscription,
           planTier,
           planName,
+          modelTier:      (sub.modelTier?.toLowerCase() ?? prev.user.subscription.modelTier) as import('@/types').ModelTier,
           aiPostsLimit:   sub.aiPostsLimit,
           aiPostsUsed:    sub.aiPostsUsed,
           aiCreatesLimit: sub.aiCreatesLimit,

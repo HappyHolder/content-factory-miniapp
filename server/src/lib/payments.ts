@@ -28,6 +28,7 @@ export function isPaidTier(t: unknown): t is PaidTier {
 
 interface GrantedSub {
   tier: PlanTier;
+  modelTier: 'LOW' | 'HIGH';
   aiPostsLimit: number;
   aiPostsUsed: number;
   aiCreatesLimit: number | null;
@@ -43,6 +44,9 @@ export async function grantSubscription(userId: string, tier: PaidTier, duration
 
   const common = {
     tier,
+    // Paid purchases are LOW for now (HIGH purchase wired in a later phase).
+    // Explicit so buying a paid plan normalizes a prior HIGH-promo grant back to LOW.
+    modelTier:      'LOW' as const,
     aiPostsLimit:   limits.aiPostsLimit,
     aiCreatesLimit: limits.aiCreatesLimit,
     aiPostsUsed:    0,
@@ -55,7 +59,7 @@ export async function grantSubscription(userId: string, tier: PaidTier, duration
     where:  { userId },
     update: common,
     create: { userId, ...common },
-    select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
+    select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
   });
 }
 
@@ -63,6 +67,7 @@ export async function grantSubscription(userId: string, tier: PaidTier, duration
 export function serializeSub(sub: GrantedSub) {
   return {
     tier:           sub.tier,
+    modelTier:      sub.modelTier,
     aiPostsLimit:   sub.aiPostsLimit,
     aiPostsUsed:    sub.aiPostsUsed,
     aiCreatesLimit: sub.aiCreatesLimit,

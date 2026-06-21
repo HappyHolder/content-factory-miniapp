@@ -22,6 +22,24 @@ export function canUseHtmlCovers(tier: PlanTier): boolean {
   return TIER_LIMITS[tier].canUseHtmlCovers;
 }
 
+// ─── Model variant (LOW / HIGH) ─────────────────────────────────────────────
+// LOW = base models (today's behavior). HIGH = premium models. The two share
+// the same plan limits except where premium cost requires a tighter cap.
+export type ModelTier = 'LOW' | 'HIGH';
+
+/**
+ * Effective limits for a (tier, modelTier) pair. LOW returns the plan's base
+ * limits unchanged. HIGH applies premium-cost guards — currently capping the
+ * otherwise-unlimited Agency Create quota (see docs/low-high-plan.md).
+ */
+export function limitsFor(tier: PlanTier, modelTier: ModelTier = 'LOW'): TierLimits {
+  const base = TIER_LIMITS[tier];
+  if (modelTier === 'HIGH' && tier === 'STUDIO_PRO') {
+    return { ...base, aiCreatesLimit: 400 };
+  }
+  return base;
+}
+
 export function isCreatesLimitReached(used: number, limit: number | null): boolean {
   if (limit === null) return false; // unlimited
   return used >= limit;
@@ -129,6 +147,7 @@ export async function applyTierExpiry(sub: {
     where: { userId: sub.userId },
     data:  {
       tier: 'FREE',
+      modelTier:      'LOW',   // premium grant ends with the subscription
       aiPostsLimit:   l.aiPostsLimit,
       aiCreatesLimit: l.aiCreatesLimit,
       aiPostsUsed:    0,

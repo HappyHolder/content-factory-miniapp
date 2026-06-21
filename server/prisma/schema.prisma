@@ -43,6 +43,14 @@ enum PlanTier {
   STUDIO_PRO
 }
 
+// Model strength variant within a plan. LOW = base models (DeepSeek/Flux),
+// HIGH = premium models (Claude/GPT Image). Defaults to LOW so existing rows
+// keep today's behavior. See docs/low-high-plan.md.
+enum ModelTier {
+  LOW
+  HIGH
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -240,6 +248,7 @@ model PromoCode {
   id           String    @id @default(cuid())
   code         String    @unique               // stored uppercased; matched case-insensitively in app
   tier         PlanTier                          // tier granted on redemption
+  modelTier    ModelTier @default(LOW)           // LOW = base models, HIGH = premium models
   durationDays Int                               // days of access the grant lasts
   redeemedAt   DateTime?                          // null = unused; set = burned (single-use)
   redeemedById String?                            // userId that redeemed it
@@ -254,6 +263,7 @@ model Subscription {
   id              String    @id @default(cuid())
   userId          String    @unique
   tier            PlanTier  @default(FREE)
+  modelTier       ModelTier @default(LOW)     // LOW = base models, HIGH = premium models
   aiPostsLimit    Int       @default(5)
   aiPostsUsed     Int       @default(0)
   aiCreatesLimit  Int?      @default(5)       // null = unlimited (Studio Pro)
