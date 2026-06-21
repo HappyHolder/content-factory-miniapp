@@ -122,6 +122,7 @@ export const ru: Dict = {
     modelLow:           'Базовые',
     modelHigh:          'Премиум',
     highSoon:           'Скоро',
+    upgradeToPremium:   'Перейти на Премиум',
     highHint:           'Те же планы — но сильнее модели под капотом',
     underHood:          'Под капотом',
     engineTextHigh:     'Текст — Claude (умнее)',

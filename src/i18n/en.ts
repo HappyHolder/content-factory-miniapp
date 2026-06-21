@@ -122,6 +122,7 @@ export const en = {
     modelLow:           'Base',
     modelHigh:          'Premium',
     highSoon:           'Soon',
+    upgradeToPremium:   'Switch to Premium',
     highHint:           'Same plans — smarter models under the hood',
     underHood:          'Under the hood',
     engineTextHigh:     'Text — Claude (smarter)',

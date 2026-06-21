@@ -1,6 +1,6 @@
 import type { PlanTier } from '@prisma/client';
 import { prisma } from '../db';
-import { TIER_LIMITS } from './subscriptionLimits';
+import { limitsFor, type ModelTier } from './subscriptionLimits';
 
 // ─── Pricing ────────────────────────────────────────────────────────────────
 // Per-plan price in Telegram Stars (XTR, integer) and TON.
@@ -12,6 +12,18 @@ export const PLAN_PRICING: Record<Exclude<PlanTier, 'FREE'>, PlanPrice> = {
   CREATOR:    { stars: 1800,  ton: 15 },  // Business
   STUDIO_PRO: { stars: 10000, ton: 80 },  // Agency
 };
+
+// HIGH (Premium) variant pricing — must match the frontend src/lib/payments.ts.
+export const PLAN_PRICING_HIGH: Record<Exclude<PlanTier, 'FREE'>, PlanPrice> = {
+  STARTER:    { stars: 900,   ton: 7   },  // Blogger Premium
+  CREATOR:    { stars: 2500,  ton: 20  },  // Business Premium
+  STUDIO_PRO: { stars: 13000, ton: 105 },  // Agency Premium
+};
+
+/** Price for a (tier, modelTier) pair. HIGH → premium pricing, LOW → base. */
+export function pricingFor(tier: Exclude<PlanTier, 'FREE'>, modelTier: ModelTier): PlanPrice {
+  return modelTier === 'HIGH' ? PLAN_PRICING_HIGH[tier] : PLAN_PRICING[tier];
+}
 
 // Paid plans grant access for this many days.
 export const GRANT_DURATION_DAYS = 30;
@@ -36,17 +48,20 @@ interface GrantedSub {
   expiresAt: Date | null;
 }
 
-export async function grantSubscription(userId: string, tier: PaidTier, durationDays = GRANT_DURATION_DAYS): Promise<GrantedSub> {
-  const limits = TIER_LIMITS[tier];
+export async function grantSubscription(
+  userId: string,
+  tier: PaidTier,
+  modelTier: ModelTier = 'LOW',
+  durationDays = GRANT_DURATION_DAYS,
+): Promise<GrantedSub> {
+  const limits = limitsFor(tier, modelTier);
   const now = new Date();
   const expiresAt = new Date(now);    expiresAt.setDate(expiresAt.getDate() + durationDays);
   const quotaResetAt = new Date(now); quotaResetAt.setMonth(quotaResetAt.getMonth() + 1);
 
   const common = {
     tier,
-    // Paid purchases are LOW for now (HIGH purchase wired in a later phase).
-    // Explicit so buying a paid plan normalizes a prior HIGH-promo grant back to LOW.
-    modelTier:      'LOW' as const,
+    modelTier,
     aiPostsLimit:   limits.aiPostsLimit,
     aiCreatesLimit: limits.aiCreatesLimit,
     aiPostsUsed:    0,

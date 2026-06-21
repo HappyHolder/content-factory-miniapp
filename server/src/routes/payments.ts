@@ -5,7 +5,7 @@ import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { createStarsInvoiceLink } from '../lib/telegramBot';
 import { verifyTonDeposit } from '../lib/tonVerification';
 import {
-  PLAN_PRICING, isPaidTier, grantSubscription, serializeSub, type PaidTier,
+  pricingFor, isPaidTier, grantSubscription, serializeSub, type PaidTier,
 } from '../lib/payments';
 import { applyTierExpiry, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
 
@@ -72,20 +72,21 @@ router.post('/subscription', async (req: Request, res: Response): Promise<void> 
 // Body: { initData, tier }  Response: { invoiceUrl }
 
 router.post('/stars/create-invoice', async (req: Request, res: Response): Promise<void> => {
-  const { initData, tier } = req.body as { initData?: unknown; tier?: unknown };
+  const { initData, tier, modelTier } = req.body as { initData?: unknown; tier?: unknown; modelTier?: unknown };
   const dbUser = await resolveUser(initData, res);
   if (!dbUser) return;
   if (!isPaidTier(tier)) { res.status(400).json({ error: 'Invalid plan tier' }); return; }
+  const mt: 'LOW' | 'HIGH' = modelTier === 'HIGH' ? 'HIGH' : 'LOW';
 
-  const price = PLAN_PRICING[tier];
-  // Payload echoed back in successful_payment — identifies user + tier.
-  const payload = JSON.stringify({ t: 'sub', tier, uid: dbUser.id });
+  const price = pricingFor(tier, mt);
+  // Payload echoed back in successful_payment — identifies user + tier + variant.
+  const payload = JSON.stringify({ t: 'sub', tier, mt, uid: dbUser.id });
   if (Buffer.byteLength(payload, 'utf8') > 128) { res.status(400).json({ error: 'payload too large' }); return; }
 
   try {
     const invoiceUrl = await createStarsInvoiceLink({
-      title:       PLAN_TITLE[tier],
-      description: `Подписка ${TIER_DISPLAY[tier]} на 30 дней`,
+      title:       `${PLAN_TITLE[tier]}${mt === 'HIGH' ? ' Premium' : ''}`,
+      description: `Подписка ${TIER_DISPLAY[tier]}${mt === 'HIGH' ? ' Premium' : ''} на 30 дней`,
       payload,
       amountStars: price.stars,
       token:       env.TELEGRAM_BOT_TOKEN,
@@ -102,7 +103,7 @@ router.post('/stars/create-invoice', async (req: Request, res: Response): Promis
 // Body: { initData, tier, senderWallet }  Response: { subscription } | error
 
 router.post('/ton/verify', async (req: Request, res: Response): Promise<void> => {
-  const { initData, tier, senderWallet } = req.body as { initData?: unknown; tier?: unknown; senderWallet?: unknown };
+  const { initData, tier, senderWallet, modelTier } = req.body as { initData?: unknown; tier?: unknown; senderWallet?: unknown; modelTier?: unknown };
   const dbUser = await resolveUser(initData, res);
   if (!dbUser) return;
   if (!isPaidTier(tier)) { res.status(400).json({ error: 'Invalid plan tier' }); return; }
@@ -110,8 +111,9 @@ router.post('/ton/verify', async (req: Request, res: Response): Promise<void> =>
   if (!env.TON_RECEIVING_WALLET || !env.TONCENTER_API_KEY) {
     res.status(503).json({ error: 'TON payments are not configured.' }); return;
   }
+  const mt: 'LOW' | 'HIGH' = modelTier === 'HIGH' ? 'HIGH' : 'LOW';
 
-  const expectedTon = PLAN_PRICING[tier as PaidTier].ton;
+  const expectedTon = pricingFor(tier as PaidTier, mt).ton;
 
   const result = await verifyTonDeposit({
     expectedTon,
@@ -139,7 +141,7 @@ router.post('/ton/verify', async (req: Request, res: Response): Promise<void> =>
     res.status(409).json({ error: 'Этот платёж уже зачтён.' }); return;
   }
 
-  const granted = await grantSubscription(dbUser.id, tier as PaidTier);
+  const granted = await grantSubscription(dbUser.id, tier as PaidTier, mt);
   res.json({ subscription: serializeSub(granted) });
 });
 

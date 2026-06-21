@@ -250,8 +250,9 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     const payChatId = update.message.chat.id;
     if (pay.currency === 'XTR') {
       try {
-        const data = JSON.parse(pay.invoice_payload) as { t?: string; tier?: unknown; uid?: string };
+        const data = JSON.parse(pay.invoice_payload) as { t?: string; tier?: unknown; mt?: unknown; uid?: string };
         if (data.t === 'sub' && isPaidTier(data.tier) && typeof data.uid === 'string') {
+          const mt: 'LOW' | 'HIGH' = data.mt === 'HIGH' ? 'HIGH' : 'LOW';
           // Idempotency: record the charge first. Telegram may deliver the same
           // successful_payment more than once; the unique chargeId stops a repeat
           // delivery from re-granting (which would reset usage + push expiry forward).
@@ -274,8 +275,8 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
             }
           }
           if (!alreadyProcessed) {
-            await grantSubscription(data.uid, data.tier);
-            await trySendReply(payChatId, `✅ Оплата получена. Тариф ${data.tier} активирован на 30 дней. Открой приложение.`);
+            await grantSubscription(data.uid, data.tier, mt);
+            await trySendReply(payChatId, `✅ Оплата получена. Тариф ${data.tier}${mt === 'HIGH' ? ' Premium' : ''} активирован на 30 дней. Открой приложение.`);
           }
         }
       } catch (err) {

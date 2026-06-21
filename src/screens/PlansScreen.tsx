@@ -106,7 +106,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
       const res = await fetch(`${API_BASE}/api/payments/stars/create-invoice`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData, tier: tierToServer(tier) }),
+        body:    JSON.stringify({ initData, tier: tierToServer(tier), modelTier: variant === 'high' ? 'HIGH' : 'LOW' }),
       })
       const data = await res.json().catch(() => ({})) as { invoiceUrl?: string; error?: string }
       if (!res.ok || !data.invoiceUrl) { showToast(data.error ?? t('plans.payFailed'), 'error'); setPaying(false); return }
@@ -145,7 +145,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
 
     setPaying(true)
     try {
-      const amount = PLAN_PRICING[tier].ton
+      const amount = (variant === 'high' ? PLAN_PRICING_HIGH : PLAN_PRICING)[tier].ton
       // Text comment payload: 32 zero bits + the Telegram id, per TON's comment format.
       const commentPayload = beginCell().storeUint(0, 32).storeStringTail(uid).endCell().toBoc().toString('base64')
       await tonConnectUI.sendTransaction({
@@ -159,7 +159,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
       const res = await fetch(`${API_BASE}/api/payments/ton/verify`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData, tier: tierToServer(tier), senderWallet: sender }),
+        body:    JSON.stringify({ initData, tier: tierToServer(tier), senderWallet: sender, modelTier: variant === 'high' ? 'HIGH' : 'LOW' }),
       })
       const data = await res.json().catch(() => ({})) as { subscription?: { tier: string; aiPostsLimit: number; aiPostsUsed: number; aiCreatesLimit: number | null; aiCreatesUsed: number }; error?: string }
       if (!res.ok || !data.subscription) { showToast(data.error ?? t('plans.payFailed'), 'error'); setPaying(false); return }
@@ -369,8 +369,13 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                     {t('plans.currentPlan')}
                   </div>
                 ) : isHigh ? (
-                  <Button variant="ghost" size="md" fullWidth disabled>
-                    {t('plans.highSoon')}
+                  <Button
+                    variant="primary"
+                    size="md"
+                    fullWidth
+                    onClick={() => setPayTier(plan.tier as PaidTier)}
+                  >
+                    {t('plans.upgradeToPremium')}
                   </Button>
                 ) : plan.tier === 'free' ? (
                   // Downgrading to Free happens automatically when a paid plan expires.
@@ -419,7 +424,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                 <Star size={18} className="text-[#FF6A00]" fill="#FF6A00" />
                 <span className="text-[14px] font-medium text-white">Telegram Stars</span>
               </span>
-              <span className="text-[14px] font-bold text-white">{PLAN_PRICING[payTier].stars} ⭐</span>
+              <span className="text-[14px] font-bold text-white">{(variant === 'high' ? PLAN_PRICING_HIGH : PLAN_PRICING)[payTier].stars} ⭐</span>
             </button>
 
             <button
@@ -431,7 +436,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                 <GramMark size={18} />
                 <span className="text-[14px] font-medium text-white">Gram</span>
               </span>
-              <span className="text-[14px] font-bold text-white">{PLAN_PRICING[payTier].ton} Gram</span>
+              <span className="text-[14px] font-bold text-white">{(variant === 'high' ? PLAN_PRICING_HIGH : PLAN_PRICING)[payTier].ton} Gram</span>
             </button>
 
             <p className="text-center text-[11px] text-[#55555D] pt-1">
