@@ -9,6 +9,9 @@
  */
 
 import { env } from '../env';
+import { replicateText } from './replicateText';
+
+type ModelTier = 'LOW' | 'HIGH';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -254,7 +257,8 @@ function extractJsonObject(raw: string): string {
   return s;
 }
 
-async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraft[]> {
+/** Builds the system + user prompts for variant generation (shared by all transports). */
+function buildVariantPrompts(params: GenerateParams): { systemPrompt: string; userPrompt: string } {
   const { input, sourceType, channel, brandKit } = params;
 
   const { context, language, addressStyle, signatureBlock, signatureUsage, customNote, examplePosts } =
@@ -368,11 +372,72 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
 
   const userPrompt = userParts.join('\n\n');
 
-  // ── DeepSeek API call ─────────────────────────────────────────────────────
+  return { systemPrompt, userPrompt };
+}
+
+/**
+ * Parses a model's JSON response into up to 2 VariantDrafts. Tolerant of markdown
+ * fences / surrounding prose (extractJsonObject). Falls back to placeholder on any
+ * malformed / empty / invalid-shape response.
+ */
+function parseVariantsJson(raw: string, input: string, finishReason: string): VariantDraft[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extractJsonObject(raw));
+  } catch {
+    console.error(
+      `[aiGenerator] Model response is not valid JSON — falling back to placeholder ` +
+      `(finish_reason=${finishReason || 'n/a'}, len=${raw.length}, tail=${JSON.stringify(raw.slice(-160))})`
+    );
+    return buildPlaceholderVariants(input);
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    !Array.isArray((parsed as Record<string, unknown>)['variants'])
+  ) {
+    console.error('[aiGenerator] Model response missing "variants" array — falling back');
+    return buildPlaceholderVariants(input);
+  }
+
+  const variants = (parsed as { variants: unknown[] })['variants'];
+
+  if (variants.length === 0) {
+    console.error('[aiGenerator] Model returned no variants — falling back');
+    return buildPlaceholderVariants(input);
+  }
+
+  // Expect 2; take the first 2 valid ones (tolerate a model that returns more).
+  const drafts: VariantDraft[] = [];
+  for (const v of variants.slice(0, 2)) {
+    if (
+      !v ||
+      typeof v !== 'object' ||
+      typeof (v as Record<string, unknown>)['label'] !== 'string' ||
+      typeof (v as Record<string, unknown>)['text']  !== 'string' ||
+      !((v as Record<string, unknown>)['text'] as string).trim()
+    ) {
+      console.error('[aiGenerator] Model variant has invalid shape — falling back');
+      return buildPlaceholderVariants(input);
+    }
+    drafts.push({
+      label: (v as Record<string, unknown>)['label'] as string,
+      text:  (v as Record<string, unknown>)['text']  as string,
+    });
+  }
+
+  return drafts;
+}
+
+/** LOW tier: DeepSeek (OpenAI-compatible chat completions). */
+async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraft[]> {
+  const { systemPrompt, userPrompt } = buildVariantPrompts(params);
+
   const controller = new AbortController();
   const timeoutId  = setTimeout(() => controller.abort(), 30_000);
 
-  let raw: string;
+  let raw = '';
   let finishReason = '';
   try {
     const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
@@ -389,12 +454,8 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
           { role: 'system', content: systemPrompt },
           { role: 'user',   content: userPrompt   },
         ],
-        // 4096 (not 2048): bilingual variants carry the post in BOTH languages,
-        // so 2 variants can exceed 2048 tokens. Truncated output is invalid JSON
-        // and silently fell back to the placeholder.
+        // 4096 (not 2048): bilingual variants carry the post in BOTH languages.
         max_tokens:  4096,
-        // 0.7 + top_p 0.9 (DeepSeek's recommended range for grounded copy) —
-        // 0.8 with no top_p let the model drift into generic "AI" filler.
         temperature: 0.7,
         top_p:       0.9,
       }),
@@ -403,7 +464,7 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
       console.error(`[aiGenerator] DeepSeek returned ${response.status}: ${errText.slice(0, 200)}`);
-      return buildPlaceholderVariants(input);
+      return buildPlaceholderVariants(params.input);
     }
 
     const data = await response.json() as {
@@ -413,63 +474,34 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
     finishReason = data.choices?.[0]?.finish_reason ?? '';
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    // AbortError = timeout; log message only, no key or token exposure
     console.error(`[aiGenerator] DeepSeek fetch failed: ${msg}`);
-    return buildPlaceholderVariants(input);
+    return buildPlaceholderVariants(params.input);
   } finally {
     clearTimeout(timeoutId);
   }
 
-  // ── Parse and validate the JSON response ──────────────────────────────────
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(extractJsonObject(raw));
-  } catch {
-    // Log finish_reason + the response tail so truncation (finish_reason:"length")
-    // vs malformed output is diagnosable instead of silently degrading.
-    console.error(
-      `[aiGenerator] DeepSeek response is not valid JSON — falling back to placeholder ` +
-      `(finish_reason=${finishReason || 'n/a'}, len=${raw.length}, tail=${JSON.stringify(raw.slice(-160))})`
-    );
-    return buildPlaceholderVariants(input);
+  return parseVariantsJson(raw, params.input, finishReason);
+}
+
+/** HIGH tier: Claude on Replicate (single prompt → JSON text). */
+async function generateWithClaude(params: GenerateParams): Promise<VariantDraft[]> {
+  const { systemPrompt, userPrompt } = buildVariantPrompts(params);
+
+  const raw = await replicateText({
+    model:        env.HIGH_TEXT_MODEL,
+    systemPrompt,
+    prompt:       userPrompt,
+    maxTokens:    4096,
+    temperature:  0.7,
+    timeoutMs:    120_000,
+  });
+
+  if (!raw) {
+    console.error('[aiGenerator] Claude (Replicate) returned nothing — falling back to placeholder');
+    return buildPlaceholderVariants(params.input);
   }
 
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    !Array.isArray((parsed as Record<string, unknown>)['variants'])
-  ) {
-    console.error('[aiGenerator] DeepSeek response missing "variants" array — falling back');
-    return buildPlaceholderVariants(input);
-  }
-
-  const variants = (parsed as { variants: unknown[] })['variants'];
-
-  if (variants.length === 0) {
-    console.error('[aiGenerator] DeepSeek returned no variants — falling back');
-    return buildPlaceholderVariants(input);
-  }
-
-  // Expect 2; take the first 2 valid ones (tolerate a model that returns more).
-  const drafts: VariantDraft[] = [];
-  for (const v of variants.slice(0, 2)) {
-    if (
-      !v ||
-      typeof v !== 'object' ||
-      typeof (v as Record<string, unknown>)['label'] !== 'string' ||
-      typeof (v as Record<string, unknown>)['text']  !== 'string' ||
-      !((v as Record<string, unknown>)['text'] as string).trim()
-    ) {
-      console.error('[aiGenerator] DeepSeek variant has invalid shape — falling back');
-      return buildPlaceholderVariants(input);
-    }
-    drafts.push({
-      label: (v as Record<string, unknown>)['label'] as string,
-      text:  (v as Record<string, unknown>)['text']  as string,
-    });
-  }
-
-  return drafts;
+  return parseVariantsJson(raw, params.input, 'replicate');
 }
 
 // ─── Image prompt generation ─────────────────────────────────────────────────
@@ -1038,7 +1070,15 @@ export async function selectHtmlTemplate(
  *   falls back to placeholder on any error (non-200, timeout, bad JSON,
  *   empty/invalid variants).
  */
-export async function generatePostVariants(params: GenerateParams): Promise<VariantDraft[]> {
+export async function generatePostVariants(
+  params: GenerateParams,
+  modelTier: ModelTier = 'LOW',
+): Promise<VariantDraft[]> {
+  // HIGH: premium text model (Claude) on Replicate. Falls back to DeepSeek/
+  // placeholder inside generateWithClaude on any failure.
+  if (modelTier === 'HIGH' && env.REPLICATE_API_TOKEN) {
+    return generateWithClaude(params);
+  }
   if (env.AI_PROVIDER === 'deepseek') {
     return generateWithDeepSeek(params);
   }

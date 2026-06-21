@@ -133,15 +133,17 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
   let subscription: { aiCreatesLimit: number | null; aiCreatesUsed: number } | null = null;
   // Unknown tier (no row / DB error) → don't block the HTML feature.
   let allowHtmlCovers = true;
+  let modelTier: 'LOW' | 'HIGH' = 'LOW';
   try {
     const sub = await prisma.subscription.findUnique({
       where:  { userId: dbUser.id },
-      select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
+      select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
     });
     if (sub) {
       const fresh = await applyMonthlyQuotaReset({ userId: dbUser.id, ...sub });
       subscription = { aiCreatesLimit: fresh.aiCreatesLimit, aiCreatesUsed: fresh.aiCreatesUsed };
       allowHtmlCovers = canUseHtmlCovers(sub.tier);
+      modelTier = sub.modelTier;
     }
   } catch (err) {
     console.error('[posts/generate] Subscription lookup failed:', (err as Error).message);
@@ -191,6 +193,7 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
       imageOnly:   isImageOnly,
       allowHtmlCovers,
       coverModeOverride: (coverMode === 'ai' || coverMode === 'html' || coverMode === 'ai_html') ? coverMode : undefined,
+      modelTier,
     });
 
     // Increment Create-mode usage counter (non-fatal if it fails)
@@ -1142,6 +1145,14 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
     }
   }
 
+  // Model variant for this user (HIGH → GPT Image; default LOW → Flux).
+  let modelTier: 'LOW' | 'HIGH' = 'LOW';
+  try {
+    const sub = await prisma.subscription.findUnique({ where: { userId: dbUser.id }, select: { modelTier: true } });
+    if (sub) modelTier = sub.modelTier;
+  } catch { /* non-fatal — default LOW */ }
+  const imageModel = modelTier === 'HIGH' ? env.HIGH_IMAGE_MODEL : env.IMAGE_MODEL;
+
   // ── 6. Generate new image via Replicate ───────────────────────────────────
   let cover: Awaited<ReturnType<typeof generateImageForPost>> = null;
   try {
@@ -1150,6 +1161,7 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
       visualKit,
       aspectRatio,
       headline: variant.generatedPost.title,
+      model:    imageModel,
     });
   } catch (err) {
     console.warn('[posts/regenerate-visual] generateImageForPost threw:', (err as Error).message);
@@ -1298,6 +1310,13 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
     brandKit = null;
   }
 
+  // Model variant for this user (HIGH → Claude; default LOW → DeepSeek).
+  let modelTier: 'LOW' | 'HIGH' = 'LOW';
+  try {
+    const sub = await prisma.subscription.findUnique({ where: { userId: dbUser.id }, select: { modelTier: true } });
+    if (sub) modelTier = sub.modelTier;
+  } catch { /* non-fatal — default LOW */ }
+
   // ── 7. Generate fresh variants via AI ────────────────────────────────────
   const input = post.sourceSummary?.trim() || post.channel.name;
   let variantDrafts;
@@ -1307,7 +1326,7 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
       sourceType: post.sourceType ?? 'prompt',
       channel:    { handle: post.channel.handle, name: post.channel.name },
       brandKit,
-    });
+    }, modelTier);
   } catch (err) {
     console.error('[posts/regenerate-text] AI generation failed:', (err as Error).message);
     res.status(502).json({ error: 'Text generation failed. Try again.' }); return;

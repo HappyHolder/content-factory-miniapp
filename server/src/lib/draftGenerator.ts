@@ -12,6 +12,7 @@
  */
 
 import { prisma } from '../db';
+import { env } from '../env';
 import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate, selectHtmlTemplate, fillTemplateSlots } from './aiGenerator';
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
@@ -45,6 +46,7 @@ export interface CreateDraftParams {
   imageOnly?:   boolean;   // skip text AI generation, produce one empty-text variant
   allowHtmlCovers?: boolean; // default true; false (FREE tier) forces coverMode 'ai'
   coverModeOverride?: 'ai' | 'html' | 'ai_html'; // per-generation cover engine; overrides channel setting
+  modelTier?: 'LOW' | 'HIGH'; // LOW = DeepSeek/Flux (default); HIGH = Claude/GPT Image
 }
 
 /** Frontend-compatible post shape — identical to what /api/posts/generate returns. */
@@ -140,7 +142,10 @@ function extractButtonLinks(brandKit: unknown): {
 export async function createDraftPostForChannel(
   params: CreateDraftParams,
 ): Promise<DraftPost> {
-  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false, allowHtmlCovers = true, coverModeOverride } = params;
+  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false, allowHtmlCovers = true, coverModeOverride, modelTier = 'LOW' } = params;
+
+  // HIGH tier routes the AI picture model to GPT Image; LOW keeps Flux (env.IMAGE_MODEL).
+  const imageModel = modelTier === 'HIGH' ? env.HIGH_IMAGE_MODEL : env.IMAGE_MODEL;
 
   // ── Load channel ──────────────────────────────────────────────────────────
   const channel = await prisma.channel.findUniqueOrThrow({
@@ -185,7 +190,7 @@ export async function createDraftPostForChannel(
         sourceType,
         channel: { handle: channel.handle, name: channel.name },
         brandKit,
-      });
+      }, modelTier);
 
   // Prefer the AI-written headline (first line of the generated post) over the
   // raw input's first line — for links/tweets the latter is often junk (author
@@ -340,7 +345,7 @@ export async function createDraftPostForChannel(
       if (bgPrompt) {
         for (let attempt = 1; attempt <= 2 && !bgUrl; attempt++) {
           try {
-            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true });
+            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true, model: imageModel });
             bgUrl = bg?.bannerUrl ?? null;
             if (!bgUrl) console.warn(`[draftGenerator] Hybrid: Flux bg attempt ${attempt} returned no image`);
           } catch (err) {
@@ -563,6 +568,7 @@ export async function createDraftPostForChannel(
           visualKit,
           aspectRatio,
           headline: aiHeadline,
+          model:    imageModel,
         });
       } catch (err) {
         console.warn('[draftGenerator] Image generation failed (non-fatal):', (err as Error).message);

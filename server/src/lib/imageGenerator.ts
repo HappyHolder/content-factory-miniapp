@@ -199,6 +199,11 @@ export interface GenerateImageInput {
    * used as the background layer for the AI+HTML hybrid cover.
    */
   backgroundOnly?: boolean;
+  /**
+   * Replicate model override (e.g. 'openai/gpt-image-1' for HIGH tier). When
+   * absent, falls back to env.IMAGE_MODEL (Flux — the LOW default).
+   */
+  model?: string;
 }
 
 /** Result of cover generation: the final (text-baked) cover + the clean base. */
@@ -229,7 +234,7 @@ export async function generateImageForPost(
     return null;
   }
 
-  const model = env.IMAGE_MODEL;  // e.g. 'openai/gpt-image-2'
+  const model = input.model ?? env.IMAGE_MODEL;  // HIGH passes 'openai/gpt-image-1'; LOW uses Flux
 
   const userPrompt = input.prompt.trim();
   if (!userPrompt) return null;
@@ -296,7 +301,8 @@ export async function generateImageForPost(
     ? {
         prompt,
         size:    gptImageSize,
-        quality: 'high',
+        // medium is the cost/quality sweet spot for covers (see docs/low-high-plan.md).
+        quality: 'medium',
         ...(refImageUrl ? { image: refImageUrl } : {}),
       }
     : isFlux2Max

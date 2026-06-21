@@ -446,7 +446,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     // Check bot-posts quota before generating (with lazy monthly reset)
     const rawSub = await prisma.subscription.findUnique({
       where:  { userId: dbUser.id },
-      select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
+      select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
     }).catch(() => null);
 
     const userSub = rawSub
@@ -454,6 +454,8 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       : null;
     // HTML covers are a paid feature; unknown tier (no row) → don't block.
     const allowHtmlCovers = rawSub ? canUseHtmlCovers(rawSub.tier) : true;
+    // Model variant: HIGH → Claude/GPT Image; default LOW → DeepSeek/Flux.
+    const modelTier: 'LOW' | 'HIGH' = rawSub?.modelTier ?? 'LOW';
 
     if (userSub && isPostsLimitReached(userSub.aiPostsUsed, userSub.aiPostsLimit)) {
       try {
@@ -508,6 +510,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
         sourceType: photoFileId ? 'photo' : (extractedUrl ? 'link' : 'prompt'),
         sourceUrl:  extractedUrl ?? null,
         allowHtmlCovers,
+        modelTier,
       });
     } catch (err) {
       console.error('[bot/webhook] Draft generation failed:', (err as Error).message);
