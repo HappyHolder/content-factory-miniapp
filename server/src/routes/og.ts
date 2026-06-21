@@ -30,6 +30,9 @@ function escapeHtml(s: string): string {
 router.get('/', (req: Request, res: Response): void => {
   const img   = typeof req.query['i'] === 'string' ? req.query['i'] : '';
   const title = typeof req.query['t'] === 'string' ? req.query['t'].slice(0, 200) : '';
+  // og:site_name drives the accent-colored top line of Telegram's link preview.
+  // Set to the channel's own name so the card reads as the channel, not "publium.ru".
+  const site  = typeof req.query['s'] === 'string' ? req.query['s'].slice(0, 120) : '';
 
   // Only allow our own uploaded covers — never reflect an arbitrary external image.
   const allowedPrefix = `${env.PUBLIC_BASE_URL}/uploads/`;
@@ -40,6 +43,7 @@ router.get('/', (req: Request, res: Response): void => {
 
   const safeImg   = escapeHtml(img);
   const safeTitle = escapeHtml(title) || 'Publium';
+  const safeSite  = escapeHtml(site);
 
   res
     .status(200)
@@ -53,6 +57,7 @@ router.get('/', (req: Request, res: Response): void => {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta property="og:type" content="article">
+${safeSite ? `<meta property="og:site_name" content="${safeSite}">` : ''}
 <meta property="og:title" content="${safeTitle}">
 <meta property="og:image" content="${safeImg}">
 <meta name="twitter:card" content="summary_large_image">

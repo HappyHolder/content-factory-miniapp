@@ -199,9 +199,12 @@ export function buildMessageText(text: string): string {
  * fetches this page, reads its og:image (the cover) and renders a large preview
  * card. Keyed by the cover URL so each post gets a unique, non-stale preview.
  */
-export function buildOgPageUrl(imageUrl: string, title?: string): string {
+export function buildOgPageUrl(imageUrl: string, title?: string, siteName?: string): string {
   const params = new URLSearchParams({ i: imageUrl });
-  if (title && title.trim()) params.set('t', title.trim().slice(0, 200));
+  if (title && title.trim())    params.set('t', title.trim().slice(0, 200));
+  // siteName → og:site_name → the preview's accent header shows the channel,
+  // not our domain. Omit to fall back to the host (publium.ru).
+  if (siteName && siteName.trim()) params.set('s', siteName.trim().slice(0, 120));
   return `${env.PUBLIC_BASE_URL}/api/og?${params.toString()}`;
 }
 
@@ -218,10 +221,12 @@ export async function sendChannelPost(params: {
   text:        string;
   bannerUrl:   string | null;
   title?:      string;
+  /** Channel name/handle — shown as the preview's header instead of our domain. */
+  siteName?:   string;
   token:       string;
   replyMarkup?: AnyInlineKeyboard;
 }): Promise<void> {
-  const { chatId, text, bannerUrl, title, token, replyMarkup } = params;
+  const { chatId, text, bannerUrl, title, siteName, token, replyMarkup } = params;
 
   if (bannerUrl && text.length <= TELEGRAM_CAPTION_LIMIT) {
     await sendBotPhoto(chatId, bannerUrl, text, token, replyMarkup);
@@ -229,7 +234,7 @@ export async function sendChannelPost(params: {
   }
 
   const linkPreview: LinkPreviewOptions | undefined = bannerUrl
-    ? { url: buildOgPageUrl(bannerUrl, title), prefer_large_media: true, show_above_text: true }
+    ? { url: buildOgPageUrl(bannerUrl, title, siteName), prefer_large_media: true, show_above_text: true }
     : undefined;
 
   await sendBotMessage(chatId, buildMessageText(text), token, replyMarkup, linkPreview);

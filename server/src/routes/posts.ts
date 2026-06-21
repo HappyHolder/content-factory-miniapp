@@ -495,6 +495,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       text:        selectedVariant.text,
       bannerUrl:   selectedVariant.bannerUrl,
       title:       post.title,
+      siteName:    post.channel.name || post.channel.handle || undefined,
       token:       env.TELEGRAM_BOT_TOKEN,
       replyMarkup,
     });

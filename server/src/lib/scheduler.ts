@@ -52,7 +52,7 @@ async function publishDuePosts(): Promise<void> {
     title:             string;
     selectedVariantId: string | null;
     linkButtons:       unknown;
-    channel:           { handle: string | null };
+    channel:           { handle: string | null; name: string };
     variants:          { id: string; text: string; bannerUrl: string | null }[];
   }[];
 
@@ -68,7 +68,7 @@ async function publishDuePosts(): Promise<void> {
         selectedVariantId: true,
         linkButtons:       true,
         channel: {
-          select: { handle: true },
+          select: { handle: true, name: true },
         },
         variants: {
           orderBy: { variantIndex: 'asc' },
@@ -133,6 +133,7 @@ async function publishDuePosts(): Promise<void> {
         text:        selectedVariant.text,
         bannerUrl:   selectedVariant.bannerUrl,
         title:       post.title,
+        siteName:    post.channel.name || post.channel.handle || undefined,
         token:       env.TELEGRAM_BOT_TOKEN,
         replyMarkup,
       });
