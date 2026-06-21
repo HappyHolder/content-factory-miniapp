@@ -87,7 +87,7 @@ export const env = {
   // Post text goes to Claude on Replicate; covers to GPT Image on Replicate.
   // LOW keeps DeepSeek (text) + IMAGE_MODEL/Flux (covers). See docs/low-high-plan.md.
   HIGH_TEXT_MODEL:  process.env['HIGH_TEXT_MODEL']  ?? 'anthropic/claude-4.5-sonnet',
-  HIGH_IMAGE_MODEL: process.env['HIGH_IMAGE_MODEL'] ?? 'openai/gpt-image-1',
+  HIGH_IMAGE_MODEL: process.env['HIGH_IMAGE_MODEL'] ?? 'openai/gpt-image-2',
   // Cover generation engine:
   //   'template' — always use HTML/Satori templates (free, instant, brand-perfect)
   //   'flux'     — always use Flux via Replicate (AI-generated artistic images)

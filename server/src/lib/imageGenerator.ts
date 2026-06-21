@@ -292,18 +292,17 @@ export async function generateImageForPost(
   // gpt-image uses `image: string`.
   const isGptImage  = model.includes('gpt-image');
   const isFlux2Max  = model.includes('flux-2-max');
-  const gptImageSize = aspectRatio === '16:9'
-    ? '1536x1024'
-    : aspectRatio === '4:5' || aspectRatio === '9:16'
-      ? '1024x1536'
-      : '1024x1024';
+  // gpt-image-2 aspect_ratio enum has 1:1 / 16:9 / 9:16 but no 4:5 — map to nearest portrait.
+  const gptAspect = aspectRatio === '4:5' ? '2:3' : aspectRatio;
   const modelInput: Record<string, unknown> = isGptImage
     ? {
         prompt,
-        size:    gptImageSize,
+        aspect_ratio: gptAspect,
         // medium is the cost/quality sweet spot for covers (see docs/low-high-plan.md).
         quality: 'medium',
-        ...(refImageUrl ? { image: refImageUrl } : {}),
+        // img2img reference uses input_images[] (NOT `image`); openai_api_key is
+        // optional on gpt-image-2 (billed via Replicate) — don't send it.
+        ...(refImageUrl ? { input_images: [refImageUrl] } : {}),
       }
     : isFlux2Max
     ? {
