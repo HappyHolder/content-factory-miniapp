@@ -71,6 +71,7 @@ const PLAN_CONFIG: PlanConfig[] = [
 export function PlansScreen({ onBack }: PlansScreenProps) {
   const { state, showToast, t, applyServerSubscription } = useApp()
   const currentTier = state.user.subscription.planTier
+  const currentModelTier = state.user.subscription.modelTier
   const [tonConnectUI] = useTonConnectUI()
 
   const [promo, setPromo] = useState('')
@@ -79,7 +80,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
   const [paying, setPaying] = useState(false)
   // LOW (base models) / HIGH (premium models). HIGH is preview-only for now —
   // the purchase path is wired in a later phase (see docs/low-high-plan.md).
-  const [variant, setVariant] = useState<'low' | 'high'>('low')
+  const [variant, setVariant] = useState<'low' | 'high'>(currentModelTier === 'high' ? 'high' : 'low')
 
   // Refresh subscription from the server (after a payment) and update the UI.
   const refreshSubscription = async () => {
@@ -268,7 +269,9 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
 
         {PLAN_CONFIG.map((plan, i) => {
           const isHigh     = variant === 'high' && plan.tier !== 'free'
-          const isCurrent  = variant === 'low' && plan.tier === currentTier
+          // Current plan respects the model variant: a HIGH subscriber is "current"
+          // only in the Premium view, a LOW one only in the Base view (free has no variant).
+          const isCurrent  = plan.tier === currentTier && (plan.tier === 'free' || variant === currentModelTier)
           const isUpgrade  = !isCurrent && TIER_RANK[plan.tier] > TIER_RANK[currentTier]
 
           const planName = t(plan.nameKey)
@@ -360,15 +363,15 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
                 </ul>
 
                 {/* CTA */}
-                {isHigh ? (
-                  <Button variant="ghost" size="md" fullWidth disabled>
-                    {t('plans.highSoon')}
-                  </Button>
-                ) : isCurrent ? (
+                {isCurrent ? (
                   <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-[12px] bg-[rgba(255,106,0,0.08)] border border-[rgba(255,106,0,0.20)] text-[13px] font-semibold text-[#FF6A00]">
                     <Check size={13} strokeWidth={2.5} />
                     {t('plans.currentPlan')}
                   </div>
+                ) : isHigh ? (
+                  <Button variant="ghost" size="md" fullWidth disabled>
+                    {t('plans.highSoon')}
+                  </Button>
                 ) : plan.tier === 'free' ? (
                   // Downgrading to Free happens automatically when a paid plan expires.
                   <Button variant="ghost" size="md" fullWidth disabled>

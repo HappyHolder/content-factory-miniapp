@@ -83,6 +83,11 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
                 <span className="text-[11px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)] px-2 py-px rounded-full">
                   {t('profile.active')}
                 </span>
+                {subscription.modelTier === 'high' && (
+                  <span className="text-[11px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)] px-2 py-px rounded-full">
+                    {t('plans.modelHigh')}
+                  </span>
+                )}
               </div>
               <p className="text-[12px] text-[#55555D]">
                 {billingLabel}

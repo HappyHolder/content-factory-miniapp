@@ -4,10 +4,71 @@ import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { TIER_LIMITS } from '../lib/subscriptionLimits';
 import { webSearch } from '../lib/webSearch';
+import { replicateText } from '../lib/replicateText';
 
 const router = Router();
 
 const HISTORY_LIMIT = 100; // messages kept per user
+
+/**
+ * HIGH-tier chat reply: Claude on Replicate. Replicate's text API has no
+ * OpenAI-style tool-calling, so we run an optional Tavily search ourselves
+ * first (a cheap DeepSeek call decides the query) and inject the results into
+ * the prompt. Returns the reply text, or null to fall back to the DeepSeek loop.
+ */
+async function generateHighChatReply(opts: {
+  systemPrompt: string;
+  history:      { role: string; content: string }[];
+  message:      string;
+  canSearch:    boolean;
+  currentYear:  number;
+}): Promise<string | null> {
+  const { systemPrompt, history, message, canSearch, currentYear } = opts;
+
+  // 1. Optional web search — a cheap DeepSeek JSON call decides the query.
+  let searchBlock = '';
+  if (canSearch && env.DEEPSEEK_API_KEY) {
+    try {
+      const decideRes = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
+        body: JSON.stringify({
+          model:           env.DEEPSEEK_MODEL,
+          response_format: { type: 'json_object' },
+          max_tokens:      80,
+          temperature:     0.1,
+          messages: [
+            { role: 'system', content: `Decide if answering the user needs a fresh web search (recent events, news, prices, "latest", current facts). If yes, return a focused query using the year ${currentYear} when time-relevant. Return ONLY JSON: {"query":"<query or empty string>"}` },
+            { role: 'user', content: message },
+          ],
+        }),
+      });
+      if (decideRes.ok) {
+        const d = await decideRes.json() as { choices?: { message?: { content?: string } }[] };
+        const q = JSON.parse(d.choices?.[0]?.message?.content ?? '{}')?.query;
+        if (typeof q === 'string' && q.trim()) {
+          const results = await webSearch(q.trim());
+          if (results) searchBlock = `\n\nWEB SEARCH RESULTS (use for current facts; cite briefly):\n${results}\n`;
+        }
+      }
+    } catch { /* non-fatal — answer without search */ }
+  }
+
+  // 2. Flatten the conversation into a single prompt for Claude on Replicate.
+  const convo = history
+    .map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
+    .join('\n\n');
+  const prompt = `${convo ? convo + '\n\n' : ''}${searchBlock}User: ${message}\n\nAssistant:`;
+
+  return replicateText({
+    model:        env.HIGH_TEXT_MODEL,
+    systemPrompt,
+    prompt,
+    maxTokens:    1024,
+    temperature:  0.6,
+    timeoutMs:    90_000,
+  });
+}
 
 // ─── GET /api/chat/history ────────────────────────────────────────────────────
 // Returns the user's full chat history (oldest → newest).
@@ -66,9 +127,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   // Gate the AI assistant by plan tier — FREE has no access.
   const sub = await prisma.subscription.findUnique({
     where:  { userId: dbUser.id },
-    select: { tier: true },
+    select: { tier: true, modelTier: true },
   }).catch(() => null);
   const tier = sub?.tier ?? 'FREE';
+  const modelTier: 'LOW' | 'HIGH' = sub?.modelTier ?? 'LOW';
   if (!TIER_LIMITS[tier].canUseAiAssistant) {
     res.status(403).json({ error: 'AI ассистент доступен на тарифе Starter и выше.', code: 'UPGRADE_REQUIRED' });
     return;
@@ -170,9 +232,11 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     `If the user asks about a different channel, switch context accordingly.\n` +
     `Always respond in the same language the user writes in.\n` +
     (canSearch
-      ? `You have a web_search tool. You do NOT inherently know anything that happened after your training cutoff, including recent or live events. ` +
-        `For ANYTHING time-sensitive or factual — sports fixtures/scores, news, prices, "what is happening now", recent statistics, "latest" anything — you MUST call web_search before answering, and you MUST build the query using the current year ${currentYear} (e.g. "FIFA World Cup ${currentYear} schedule") rather than a year from memory. ` +
-        `Never answer such questions from memory. After searching, answer in your own words and briefly mention the sources. If the search returns nothing useful, say so plainly instead of guessing.\n`
+      ? (modelTier === 'HIGH'
+          ? `If a "WEB SEARCH RESULTS" block appears in the conversation, it holds current information fetched for you — base any time-sensitive or factual answer on it and briefly mention the sources, building reasoning around the year ${currentYear}. If no such block is present and the question depends on very recent events, answer from your knowledge and note any uncertainty rather than guessing.\n`
+          : `You have a web_search tool. You do NOT inherently know anything that happened after your training cutoff, including recent or live events. ` +
+            `For ANYTHING time-sensitive or factual — sports fixtures/scores, news, prices, "what is happening now", recent statistics, "latest" anything — you MUST call web_search before answering, and you MUST build the query using the current year ${currentYear} (e.g. "FIFA World Cup ${currentYear} schedule") rather than a year from memory. ` +
+            `Never answer such questions from memory. After searching, answer in your own words and briefly mention the sources. If the search returns nothing useful, say so plainly instead of guessing.\n`)
       : '') +
     `Be concise, practical, and creative. Give actionable advice.`;
 
@@ -226,10 +290,19 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    // Up to 3 turns: the model may call web_search (we run it and feed the
-    // results back) before producing the final answer.
     let reply = '';
-    for (let step = 0; step < 3; step++) {
+
+    // HIGH tier: Claude on Replicate, with an optional manual Tavily pre-search
+    // (Replicate's text API has no tool-calling). Falls through to the DeepSeek
+    // tool-loop below if it yields nothing.
+    if (modelTier === 'HIGH' && env.REPLICATE_API_TOKEN) {
+      const high = await generateHighChatReply({ systemPrompt, history, message, canSearch, currentYear });
+      if (high && high.trim()) reply = high.trim();
+    }
+
+    // LOW (or HIGH fallback): up to 3 turns; the model may call web_search and
+    // we feed the results back before it produces the final answer.
+    for (let step = 0; !reply && step < 3; step++) {
       const msg = await callModel();
       if (!msg) break;
 
