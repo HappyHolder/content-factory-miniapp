@@ -273,6 +273,93 @@ async function collapseEmptyBlocks(page: Browser): Promise<void> {
   }
 }
 
+// ─── Measure where a template's text sits ───────────────────────────────────
+// So the photo behind a template-over-photo cover can keep THAT zone calmer for
+// legibility — instead of a hardcoded "lower half". Different templates place
+// text differently (centered, bottom, left…); this reads it from the actual
+// rendered layout. Generic — no per-template config.
+
+/** Coarse region of a template's text content, used to steer photo composition. */
+export type CalmZone = 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
+
+export async function measureContentZone(
+  html:         string,
+  aspectRatio?: string,
+): Promise<CalmZone | null> {
+  const { W, H } = getDimensions(aspectRatio);
+  try {
+    const browser = await getBrowser();
+    const page    = await browser.newPage();
+    await guardPage(page);
+    try {
+      await page.setViewportSize({ width: W, height: H });
+      await page.setContent(injectEmojiFallback(html), { waitUntil: 'load', timeout: 15_000 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await page.evaluate(() => (globalThis as any).document.fonts.ready).catch(() => {});
+      await page.waitForTimeout(200);
+      // Match the final render so measured positions are real.
+      await collapseEmptyBlocks(page);
+      await autoFitText(page);
+      const rect = await page.evaluate(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const win = globalThis as any;
+        const doc = win.document;
+        const isInline = (el: any): boolean => {
+          const d = win.getComputedStyle(el).display;
+          return d === 'inline' || d === 'inline-block' || d === 'inline-flex' || d === 'contents';
+        };
+        const isTextBox = (el: any): boolean => {
+          if (!(el.textContent || '').trim()) return false;
+          for (const c of Array.from(el.children)) if (!isInline(c)) return false;
+          return true;
+        };
+        // Collect visible text boxes with their font size.
+        const boxes: { r: any; fs: number }[] = [];
+        for (const el of Array.from(doc.body.querySelectorAll('*')) as any[]) {
+          if (!isTextBox(el)) continue;
+          const cs = win.getComputedStyle(el);
+          if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 2 || r.height < 2) continue;
+          boxes.push({ r, fs: parseFloat(cs.fontSize) || 0 });
+        }
+        if (boxes.length === 0) return null;
+        // Only the DOMINANT text (the headline) drives the calm zone — not the
+        // body, stats, or the tiny chrome (rubric, tags, byline) hugging the
+        // edges, which would otherwise make every template measure as "full".
+        const maxFs = Math.max(...boxes.map(b => b.fs));
+        const threshold = maxFs * 0.9;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, found = false;
+        for (const b of boxes) {
+          if (b.fs < threshold) continue;
+          minX = Math.min(minX, b.r.left); minY = Math.min(minY, b.r.top);
+          maxX = Math.max(maxX, b.r.right); maxY = Math.max(maxY, b.r.bottom);
+          found = true;
+        }
+        if (!found) return null;
+        const w = win.innerWidth, h = win.innerHeight;
+        return { x: minX / w, y: minY / h, w: (maxX - minX) / w, h: (maxY - minY) / h };
+      });
+      if (!rect) return null;
+      const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+      let label: CalmZone;
+      if (rect.w * rect.h > 0.6) label = 'full';
+      else if (cy > 0.62)        label = 'bottom';
+      else if (cy < 0.38)        label = 'top';
+      else if (cx < 0.38)        label = 'left';
+      else if (cx > 0.62)        label = 'right';
+      else                       label = 'center';
+      console.log(`[playwrightRenderer] content zone=${label} (cx=${cx.toFixed(2)}, cy=${cy.toFixed(2)})`);
+      return label;
+    } finally {
+      await page.close();
+    }
+  } catch (err) {
+    console.warn('[playwrightRenderer] measureContentZone failed (non-fatal):', (err as Error).message);
+    return null;
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**

@@ -16,7 +16,7 @@ import { env } from '../env';
 import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate, selectHtmlTemplate, fillTemplateSlots } from './aiGenerator';
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
-import { renderHtmlTemplate, renderHtmlString } from './playwrightRenderer';
+import { renderHtmlTemplate, renderHtmlString, measureContentZone } from './playwrightRenderer';
 import { generateHtmlCover, generateHtmlOverlay, buildFallbackOverlayHtml, composeTemplateOverPhoto, injectBrandTokens } from './claudeHtmlGenerator';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -334,11 +334,26 @@ export async function createDraftPostForChannel(
       }
       console.log(`[draftGenerator] Hybrid: template=${chosen?.name ?? 'none'} (${htmlTemplates.length} in DB), refHtml=${referenceHtml?.length ?? 0} chars`);
 
-      // When the channel has a slot template we render IT over the photo (4a),
-      // so the photo must be full-bleed (no reserved empty/dark zone) — the
-      // template owns the text layout. Otherwise the AI overlay (4b) stacks text
-      // in the lower zone, so the photo should keep a calmer bottom.
+      // When the channel has a slot template we render IT over the photo (4a).
+      // Fill it now (before the photo) and MEASURE where its text sits, so the
+      // photo can keep exactly that zone calmer for legibility — instead of a
+      // hardcoded "dark lower half". The rest of the frame stays full of detail.
       const willRenderTemplateOverPhoto = !!referenceHtml && /\{\{\w+\}\}/.test(referenceHtml);
+      let filledTemplate: string | null = null;
+      let templateCalmZone: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full' | undefined;
+      if (willRenderTemplateOverPhoto) {
+        filledTemplate = await fillTemplateSlots(referenceHtml!, {
+          title:        classification.headline || finalTitle,
+          content:      input || finalTitle,
+          artDirection: imagePrompt?.trim() || undefined,
+          coverLanguage,
+        }, slotBrandCtx);
+        if (filledTemplate) {
+          templateCalmZone =
+            (await measureContentZone(injectBrandTokens(filledTemplate, brand), aspectRatio)) ?? 'full';
+          console.log(`[draftGenerator] Hybrid: template text zone = ${templateCalmZone}`);
+        }
+      }
 
       // 2. Themed background prompt. Always distil through the art director so the
       //    Flux background is a clean, text-free scene — even when the user pastes
@@ -365,7 +380,7 @@ export async function createDraftPostForChannel(
       if (bgPrompt) {
         for (let attempt = 1; attempt <= 2 && !bgUrl; attempt++) {
           try {
-            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true, fullBleed: willRenderTemplateOverPhoto, model: imageModel });
+            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true, calmZone: templateCalmZone, model: imageModel });
             bgUrl = bg?.bannerUrl ?? null;
             if (!bgUrl) console.warn(`[draftGenerator] Hybrid: Flux bg attempt ${attempt} returned no image`);
           } catch (err) {
@@ -376,22 +391,14 @@ export async function createDraftPostForChannel(
       console.log(`[draftGenerator] Hybrid: bgPrompt=${bgPrompt ? 'ok' : 'MISSING'}, bg=${bgUrl ?? 'FAILED'}`);
 
       // 4a. Deterministic path — the channel HAS a slot template: render THAT
-      //     template over the photo (its real design, brand colors/logo, scrim
-      //     for readability) instead of letting the model compose a generic card.
-      //     This guarantees originality per channel — no AI-composition drift.
-      if (bgUrl && referenceHtml && /\{\{\w+\}\}/.test(referenceHtml)) {
-        const filled = await fillTemplateSlots(referenceHtml, {
-          title:        classification.headline || finalTitle,
-          content:      input || finalTitle,
-          artDirection: imagePrompt?.trim() || undefined,
-          coverLanguage,
-        }, slotBrandCtx);
-        if (filled) {
-          const composed = composeTemplateOverPhoto(filled, bgUrl, brand);
-          cover = await renderHtmlString(composed, aspectRatio);
-          if (!cover) console.warn('[draftGenerator] Hybrid: template-over-photo render failed');
-          else console.log('[draftGenerator] Hybrid: rendered channel template over photo (deterministic)');
-        }
+      //     template (filled above) over the photo (its real design, brand
+      //     colors/logo, scrim for readability) instead of letting the model
+      //     compose a generic card. Guarantees originality per channel.
+      if (bgUrl && filledTemplate) {
+        const composed = composeTemplateOverPhoto(filledTemplate, bgUrl, brand);
+        cover = await renderHtmlString(composed, aspectRatio);
+        if (!cover) console.warn('[draftGenerator] Hybrid: template-over-photo render failed');
+        else console.log('[draftGenerator] Hybrid: rendered channel template over photo (deterministic)');
       }
 
       // 4b. No slot template (or fill failed): Sonnet composes the channel-styled

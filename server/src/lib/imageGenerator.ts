@@ -200,13 +200,13 @@ export interface GenerateImageInput {
    */
   backgroundOnly?: boolean;
   /**
-   * Full-bleed background: fill the whole frame with detail, edge to edge, with
-   * NO reserved dark/empty lower zone. Used when a channel template is rendered
-   * OVER this photo (the template owns the text layout). Without it, backgroundOnly
-   * reserves a dark, empty lower half for a text overlay — which looks empty under
-   * a centered template.
+   * Where the template's text sits, so the photo keeps THAT zone a touch calmer
+   * for legibility while the rest of the frame stays full of detail. Set only on
+   * the template-over-photo path (measured from the actual template). 'full' = no
+   * calm zone (fill edge to edge). When omitted on a backgroundOnly image, the
+   * old behaviour applies (reserve a dark, empty lower half for an AI overlay).
    */
-  fullBleed?: boolean;
+  calmZone?: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
   /**
    * Replicate model override (e.g. 'openai/gpt-image-1' for HIGH tier). When
    * absent, falls back to env.IMAGE_MODEL (Flux — the LOW default).
@@ -279,13 +279,20 @@ export async function generateImageForPost(
   const brandColor = pickBrandColor(vkObj);
 
   // Hybrid background composition:
-  //  - fullBleed (a channel template is rendered OVER this photo): fill the WHOLE
-  //    frame with detail edge to edge, no dark/empty reserved zone.
+  //  - calmZone set (a channel template is rendered OVER this photo): fill the
+  //    WHOLE frame with detail, but keep the zone where the template's text sits a
+  //    touch calmer/lower-contrast for legibility — never empty or black.
   //  - plain backgroundOnly (AI overlay stacks text in the lower zone): steer the
-  //    subject up and keep the bottom calm/dark for the overlay.
+  //    subject up and keep the bottom calm/dark for the overlay (legacy behaviour).
+  const calmZonePhrase: Record<string, string> = {
+    top: 'the top area', bottom: 'the lower area', left: 'the left side',
+    right: 'the right side', center: 'the central area',
+  };
   const compositionHint = input.backgroundOnly
-    ? (input.fullBleed
-        ? '. Composition: fill the ENTIRE square frame with rich detail from top edge to bottom edge; the foreground and lower half must be as detailed and interesting as the center — NO flat empty floors, tabletops, plain skies, blank walls or dark negative space anywhere'
+    ? (input.calmZone
+        ? (input.calmZone === 'full'
+            ? '. Composition: fill the ENTIRE square frame with rich detail from edge to edge — no flat, empty, or dark dead zones anywhere'
+            : `. Composition: fill the whole frame with rich detail edge to edge, but keep ${calmZonePhrase[input.calmZone]} slightly calmer and lower-contrast (NOT empty, NOT black) so overlaid text stays legible there`)
         : '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay')
     : '';
 
