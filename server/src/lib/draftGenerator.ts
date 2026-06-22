@@ -459,11 +459,23 @@ export async function createDraftPostForChannel(
           if (hasSlots) {
             // Slot template: fill {{SLOTS}} with AI content and render the RAW
             // template untouched — its layout and colors stay exactly 1:1.
+            // Pass the channel identity so author/rubric/tag slots stay the
+            // channel's own and content is written in the channel's voice —
+            // never mirrored from the source outlet.
             const filled = await fillTemplateSlots(refHtml, {
               title:        classification.headline || finalTitle,
               content:      input || finalTitle,
               artDirection: imagePrompt?.trim() || undefined,
               coverLanguage,
+            }, {
+              handle: channel.handle,
+              name:   channel.name,
+              about:  vkObj && typeof (brandKit as Record<string, unknown>)?.['channelAbout'] === 'object'
+                ? JSON.stringify((brandKit as Record<string, unknown>)['channelAbout']).slice(0, 400)
+                : undefined,
+              voice:  (brandKit as Record<string, unknown>)?.['voiceProfile']
+                ? JSON.stringify((brandKit as Record<string, unknown>)['voiceProfile']).slice(0, 400)
+                : undefined,
             });
             if (filled) {
               cover = await renderHtmlString(filled, aspectRatio);

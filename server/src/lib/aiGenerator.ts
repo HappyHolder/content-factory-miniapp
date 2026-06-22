@@ -716,67 +716,18 @@ function extractStyleAndBody(html: string): string {
   return `${style}\n${body}`.slice(0, 5000);
 }
 
-/**
- * Fills a slot-based cover template ({{SLOT}} placeholders) with content derived
- * from the post, WITHOUT touching its HTML/CSS — the design and colors stay 1:1.
- *
- * The AI returns a JSON object mapping each slot name to a short string; we
- * substitute verbatim. Unknown/missing slots become empty strings.
- *
- * Returns the filled HTML, or null if there are no slots / AI is unavailable /
- * the call fails (callers then fall back to Sonnet or Satori).
- */
-export async function fillTemplateSlots(
-  templateHtml: string,
-  post: { title: string; content: string; artDirection?: string; coverLanguage?: 'ru' | 'en' },
-): Promise<string | null> {
-  const slots = Array.from(new Set(
-    [...templateHtml.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]),
-  ));
-  if (slots.length === 0) return null;
-  if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
+/** Channel identity passed into slot filling so the cover reads as THIS channel. */
+export interface SlotBrandContext {
+  handle?: string | null;   // channel @handle → author/handle slots
+  name?:   string | null;   // channel display name
+  about?:  string;          // what the channel is about (short)
+  voice?:  string;          // the channel's voice/style (short)
+}
 
-  // Generic + self-calibrating: the model is given the template's HTML+CSS and
-  // sizes each slot by HOW it is styled, so ANY template works without per-client
-  // prompt changes. The naming hints below are just common conventions, not a
-  // fixed schema.
-  const systemPrompt =
-    'You fill the {{SLOT}} placeholders of a social-media cover TEMPLATE with content from a post, ' +
-    'and return ONLY a JSON object mapping each slot name to a short string value.\n\n' +
-    'You are given the template HTML + CSS. Calibrate EACH slot by how it is styled and laid out:\n' +
-    '- A slot rendered at a large/display font size, or inside a headline/title element, must get VERY few short words ' +
-    '(a name or 1-3 short words). Long words or sentences break such layouts — never put them there.\n' +
-    '- A small, monospace, label, tag, category, or badge slot gets a 1-3 word short label.\n' +
-    '- A description / subtitle slot gets one short sentence.\n' +
-    '- A tag/hashtag slot gets 2-3 hashtags; an author/handle slot gets the channel or author name.\n' +
-    'Naming hints (common conventions, when present): *_VALUE = one metric/number/keyword, *_LABEL = its caption; ' +
-    'TITLE/HEADLINE (or a TITLE split into _WHITE/_ACCENT parts) = the huge headline, keep it to 2-3 short words total.\n\n' +
-    'General rules:\n' +
-    `- Write values in ${
-      post.coverLanguage === 'ru' ? 'Russian, translating from the post language when needed'
-      : post.coverLanguage === 'en' ? 'English, translating from the post language when needed'
-      : 'the SAME language as the post'
-    }. No markdown, no line breaks.\n` +
-    '- Keep each value short enough to fit its element without wrapping awkwardly.\n' +
-    '- Use a number ONLY if that exact number appears in the post. ' +
-    'NEVER invent facts, numbers, metrics, or statistics. ' +
-    'If you cannot derive a value for a slot from the post, return an empty string for it rather than making something up.';
-
-  const artDirectionLine = post.artDirection
-    ? `\nUser art direction (apply where it makes sense): ${post.artDirection.slice(0, 400)}\n`
-    : '';
-
-  const userPrompt =
-    `TEMPLATE (HTML + CSS — use it to judge each slot's size and length):\n${extractStyleAndBody(templateHtml)}\n\n` +
-    `Slots to fill: ${slots.join(', ')}\n\n` +
-    `Post title: ${post.title}\n` +
-    `Post body:\n${post.content.slice(0, 1500)}\n` +
-    artDirectionLine +
-    `\nReturn a JSON object with exactly these keys: ${slots.join(', ')}`;
-
+/** Slot-fill JSON completion via DeepSeek's OpenAI-compatible endpoint. */
+async function fillSlotsViaDeepseek(systemPrompt: string, userPrompt: string): Promise<string | null> {
   const controller = new AbortController();
   const timeoutId  = setTimeout(() => controller.abort(), 20_000);
-
   try {
     const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
       method:  'POST',
@@ -796,30 +747,134 @@ export async function fillTemplateSlots(
         temperature: 0.5,
       }),
     });
-
     if (!response.ok) {
       console.warn(`[aiGenerator] Slot fill failed: HTTP ${response.status}`);
       return null;
     }
-
     const data = await response.json() as { choices?: { message?: { content?: string } }[] };
-    const raw  = data.choices?.[0]?.message?.content?.trim() ?? '';
-    const values = JSON.parse(raw) as Record<string, unknown>;
-
-    const filled = templateHtml.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-      const v = values[key];
-      return typeof v === 'string' ? escapeHtmlText(v)
-           : typeof v === 'number' ? String(v)
-           : '';
-    });
-    console.log(`[aiGenerator] Filled ${slots.length} template slots via DeepSeek`);
-    return filled;
+    return data.choices?.[0]?.message?.content?.trim() ?? null;
   } catch (err) {
-    console.warn('[aiGenerator] Slot fill error:', (err as Error).message);
+    console.warn('[aiGenerator] Slot fill (DeepSeek) error:', (err as Error).message);
     return null;
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Fills a slot-based cover template ({{SLOT}} placeholders) with content for the
+ * post, WITHOUT touching its HTML/CSS — the design and colors stay 1:1.
+ *
+ * Slots are treated as two kinds so the cover keeps the CHANNEL's identity
+ * instead of mirroring the source article:
+ *   - IDENTITY slots (author/handle, rubric/section, the channel's own tags) are
+ *     filled from the channel brand context — never invented from the post and
+ *     never the source outlet's name.
+ *   - CONTENT slots (title, description, metrics, badge) are rewritten FROM the
+ *     post but IN THE CHANNEL'S VOICE and language.
+ *
+ * Provider-agnostic: uses DeepSeek when configured, otherwise Claude via
+ * Replicate (HIGH_TEXT_MODEL). Returns the filled HTML, or null when there are
+ * no slots / no provider available / the call fails.
+ */
+export async function fillTemplateSlots(
+  templateHtml: string,
+  post: { title: string; content: string; artDirection?: string; coverLanguage?: 'ru' | 'en' },
+  brand?: SlotBrandContext,
+): Promise<string | null> {
+  const slots = Array.from(new Set(
+    [...templateHtml.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]),
+  ));
+  if (slots.length === 0) return null;
+
+  const hasDeepseek  = env.AI_PROVIDER === 'deepseek' && !!env.DEEPSEEK_API_KEY;
+  const hasReplicate = !!env.REPLICATE_API_TOKEN;
+  if (!hasDeepseek && !hasReplicate) return null;
+
+  const langRule =
+    post.coverLanguage === 'ru' ? 'Russian, translating from the post language when needed'
+    : post.coverLanguage === 'en' ? 'English, translating from the post language when needed'
+    : 'the SAME language as the post';
+
+  // Generic + self-calibrating: the model is given the template's HTML+CSS and
+  // sizes each slot by HOW it is styled, so ANY template works without per-client
+  // prompt changes. The naming hints below are just common conventions.
+  const systemPrompt =
+    'You fill the {{SLOT}} placeholders of a social-media cover TEMPLATE with content for a post, ' +
+    'and return ONLY a JSON object mapping each slot name to a short string value.\n\n' +
+    'The cover belongs to a specific CHANNEL and must read as THAT channel\'s own post — ' +
+    'never as the source article\'s publication. Treat slots as two kinds:\n' +
+    '1. IDENTITY slots — author/handle, rubric/section name, the channel\'s own hashtags/byline. ' +
+    'Fill these from the CHANNEL IDENTITY block, NOT from the post, and NEVER with the source outlet\'s name. ' +
+    'An author/handle slot = the channel handle. A rubric/section slot = a short label in the channel\'s own style.\n' +
+    '2. CONTENT slots — title/headline, description/subtitle, metrics, badge. Rewrite these FROM the post, ' +
+    'but in the CHANNEL\'S VOICE (first person when the channel is a personal blog) and language. ' +
+    'Do NOT copy the source outlet\'s framing, byline, or branding.\n\n' +
+    'Size EACH slot by how it is styled in the template HTML/CSS:\n' +
+    '- A large/display/headline slot gets VERY few short words (1-3). Long words or sentences break such layouts — never put them there.\n' +
+    '- A small/monospace/label/tag/category/badge slot gets a 1-3 word short label.\n' +
+    '- A description/subtitle slot gets one short sentence.\n' +
+    'Naming hints (common conventions, when present): *_VALUE = one metric/number/keyword, *_LABEL = its caption; ' +
+    'TITLE/HEADLINE (or a TITLE split into _WHITE/_ACCENT parts) = the huge headline, keep it to 2-3 short words total; ' +
+    'AUTHOR/HANDLE = the channel handle; RUBRIC/SECTION/CATEGORY = the channel\'s section label; TAGS = the channel\'s hashtags.\n\n' +
+    'General rules:\n' +
+    `- Write all values in ${langRule}. No markdown, no line breaks.\n` +
+    '- Keep each value short enough to fit its element without wrapping awkwardly.\n' +
+    '- Use a number ONLY if that exact number appears in the post. ' +
+    'NEVER invent facts, numbers, metrics, or statistics. ' +
+    'If you cannot derive a value for a slot from the post, return an empty string for it rather than making something up.';
+
+  const identityLines: string[] = [];
+  if (brand?.handle) identityLines.push(`Channel handle (use for author/handle slots): ${brand.handle.startsWith('@') ? brand.handle : '@' + brand.handle}`);
+  if (brand?.name)   identityLines.push(`Channel name: ${brand.name}`);
+  if (brand?.about)  identityLines.push(`Channel is about: ${brand.about.slice(0, 300)}`);
+  if (brand?.voice)  identityLines.push(`Channel voice/style: ${brand.voice.slice(0, 300)}`);
+  const identityBlock = identityLines.length
+    ? `CHANNEL IDENTITY (the cover must read as THIS channel — keep these stable):\n${identityLines.join('\n')}\n\n`
+    : '';
+
+  const artDirectionLine = post.artDirection
+    ? `\nUser art direction (apply where it makes sense): ${post.artDirection.slice(0, 400)}\n`
+    : '';
+
+  const userPrompt =
+    identityBlock +
+    `TEMPLATE (HTML + CSS — use it to judge each slot's size and length):\n${extractStyleAndBody(templateHtml)}\n\n` +
+    `Slots to fill: ${slots.join(', ')}\n\n` +
+    `Post title: ${post.title}\n` +
+    `Post body:\n${post.content.slice(0, 1500)}\n` +
+    artDirectionLine +
+    `\nReturn a JSON object with exactly these keys: ${slots.join(', ')}`;
+
+  // Provider-agnostic JSON completion: DeepSeek when configured, else Claude.
+  const rawJson = hasDeepseek
+    ? await fillSlotsViaDeepseek(systemPrompt, userPrompt)
+    : await replicateText({
+        model:        env.HIGH_TEXT_MODEL,
+        systemPrompt: systemPrompt + '\n\nReturn ONLY the JSON object — no prose, no code fences.',
+        prompt:       userPrompt,
+        maxTokens:    800,
+        temperature:  0.5,
+        timeoutMs:    40_000,
+      });
+  if (!rawJson) return null;
+
+  let values: Record<string, unknown>;
+  try {
+    values = JSON.parse(extractJsonObject(rawJson)) as Record<string, unknown>;
+  } catch (err) {
+    console.warn('[aiGenerator] Slot fill: could not parse JSON:', (err as Error).message);
+    return null;
+  }
+
+  const filled = templateHtml.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+    const v = values[key];
+    return typeof v === 'string' ? escapeHtmlText(v)
+         : typeof v === 'number' ? String(v)
+         : '';
+  });
+  console.log(`[aiGenerator] Filled ${slots.length} template slots via ${hasDeepseek ? 'DeepSeek' : 'Claude'}`);
+  return filled;
 }
 
 // ─── Template classifier ─────────────────────────────────────────────────────
