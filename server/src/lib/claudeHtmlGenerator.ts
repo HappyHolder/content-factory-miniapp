@@ -388,6 +388,17 @@ export interface HtmlOverlayInput {
   aspectRatio?: string;
   /** Pin the cover text language; undefined = follow the post language. */
   coverLanguage?: 'ru' | 'en';
+  /**
+   * Channel identity so the overlay reads as THIS channel — not the source
+   * outlet. Without it the model invents a publication ("Anthropic News"),
+   * foreign-language tags and a generic "BREAKING" byline.
+   */
+  brand?: {
+    name?:   string | null;
+    about?:  string;
+    voice?:  string;
+    handle?: string | null;
+  };
 }
 
 /**
@@ -492,13 +503,24 @@ ${refBody}`
     : `5. Compose a clean, branded layout in the channel's primary color: a strong punchy headline, optional one-line subheadline, a small tag/badge. Give it structure (badge, headline block, footer) — not just a bare caption on a photo.
 6. Use the brand primary color for accents (a tag, a highlighted word, borders) so the cover reads as branded, not as a stock photo with text.`;
 
+  // Channel identity — so any byline/footer/tags read as THIS channel, not the
+  // source outlet (otherwise the model invents "Anthropic News", English tags…).
+  const identityLines: string[] = [];
+  if (input.brand?.name)   identityLines.push(`Channel name (good source for the project/brand name): ${input.brand.name}`);
+  if (input.brand?.about)  identityLines.push(`Channel is about (the project/brand name usually appears here): ${input.brand.about.slice(0, 300)}`);
+  if (input.brand?.voice)  identityLines.push(`Channel voice/style: ${input.brand.voice.slice(0, 200)}`);
+  if (input.brand?.handle) identityLines.push(`Channel @handle (last resort only — usually an arbitrary username): ${input.brand.handle.startsWith('@') ? input.brand.handle : '@' + input.brand.handle}`);
+  const identityBlock = identityLines.length
+    ? `\n━━━ CHANNEL IDENTITY (this cover is THIS channel's post — NEVER the source outlet) ━━━\n${identityLines.join('\n')}\n`
+    : '';
+
   const systemPrompt = `You are an expert HTML/CSS designer. You build the channel's branded cover layer ON TOP of a full-bleed background photo, following the channel's own template design system when given. You return ONLY raw HTML with no markdown, no explanation, no code fences.`;
 
   const userPrompt = `Build the overlay for a social-media cover. There is a full-bleed BACKGROUND PHOTO behind it (URL below) — your job is the readable branded layer on top.
 
 BACKGROUND IMAGE URL: ${input.bgImageUrl}
 BRAND PRIMARY COLOR: ${input.primaryColor}
-${designBlock}
+${identityBlock}${designBlock}
 
 ━━━ THIS POST ━━━
 ${contentLines.join('\n')}${postBodyBlock}${artBlock}
@@ -512,6 +534,8 @@ ${contentLines.join('\n')}${postBodyBlock}${artBlock}
 ${styleRule}
 7. Let the photo breathe — its upper half must stay clearly visible; never cover the whole canvas with an opaque panel.
 8. ALL text must come from the post. No invented numbers or metrics. Keep the headline short (a few words). Use "-" for dashes, never "—" or "–".${coverLanguageRule(input.coverLanguage)}
+8a. IDENTITY: any byline / author / footer credit = the channel's PROJECT or BRAND NAME from the CHANNEL IDENTITY block (derive it from the channel name/about) — NEVER the source outlet's name (e.g. not "Anthropic News", not "WSJ") and NOT the raw @handle. Any tags/hashtags are the channel's own, in the cover language. Do not copy the source's branding or byline.
+8b. COLOR: every badge / tag / pill / chip (including any "breaking"/"exclusive"/"new" label) MUST use the brand primary color (${input.primaryColor}) for its background, border and accent text. NEVER color a badge red, orange, or any non-brand color — the brand color is the only accent.
 9. NEVER use emoji or Unicode pictographs (📷 🚀 ✨ etc.) anywhere in the markup — the render server has no emoji font and they come out as empty boxes. For chips, tags and list markers use plain text, CSS shapes, or small inline SVG icons.
 10. Embed all CSS in <style>. No <script>, no <canvas>.
 11. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;

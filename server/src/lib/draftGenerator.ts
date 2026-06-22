@@ -369,6 +369,18 @@ export async function createDraftPostForChannel(
           logoUrl:       brand.logoUrl ?? undefined,
           primaryColor:  brand.primaryColor,
           aspectRatio,
+          // Channel identity so the overlay's byline/tags stay the channel's own
+          // and never mirror the source outlet (e.g. "Anthropic News").
+          brand: {
+            name:   channel.name,
+            handle: channel.handle,
+            about:  typeof (brandKit as Record<string, unknown>)?.['channelAbout'] === 'object'
+              ? JSON.stringify((brandKit as Record<string, unknown>)['channelAbout']).slice(0, 400)
+              : undefined,
+            voice:  (brandKit as Record<string, unknown>)?.['voiceProfile']
+              ? JSON.stringify((brandKit as Record<string, unknown>)['voiceProfile']).slice(0, 400)
+              : undefined,
+          },
         };
         for (let attempt = 1; attempt <= 2 && !cover; attempt++) {
           const overlayHtml = await generateHtmlOverlay(overlayInput);
