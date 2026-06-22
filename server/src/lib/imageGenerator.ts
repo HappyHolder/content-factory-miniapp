@@ -200,6 +200,14 @@ export interface GenerateImageInput {
    */
   backgroundOnly?: boolean;
   /**
+   * Full-bleed background: fill the whole frame with detail, edge to edge, with
+   * NO reserved dark/empty lower zone. Used when a channel template is rendered
+   * OVER this photo (the template owns the text layout). Without it, backgroundOnly
+   * reserves a dark, empty lower half for a text overlay — which looks empty under
+   * a centered template.
+   */
+  fullBleed?: boolean;
+  /**
    * Replicate model override (e.g. 'openai/gpt-image-1' for HIGH tier). When
    * absent, falls back to env.IMAGE_MODEL (Flux — the LOW default).
    */
@@ -270,11 +278,15 @@ export async function generateImageForPost(
     : null;
   const brandColor = pickBrandColor(vkObj);
 
-  // Hybrid background: the HTML overlay lands in the lower half of the canvas,
-  // so steer the focal subject into the upper third and keep the bottom calm —
-  // otherwise the overlay panels cover whatever the model centers in the frame.
+  // Hybrid background composition:
+  //  - fullBleed (a channel template is rendered OVER this photo): fill the WHOLE
+  //    frame with detail edge to edge, no dark/empty reserved zone.
+  //  - plain backgroundOnly (AI overlay stacks text in the lower zone): steer the
+  //    subject up and keep the bottom calm/dark for the overlay.
   const compositionHint = input.backgroundOnly
-    ? '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay'
+    ? (input.fullBleed
+        ? '. Composition: fill the ENTIRE square frame with rich detail from top edge to bottom edge; the foreground and lower half must be as detailed and interesting as the center — NO flat empty floors, tabletops, plain skies, blank walls or dark negative space anywhere'
+        : '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay')
     : '';
 
   // Logo is composited via sharp AFTER generation — never passed to the model

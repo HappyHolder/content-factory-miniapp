@@ -645,8 +645,10 @@ export async function generateImagePromptWithAI(
   const styleDesc = buildVisualStyleDescription(visualKit);
 
   const compositionRule = fullBleed
-    ? 'Compose the scene EDGE-TO-EDGE so it FILLS the entire square frame with visual interest from top to bottom — ' +
-      'no empty, flat, or dark dead zones anywhere, and no reserved blank area (a frame and text are composited on top afterwards). '
+    ? 'CRITICAL COMPOSITION: the scene must FILL the entire square frame with rich detail from the very top edge to the very bottom edge. ' +
+      'The FOREGROUND and the bottom of the frame must be as visually detailed and interesting as the center — ' +
+      'explicitly AVOID large flat empty floors, tabletops, counters, plain skies, blank walls, or dark voids in the lower half. ' +
+      'Choose a viewpoint and scene where the subject and its environment occupy the whole frame edge to edge (e.g. a wide immersive interior, a dense scene, a reflective floor full of light, foreground elements leading into the scene). '
     : 'Keep the lower third of the image calmer and less busy so the overlaid headline stays readable. ';
 
   const systemPrompt =

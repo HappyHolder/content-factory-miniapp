@@ -365,7 +365,7 @@ export async function createDraftPostForChannel(
       if (bgPrompt) {
         for (let attempt = 1; attempt <= 2 && !bgUrl; attempt++) {
           try {
-            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true, model: imageModel });
+            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true, fullBleed: willRenderTemplateOverPhoto, model: imageModel });
             bgUrl = bg?.bannerUrl ?? null;
             if (!bgUrl) console.warn(`[draftGenerator] Hybrid: Flux bg attempt ${attempt} returned no image`);
           } catch (err) {
