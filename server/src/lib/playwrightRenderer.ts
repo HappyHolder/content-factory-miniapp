@@ -170,6 +170,60 @@ function buildCssVars(brand: TemplateBrand): string {
 </style>`;
 }
 
+// ─── Auto-fit text (shrink-to-box) ──────────────────────────────────────────
+// Designer templates use large fixed font sizes tuned for SHORT content. When a
+// slot receives longer text the word no longer fits one line and the browser
+// breaks it mid-word ("POLYMARK ET"). To prevent that, for every text box we:
+//   1. forbid mid-word breaking (so a too-wide word overflows measurably);
+//   2. shrink its font-size until the content no longer overflows its box.
+// This is the same "fit" behaviour template-image services (Placid etc.) use —
+// generic, no per-template annotation, runs entirely in-page in a few ms.
+async function autoFitText(page: Browser): Promise<void> {
+  try {
+    await page.evaluate(() => {
+      // Browser globals — typed via cast since the server tsconfig has no DOM lib.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const win = globalThis as any;
+      const doc = win.document;
+
+      // A "text box" is an element that holds text and has no BLOCK-level child
+      // (its children, if any, are inline spans — e.g. a title split into
+      // <span class="white">/<span class="accent">). Font-size lives on it.
+      const isInline = (el: unknown): boolean => {
+        const d = win.getComputedStyle(el).display;
+        return d === 'inline' || d === 'inline-block' || d === 'inline-flex' || d === 'contents';
+      };
+      const isTextBox = (el: { children: ArrayLike<unknown>; textContent?: string }): boolean => {
+        if (!(el.textContent || '').trim()) return false;
+        for (const c of Array.from(el.children)) if (!isInline(c)) return false;
+        return true;
+      };
+
+      for (const el of Array.from(doc.body.querySelectorAll('*')) as any[]) {
+        if (!isTextBox(el)) continue;
+        // Stop mid-word breaks (overflow-wrap/word-break inherit to inline spans),
+        // so a too-wide word overflows the box instead of shattering.
+        el.style.wordBreak = 'normal';
+        el.style.overflowWrap = 'normal';
+        let size = parseFloat(win.getComputedStyle(el).fontSize);
+        if (!size || size < 12) continue;
+        const min = Math.max(8, size * 0.3);
+        let guard = 0;
+        while (
+          guard++ < 40 &&
+          size > min &&
+          (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
+        ) {
+          size *= 0.94;
+          el.style.fontSize = `${size}px`;
+        }
+      }
+    });
+  } catch (err) {
+    console.warn('[playwrightRenderer] autoFitText failed (non-fatal):', (err as Error).message);
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -205,6 +259,9 @@ export async function renderHtmlString(
       await page.evaluate(() => (globalThis as any).document.fonts.ready).catch(() => {});
       // Extra settle time so CSS transitions and font rendering finish
       await page.waitForTimeout(300);
+      // Shrink any text that overflows its box (e.g. a long headline) so words
+      // never break mid-word. Runs before the body-scale pass below.
+      await autoFitText(page);
       // Auto-fit: the model targets ${W}×${H} but often overshoots the height,
       // and overflow:hidden then clips the bottom card. Measure the real content
       // height and, if it overflows, uniformly scale the body down to fit. The
@@ -312,6 +369,8 @@ export async function renderHtmlTemplate(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await page.evaluate(() => (globalThis as any).document.fonts.ready).catch(() => {});
       await page.waitForTimeout(300);
+      // Shrink overflowing text (long headline/slot) so words never break mid-word.
+      await autoFitText(page);
       const screenshot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
       pngBuffer = Buffer.from(screenshot);
     } finally {

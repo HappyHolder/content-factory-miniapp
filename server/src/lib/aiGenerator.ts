@@ -804,9 +804,11 @@ export async function fillTemplateSlots(
     'and return ONLY a JSON object mapping each slot name to a short string value.\n\n' +
     'The cover belongs to a specific CHANNEL and must read as THAT channel\'s own post — ' +
     'never as the source article\'s publication. Treat slots as two kinds:\n' +
-    '1. IDENTITY slots — author/handle, rubric/section name, the channel\'s own hashtags/byline. ' +
+    '1. IDENTITY slots — author/byline/signature, rubric/section name, the channel\'s own hashtags. ' +
     'Fill these from the CHANNEL IDENTITY block, NOT from the post, and NEVER with the source outlet\'s name. ' +
-    'An author/handle slot = the channel handle. A rubric/section slot = a short label in the channel\'s own style.\n' +
+    'An author/byline/signature slot = the channel\'s PROJECT or BRAND NAME — derive it from the channel name or its ' +
+    '"about" description; do NOT use the raw @handle (it is often arbitrary, like a username). ' +
+    'A rubric/section slot = a short label in the channel\'s own style.\n' +
     '2. CONTENT slots — title/headline, description/subtitle, metrics, badge. Rewrite these FROM the post, ' +
     'but in the CHANNEL\'S VOICE (first person when the channel is a personal blog) and language. ' +
     'Do NOT copy the source outlet\'s framing, byline, or branding.\n\n' +
@@ -816,7 +818,8 @@ export async function fillTemplateSlots(
     '- A description/subtitle slot gets one short sentence.\n' +
     'Naming hints (common conventions, when present): *_VALUE = one metric/number/keyword, *_LABEL = its caption; ' +
     'TITLE/HEADLINE (or a TITLE split into _WHITE/_ACCENT parts) = the huge headline, keep it to 2-3 short words total; ' +
-    'AUTHOR/HANDLE = the channel handle; RUBRIC/SECTION/CATEGORY = the channel\'s section label; TAGS = the channel\'s hashtags.\n\n' +
+    'AUTHOR/HANDLE/SIGNATURE = the channel\'s project/brand name (from name/about), NOT the raw @handle; ' +
+    'RUBRIC/SECTION/CATEGORY = the channel\'s section label; TAGS = the channel\'s hashtags.\n\n' +
     'General rules:\n' +
     `- Write all values in ${langRule}. No markdown, no line breaks.\n` +
     '- Keep each value short enough to fit its element without wrapping awkwardly.\n' +
@@ -825,10 +828,10 @@ export async function fillTemplateSlots(
     'If you cannot derive a value for a slot from the post, return an empty string for it rather than making something up.';
 
   const identityLines: string[] = [];
-  if (brand?.handle) identityLines.push(`Channel handle (use for author/handle slots): ${brand.handle.startsWith('@') ? brand.handle : '@' + brand.handle}`);
-  if (brand?.name)   identityLines.push(`Channel name: ${brand.name}`);
-  if (brand?.about)  identityLines.push(`Channel is about: ${brand.about.slice(0, 300)}`);
+  if (brand?.name)   identityLines.push(`Channel name (a good source for the project/brand name): ${brand.name}`);
+  if (brand?.about)  identityLines.push(`Channel is about (the project/brand name usually appears here — use it for author/byline slots): ${brand.about.slice(0, 400)}`);
   if (brand?.voice)  identityLines.push(`Channel voice/style: ${brand.voice.slice(0, 300)}`);
+  if (brand?.handle) identityLines.push(`Channel @handle (LAST RESORT only — usually an arbitrary username, avoid as the author/byline): ${brand.handle.startsWith('@') ? brand.handle : '@' + brand.handle}`);
   const identityBlock = identityLines.length
     ? `CHANNEL IDENTITY (the cover must read as THIS channel — keep these stable):\n${identityLines.join('\n')}\n\n`
     : '';
