@@ -334,6 +334,12 @@ export async function createDraftPostForChannel(
       }
       console.log(`[draftGenerator] Hybrid: template=${chosen?.name ?? 'none'} (${htmlTemplates.length} in DB), refHtml=${referenceHtml?.length ?? 0} chars`);
 
+      // When the channel has a slot template we render IT over the photo (4a),
+      // so the photo must be full-bleed (no reserved empty/dark zone) — the
+      // template owns the text layout. Otherwise the AI overlay (4b) stacks text
+      // in the lower zone, so the photo should keep a calmer bottom.
+      const willRenderTemplateOverPhoto = !!referenceHtml && /\{\{\w+\}\}/.test(referenceHtml);
+
       // 2. Themed background prompt. Always distil through the art director so the
       //    Flux background is a clean, text-free scene — even when the user pastes
       //    the article text into the image-prompt field (raw long text makes Flux
@@ -347,6 +353,7 @@ export async function createDraftPostForChannel(
           excerpt: sourceSummary,
           visualKit,
           artDirection: imagePrompt?.trim() || undefined,
+          fullBleed: willRenderTemplateOverPhoto,
         });
       } catch (err) {
         console.warn('[draftGenerator] Hybrid: bg prompt generation failed:', (err as Error).message);

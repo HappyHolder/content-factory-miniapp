@@ -618,6 +618,13 @@ export interface GenerateImagePromptParams {
    * scene instead of a Flux image with burned-in gibberish.
    */
   artDirection?: string;
+  /**
+   * Full-bleed composition: fill the entire square edge-to-edge with no empty or
+   * dark reserved zones. Used when the channel template (rendered over the photo)
+   * owns the text layout, so the photo must NOT leave a calm bottom for a caption.
+   * Default (false) keeps the lower third calmer for a bottom-stacked headline.
+   */
+  fullBleed?: boolean;
 }
 
 /**
@@ -634,8 +641,13 @@ export async function generateImagePromptWithAI(
 ): Promise<string | null> {
   if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
 
-  const { title, excerpt, visualKit, artDirection } = params;
+  const { title, excerpt, visualKit, artDirection, fullBleed } = params;
   const styleDesc = buildVisualStyleDescription(visualKit);
+
+  const compositionRule = fullBleed
+    ? 'Compose the scene EDGE-TO-EDGE so it FILLS the entire square frame with visual interest from top to bottom — ' +
+      'no empty, flat, or dark dead zones anywhere, and no reserved blank area (a frame and text are composited on top afterwards). '
+    : 'Keep the lower third of the image calmer and less busy so the overlaid headline stays readable. ';
 
   const systemPrompt =
     'You are a visual art director writing prompts for AI image generation models. ' +
@@ -646,7 +658,7 @@ export async function generateImagePromptWithAI(
     'because a headline is overlaid on top afterwards. ' +
     'If the topic is a metric or abstract idea (user growth, a milestone, an announcement), express it through a metaphor ' +
     '(a crowd of people, a network of glowing nodes, a rising cityscape, a growing structure) rather than showing the number itself. ' +
-    'Keep the lower third of the image calmer and less busy so the overlaid headline stays readable. ' +
+    compositionRule +
     'Use an atmospheric, on-brand background (colors, lighting, mood); avoid empty abstract gradients, nebulae, or galaxies ' +
     'unless the brand style explicitly calls for them. ' +
     'Do NOT include any instructions, rules, or "do not" phrases in the output. ' +
