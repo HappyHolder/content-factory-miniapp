@@ -224,6 +224,55 @@ async function autoFitText(page: Browser): Promise<void> {
   }
 }
 
+// ─── Collapse empty slot blocks ─────────────────────────────────────────────
+// When a slot resolves to empty (e.g. a post with no real numbers leaves all
+// {{METRIC*}} blank — we forbid inventing figures), the template still draws the
+// now-empty block + its decorative dividers, leaving an ugly skeleton. This pass
+// hides any block that ended up with no text/image/background, plus the leftover
+// decorative separators around removed items. Generic — no per-template config.
+async function collapseEmptyBlocks(page: Browser): Promise<void> {
+  try {
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const win = globalThis as any;
+      const doc = win.document;
+
+      const hasText = (el: any): boolean => (el.textContent || '').replace(/\s+/g, '').length > 0;
+      const hasBgImage = (el: any): boolean => {
+        const nodes = [el, ...Array.from(el.querySelectorAll('*'))] as any[];
+        return nodes.some(n => {
+          const b = win.getComputedStyle(n).backgroundImage;
+          return b && b !== 'none';
+        });
+      };
+      // Content = real text, a real <img>, or a background image (logos/icons).
+      const isContent = (el: any): boolean => hasText(el) || !!el.querySelector('img') || hasBgImage(el);
+
+      const all = Array.from(doc.body.querySelectorAll('*')) as any[];
+
+      // Pass 1: hide container blocks that have children but no content at all
+      // (e.g. a whole metrics row, or a single metric card, whose slots are empty).
+      for (const el of all) {
+        if (el.children.length > 0 && !isContent(el)) el.style.display = 'none';
+      }
+
+      // Pass 2: in any parent that just lost a child, drop the leftover blank
+      // decorative leaves (e.g. divider lines between removed metric cards).
+      for (const parent of all) {
+        if (parent.style?.display === 'none') continue;
+        const kids = Array.from(parent.children) as any[];
+        if (!kids.some(k => k.style?.display === 'none')) continue;
+        for (const k of kids) {
+          if (k.style?.display === 'none') continue;
+          if (k.children.length === 0 && !isContent(k)) k.style.display = 'none';
+        }
+      }
+    });
+  } catch (err) {
+    console.warn('[playwrightRenderer] collapseEmptyBlocks failed (non-fatal):', (err as Error).message);
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -259,8 +308,9 @@ export async function renderHtmlString(
       await page.evaluate(() => (globalThis as any).document.fonts.ready).catch(() => {});
       // Extra settle time so CSS transitions and font rendering finish
       await page.waitForTimeout(300);
-      // Shrink any text that overflows its box (e.g. a long headline) so words
-      // never break mid-word. Runs before the body-scale pass below.
+      // Remove blocks whose slots came back empty (e.g. metrics with no figures),
+      // then shrink any text that overflows its box. Both run before body-scale.
+      await collapseEmptyBlocks(page);
       await autoFitText(page);
       // Auto-fit: the model targets ${W}×${H} but often overshoots the height,
       // and overflow:hidden then clips the bottom card. Measure the real content
@@ -369,7 +419,8 @@ export async function renderHtmlTemplate(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await page.evaluate(() => (globalThis as any).document.fonts.ready).catch(() => {});
       await page.waitForTimeout(300);
-      // Shrink overflowing text (long headline/slot) so words never break mid-word.
+      // Hide empty slot blocks, then shrink overflowing text (no mid-word breaks).
+      await collapseEmptyBlocks(page);
       await autoFitText(page);
       const screenshot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
       pngBuffer = Buffer.from(screenshot);
