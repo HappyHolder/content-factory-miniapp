@@ -74,6 +74,30 @@ function extractClassPalette(html: string): string {
   return Array.from(classes).join(' ');
 }
 
+/**
+ * Hybrid deterministic path: lay the channel's OWN (already slot-filled) template
+ * over a generated photo, instead of letting the model compose a generic card.
+ * Injects the brand tokens (--primary/--bg/--logo) and replaces the template's
+ * flat background with the photo + a readability scrim. Both backgrounds live in
+ * `body{background}` so they sit BELOW all template content (no z-index games),
+ * and use !important so they win over the template's own background rule.
+ */
+export function composeTemplateOverPhoto(
+  filledHtml: string,
+  photoUrl:   string,
+  brand:      { primaryColor: string; bgColor: string; logoUrl?: string | null },
+): string {
+  const safeUrl  = photoUrl.replace(/"/g, '\\"');
+  const logoVal  = brand.logoUrl ? `url("${brand.logoUrl.replace(/"/g, '\\"')}")` : 'none';
+  const inject =
+    `<style id="cf-brand-vars">:root{--primary:${brand.primaryColor};--accent:${brand.primaryColor};--bg:${brand.bgColor};--logo:${logoVal};}</style>` +
+    `<style id="cf-photo-bg">body{background:linear-gradient(rgba(0,0,0,.50),rgba(0,0,0,.50)),url("${safeUrl}") center/cover no-repeat !important;}</style>`;
+
+  if (/<\/head>/i.test(filledHtml)) return filledHtml.replace(/<\/head>/i, `${inject}</head>`);
+  if (/<head[^>]*>/i.test(filledHtml)) return filledHtml.replace(/<head[^>]*>/i, `$&${inject}`);
+  return inject + filledHtml;
+}
+
 // ─── Logo placement extraction ─────────────────────────────────────────────────
 // In AI+HTML mode the overlay model would otherwise draw the logo wherever it
 // likes (different corner/size every run, temperature > 0). Instead we read the

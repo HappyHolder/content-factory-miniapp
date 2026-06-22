@@ -17,7 +17,7 @@ import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplat
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
 import { renderHtmlTemplate, renderHtmlString } from './playwrightRenderer';
-import { generateHtmlCover, generateHtmlOverlay, buildFallbackOverlayHtml } from './claudeHtmlGenerator';
+import { generateHtmlCover, generateHtmlOverlay, buildFallbackOverlayHtml, composeTemplateOverPhoto } from './claudeHtmlGenerator';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -288,6 +288,19 @@ export async function createDraftPostForChannel(
   const coverLanguage: 'ru' | 'en' | undefined =
     rawCoverLang === 'ru' || rawCoverLang === 'en' ? rawCoverLang as 'ru' | 'en' : undefined;
 
+  // Channel identity for slot filling / overlay — so covers read as THIS channel
+  // (author/rubric/tags = the channel's own, content in the channel's voice),
+  // never mirrored from the source outlet. Shared by all cover paths below.
+  const bkRec = (brandKit && typeof brandKit === 'object') ? brandKit as Record<string, unknown> : null;
+  const slotBrandCtx = {
+    handle: channel.handle,
+    name:   channel.name,
+    about:  bkRec && typeof bkRec['channelAbout'] === 'object'
+      ? JSON.stringify(bkRec['channelAbout']).slice(0, 400) : undefined,
+    voice:  bkRec?.['voiceProfile']
+      ? JSON.stringify(bkRec['voiceProfile']).slice(0, 400) : undefined,
+  };
+
   // Persist what this post actually used. The channel setting may change later,
   // and Create can override it for a single generation.
   await prisma.generatedPost.update({
@@ -355,8 +368,28 @@ export async function createDraftPostForChannel(
       }
       console.log(`[draftGenerator] Hybrid: bgPrompt=${bgPrompt ? 'ok' : 'MISSING'}, bg=${bgUrl ?? 'FAILED'}`);
 
-      // 4. Sonnet composes the channel-styled overlay on the photo. One retry.
-      if (bgUrl) {
+      // 4a. Deterministic path — the channel HAS a slot template: render THAT
+      //     template over the photo (its real design, brand colors/logo, scrim
+      //     for readability) instead of letting the model compose a generic card.
+      //     This guarantees originality per channel — no AI-composition drift.
+      if (bgUrl && referenceHtml && /\{\{\w+\}\}/.test(referenceHtml)) {
+        const filled = await fillTemplateSlots(referenceHtml, {
+          title:        classification.headline || finalTitle,
+          content:      input || finalTitle,
+          artDirection: imagePrompt?.trim() || undefined,
+          coverLanguage,
+        }, slotBrandCtx);
+        if (filled) {
+          const composed = composeTemplateOverPhoto(filled, bgUrl, brand);
+          cover = await renderHtmlString(composed, aspectRatio);
+          if (!cover) console.warn('[draftGenerator] Hybrid: template-over-photo render failed');
+          else console.log('[draftGenerator] Hybrid: rendered channel template over photo (deterministic)');
+        }
+      }
+
+      // 4b. No slot template (or fill failed): Sonnet composes the channel-styled
+      //     overlay on the photo. One retry.
+      if (bgUrl && !cover) {
         const overlayInput = {
           bgImageUrl:    bgUrl,
           referenceHtml: referenceHtml ?? undefined,
@@ -371,16 +404,7 @@ export async function createDraftPostForChannel(
           aspectRatio,
           // Channel identity so the overlay's byline/tags stay the channel's own
           // and never mirror the source outlet (e.g. "Anthropic News").
-          brand: {
-            name:   channel.name,
-            handle: channel.handle,
-            about:  typeof (brandKit as Record<string, unknown>)?.['channelAbout'] === 'object'
-              ? JSON.stringify((brandKit as Record<string, unknown>)['channelAbout']).slice(0, 400)
-              : undefined,
-            voice:  (brandKit as Record<string, unknown>)?.['voiceProfile']
-              ? JSON.stringify((brandKit as Record<string, unknown>)['voiceProfile']).slice(0, 400)
-              : undefined,
-          },
+          brand: slotBrandCtx,
         };
         for (let attempt = 1; attempt <= 2 && !cover; attempt++) {
           const overlayHtml = await generateHtmlOverlay(overlayInput);
@@ -479,16 +503,7 @@ export async function createDraftPostForChannel(
               content:      input || finalTitle,
               artDirection: imagePrompt?.trim() || undefined,
               coverLanguage,
-            }, {
-              handle: channel.handle,
-              name:   channel.name,
-              about:  vkObj && typeof (brandKit as Record<string, unknown>)?.['channelAbout'] === 'object'
-                ? JSON.stringify((brandKit as Record<string, unknown>)['channelAbout']).slice(0, 400)
-                : undefined,
-              voice:  (brandKit as Record<string, unknown>)?.['voiceProfile']
-                ? JSON.stringify((brandKit as Record<string, unknown>)['voiceProfile']).slice(0, 400)
-                : undefined,
-            });
+            }, slotBrandCtx);
             if (filled) {
               cover = await renderHtmlString(filled, aspectRatio);
             }
