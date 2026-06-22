@@ -17,7 +17,7 @@ import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplat
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
 import { renderHtmlTemplate, renderHtmlString } from './playwrightRenderer';
-import { generateHtmlCover, generateHtmlOverlay, buildFallbackOverlayHtml, composeTemplateOverPhoto } from './claudeHtmlGenerator';
+import { generateHtmlCover, generateHtmlOverlay, buildFallbackOverlayHtml, composeTemplateOverPhoto, injectBrandTokens } from './claudeHtmlGenerator';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -493,11 +493,10 @@ export async function createDraftPostForChannel(
           const hasSlots = /\{\{\w+\}\}/.test(refHtml);
 
           if (hasSlots) {
-            // Slot template: fill {{SLOTS}} with AI content and render the RAW
-            // template untouched — its layout and colors stay exactly 1:1.
-            // Pass the channel identity so author/rubric/tag slots stay the
-            // channel's own and content is written in the channel's voice —
-            // never mirrored from the source outlet.
+            // Slot template: fill {{SLOTS}} with channel content, then apply the
+            // channel's brand tokens (--primary/--bg/--logo) so the template is
+            // rendered IN THE CHANNEL'S STYLE — not its placeholder defaults.
+            // Layout stays 1:1; only colors/logo become the channel's.
             const filled = await fillTemplateSlots(refHtml, {
               title:        classification.headline || finalTitle,
               content:      input || finalTitle,
@@ -505,7 +504,7 @@ export async function createDraftPostForChannel(
               coverLanguage,
             }, slotBrandCtx);
             if (filled) {
-              cover = await renderHtmlString(filled, aspectRatio);
+              cover = await renderHtmlString(injectBrandTokens(filled, brand), aspectRatio);
             }
           } else {
             // Free-form template (no slots): Sonnet composes the cover using the

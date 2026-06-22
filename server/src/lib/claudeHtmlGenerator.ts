@@ -74,28 +74,50 @@ function extractClassPalette(html: string): string {
   return Array.from(classes).join(' ');
 }
 
+export interface CoverBrandTokens {
+  primaryColor: string;
+  bgColor:      string;
+  logoUrl?:     string | null;
+}
+
+/** Inserts a snippet at the end of <head> (or best-effort if no head). */
+function insertIntoHead(html: string, snippet: string): string {
+  if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${snippet}</head>`);
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, `$&${snippet}`);
+  return snippet + html;
+}
+
+/**
+ * Applies the channel's brand to a slot template by injecting its tokens
+ * (--primary/--bg/--logo) into :root. Appended after the template's own :root so
+ * it overrides the template's defaults — this is how a template is "applied in
+ * the channel's style". (The template even expects it: its :root defaults are
+ * placeholders the service overrides.)
+ */
+export function injectBrandTokens(html: string, brand: CoverBrandTokens): string {
+  const logoVal = brand.logoUrl ? `url("${brand.logoUrl.replace(/"/g, '\\"')}")` : 'none';
+  const style =
+    `<style id="cf-brand-vars">:root{--primary:${brand.primaryColor};--accent:${brand.primaryColor};--bg:${brand.bgColor};--logo:${logoVal};}</style>`;
+  return insertIntoHead(html, style);
+}
+
 /**
  * Hybrid deterministic path: lay the channel's OWN (already slot-filled) template
  * over a generated photo, instead of letting the model compose a generic card.
- * Injects the brand tokens (--primary/--bg/--logo) and replaces the template's
- * flat background with the photo + a readability scrim. Both backgrounds live in
- * `body{background}` so they sit BELOW all template content (no z-index games),
- * and use !important so they win over the template's own background rule.
+ * Applies the brand tokens and replaces the template's flat background with the
+ * photo + a readability scrim. The photo lives in `body{background}` so it sits
+ * BELOW all template content (no z-index games), and uses !important so it wins
+ * over the template's own background rule.
  */
 export function composeTemplateOverPhoto(
   filledHtml: string,
   photoUrl:   string,
-  brand:      { primaryColor: string; bgColor: string; logoUrl?: string | null },
+  brand:      CoverBrandTokens,
 ): string {
-  const safeUrl  = photoUrl.replace(/"/g, '\\"');
-  const logoVal  = brand.logoUrl ? `url("${brand.logoUrl.replace(/"/g, '\\"')}")` : 'none';
-  const inject =
-    `<style id="cf-brand-vars">:root{--primary:${brand.primaryColor};--accent:${brand.primaryColor};--bg:${brand.bgColor};--logo:${logoVal};}</style>` +
+  const safeUrl = photoUrl.replace(/"/g, '\\"');
+  const photoBg =
     `<style id="cf-photo-bg">body{background:linear-gradient(rgba(0,0,0,.50),rgba(0,0,0,.50)),url("${safeUrl}") center/cover no-repeat !important;}</style>`;
-
-  if (/<\/head>/i.test(filledHtml)) return filledHtml.replace(/<\/head>/i, `${inject}</head>`);
-  if (/<head[^>]*>/i.test(filledHtml)) return filledHtml.replace(/<head[^>]*>/i, `$&${inject}`);
-  return inject + filledHtml;
+  return insertIntoHead(injectBrandTokens(filledHtml, brand), photoBg);
 }
 
 // ─── Logo placement extraction ─────────────────────────────────────────────────
