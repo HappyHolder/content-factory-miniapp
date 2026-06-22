@@ -115,8 +115,15 @@ export function composeTemplateOverPhoto(
   brand:      CoverBrandTokens,
 ): string {
   const safeUrl = photoUrl.replace(/"/g, '\\"');
+  // The photo IS the background now, so kill the template's own background
+  // decorations (grid/glow patterns drawn via body::before/::after as
+  // background-image) — they'd otherwise sit on top of the photo. Border/strip
+  // frame elements are real DOM and stay, so the channel's frame identity holds.
   const photoBg =
-    `<style id="cf-photo-bg">body{background:linear-gradient(rgba(0,0,0,.50),rgba(0,0,0,.50)),url("${safeUrl}") center/cover no-repeat !important;}</style>`;
+    `<style id="cf-photo-bg">` +
+    `body{background:linear-gradient(rgba(0,0,0,.50),rgba(0,0,0,.50)),url("${safeUrl}") center/cover no-repeat !important;}` +
+    `body::before,body::after{background-image:none !important;}` +
+    `</style>`;
   return insertIntoHead(injectBrandTokens(filledHtml, brand), photoBg);
 }
 
