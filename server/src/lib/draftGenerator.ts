@@ -283,15 +283,25 @@ export async function createDraftPostForChannel(
     rawAspectRatio === '16:9' || rawAspectRatio === '4:5' || rawAspectRatio === '9:16'
       ? rawAspectRatio
       : '1:1';
-  // Cover text language: 'auto' (default) follows the post language.
-  const rawCoverLang = vkObj?.['coverLanguage'];
-  const coverLanguage: 'ru' | 'en' | undefined =
-    rawCoverLang === 'ru' || rawCoverLang === 'en' ? rawCoverLang as 'ru' | 'en' : undefined;
-
   // Channel identity for slot filling / overlay — so covers read as THIS channel
   // (author/rubric/tags = the channel's own, content in the channel's voice),
   // never mirrored from the source outlet. Shared by all cover paths below.
   const bkRec = (brandKit && typeof brandKit === 'object') ? brandKit as Record<string, unknown> : null;
+
+  // Cover text language. Explicit ru/en wins. 'auto' INHERITS the channel's post
+  // language (voiceProfile.language) so an EN channel gets EN covers and a RU
+  // channel gets RU covers — instead of letting the model guess (and drift to RU
+  // because the brand voice is described in Russian). BI/unset stays auto (the
+  // fill prompt then follows the post text language).
+  const rawCoverLang = vkObj?.['coverLanguage'];
+  let coverLanguage: 'ru' | 'en' | undefined =
+    rawCoverLang === 'ru' || rawCoverLang === 'en' ? rawCoverLang as 'ru' | 'en' : undefined;
+  if (!coverLanguage) {
+    const vp = bkRec?.['voiceProfile'];
+    const chLang = (vp && typeof vp === 'object') ? (vp as Record<string, unknown>)['language'] : undefined;
+    if (chLang === 'EN') coverLanguage = 'en';
+    else if (chLang === 'RU') coverLanguage = 'ru';
+  }
   const slotBrandCtx = {
     handle: channel.handle,
     name:   channel.name,
