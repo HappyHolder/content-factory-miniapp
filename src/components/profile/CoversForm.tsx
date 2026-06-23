@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
 import { useApp } from '@/context/AppContext'
-import type { VisualKit, HtmlTemplateItem, ReferenceItem, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage, CoverLanguage, CoverBgDetail, CoverBgStyle } from '@/types'
+import type { VisualKit, HtmlTemplateItem, ReferenceItem, BrandColor, CoverAspectRatio, LogoUsage, CoverLanguage, CoverBgDetail, CoverBgStyle } from '@/types'
 import { cn } from '@/lib/utils'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
@@ -273,6 +273,18 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         })}
       </div>
 
+      {/* AI+HTML — no own settings: it combines the AI and HTML modes. Just a note + Save. */}
+      {coverMode === 'ai_html' && (
+        <div className="p-4 rounded-[14px] bg-white/[0.03] border border-white/[0.06] space-y-2">
+          <p className="text-sm font-semibold text-white">{t('channelStyle.covers.hybridTitle')}</p>
+          <p className="text-[13px] text-[#A1A1AA] leading-relaxed">{t('channelStyle.covers.hybridDesc')}</p>
+          <p className="text-[12px] text-[#55555D]">{t('channelStyle.covers.hybridSave')}</p>
+        </div>
+      )}
+
+      {/* Everything below is hidden in AI+HTML (settings come from the AI / HTML modes). */}
+      {coverMode !== 'ai_html' && <>
+
       {/* Color Tokens — visible in both modes (HTML mode needs --primary/--bg) */}
       <div>
         <div className="flex items-start justify-between gap-2 mb-1">
@@ -503,19 +515,6 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         description={t('channelStyle.covers.watermarkDesc')}
         value={data.watermark}
         onChange={v => set('watermark', v)}
-      />
-
-      {/* Cover style */}
-      <OptionPills<BannerTemplate>
-        label={t('channelStyle.covers.coverStyle')}
-        value={data.bannerTemplate}
-        onChange={v => set('bannerTemplate', v)}
-        options={[
-          { value: 'dark_glass', label: t('channelStyle.covers.styleDarkGlass') },
-          { value: 'minimal',    label: t('channelStyle.covers.styleMinimal')   },
-          { value: 'branded',    label: t('channelStyle.covers.styleBranded')   },
-          { value: 'news',       label: t('channelStyle.covers.styleNews')      },
-        ]}
       />
 
       {/* Text on cover */}
@@ -842,6 +841,8 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
       </div>
 
       </> /* end HTML mode */}
+
+      </> /* end non-(AI+HTML) settings */}
 
       <Button variant="primary" size="md" onClick={handleSave} fullWidth>
         {t('channelStyle.save.covers')}
