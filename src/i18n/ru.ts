@@ -6,7 +6,13 @@ export const ru: Dict = {
     posts:   'Посты',
     create:  'Создать',
     ai:      'AI',
+    styles:  'Стили',
     profile: 'Профиль',
+  },
+  styles: {
+    title:    'Стили',
+    subtitle: 'Готовые стили обложек для твоего канала',
+    soon:     'Скоро',
   },
   common: {
     back:    'Назад',

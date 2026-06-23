@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileText, Sparkles, User, Bot, Send, Loader2, ChevronDown } from 'lucide-react'
+import { FileText, Sparkles, User, Bot, Send, Loader2, ChevronDown, LayoutTemplate } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/context/AppContext'
 
-type Tab = 'posts' | 'create' | 'ai' | 'profile'
+type Tab = 'posts' | 'create' | 'ai' | 'styles' | 'profile'
 
 interface NavItem {
   id: Tab
@@ -44,6 +44,7 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
     { id: 'posts',   label: t('nav.posts'),   icon: FileText },
     { id: 'create',  label: t('nav.create'),  icon: Sparkles },
     { id: 'ai',      label: t('nav.ai'),      icon: Bot      },
+    { id: 'styles',  label: t('nav.styles'),  icon: LayoutTemplate },
     { id: 'profile', label: t('nav.profile'), icon: User     },
   ]
 

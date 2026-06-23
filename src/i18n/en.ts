@@ -6,7 +6,13 @@ export const en = {
     posts:   'Posts',
     create:  'Create',
     ai:      'AI',
+    styles:  'Styles',
     profile: 'Profile',
+  },
+  styles: {
+    title:    'Styles',
+    subtitle: 'Ready-made cover styles for your channel',
+    soon:     'Soon',
   },
   common: {
     back:    'Back',

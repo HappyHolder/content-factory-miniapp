@@ -8,6 +8,7 @@ import { BottomNav } from '@/components/layout/BottomNav'
 import { ToastContainer } from '@/components/ui/Toast'
 import { PostsScreen } from '@/screens/PostsScreen'
 import { CreateScreen } from '@/screens/CreateScreen'
+import { StylesScreen } from '@/screens/StylesScreen'
 import { ProfileScreen } from '@/screens/ProfileScreen'
 import { PostDetailsScreen } from '@/screens/PostDetailsScreen'
 import { BrandKitScreen } from '@/screens/BrandKitScreen'
@@ -18,7 +19,7 @@ import { ChatScreen, type ChatMessage } from '@/screens/ChatScreen'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 
-type MainTab = 'posts' | 'create' | 'ai' | 'profile'
+type MainTab = 'posts' | 'create' | 'ai' | 'styles' | 'profile'
 
 type ModalScreen =
   | { type: 'none' }
@@ -173,6 +174,7 @@ function AppContent() {
               <AppShell key={activeTab} pageKey={activeTab}>
                 {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
                 {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} />}
+                {activeTab === 'styles' && <StylesScreen />}
                 {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenPlans={handleOpenPlans} onOpenAdmin={handleOpenAdmin} />}
               </AppShell>
             )}
