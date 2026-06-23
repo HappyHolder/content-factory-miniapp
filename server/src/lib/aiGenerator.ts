@@ -836,6 +836,10 @@ export async function fillTemplateSlots(
     'RUBRIC/SECTION/CATEGORY = the channel\'s section label; TAGS = the channel\'s hashtags.\n\n' +
     'General rules:\n' +
     `- Write all values in ${langRule}. No markdown, no line breaks.\n` +
+    '- Return PLAIN text only — NO decorative prefixes or symbols around values ' +
+    '(no "//", no "#", no "///", no bullets, no quotes). The template draws its own ' +
+    'punctuation/separators; e.g. a rubric value is just "новости" (the template adds "//"), ' +
+    'a tag value is just "крипто" (the template adds the colored prefix).\n' +
     '- Keep each value short enough to fit its element without wrapping awkwardly.\n' +
     '- Use a number ONLY if that exact number appears in the post. ' +
     'NEVER invent facts, numbers, metrics, or statistics. ' +

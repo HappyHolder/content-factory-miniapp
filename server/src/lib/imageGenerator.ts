@@ -282,24 +282,6 @@ export async function generateImageForPost(
     : null;
   const brandColor = pickBrandColor(vkObj);
 
-  // Hybrid background composition:
-  //  - calmZone set (a channel template is rendered OVER this photo): fill the
-  //    WHOLE frame with detail, but keep the zone where the template's text sits a
-  //    touch calmer/lower-contrast for legibility — never empty or black.
-  //  - plain backgroundOnly (AI overlay stacks text in the lower zone): steer the
-  //    subject up and keep the bottom calm/dark for the overlay (legacy behaviour).
-  const calmZonePhrase: Record<string, string> = {
-    top: 'the top area', bottom: 'the lower area', left: 'the left side',
-    right: 'the right side', center: 'the central area',
-  };
-  const compositionHint = input.backgroundOnly
-    ? (input.calmZone
-        ? (input.calmZone === 'full'
-            ? '. Composition: fill the ENTIRE square frame with rich detail from edge to edge — no flat, empty, or dark dead zones anywhere'
-            : `. Composition: fill the whole frame with rich detail edge to edge, but keep ${calmZonePhrase[input.calmZone]} slightly calmer and lower-contrast (NOT empty, NOT black) so overlaid text stays legible there`)
-        : '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay')
-    : '';
-
   // Background detail + visual style — channel settings (Cover settings, AI mode;
   // the hybrid reuses the same generated background, so it inherits these too).
   const bgDetailPhrase: Record<string, string> = {
@@ -319,6 +301,28 @@ export async function generateImageForPost(
   const styleHint = [bgStylePhrase[styleKey], bgDetailPhrase[detailKey]]
     .filter(Boolean).join(', ');
   const styleSuffix = styleHint ? `. Style: ${styleHint}` : '';
+
+  // Hybrid background composition. The "fill" wording is DETAIL-AWARE so it never
+  // fights the detail setting — minimal must not be told to "fill with rich
+  // detail" (that's why minimal looked busy before).
+  const detailFill =
+    detailKey === 'minimal'
+      ? 'keep it minimal and clean — a single simple subject with generous negative space, uncluttered and calm, but the whole square still filled with a soft clean atmosphere (NO black bars, NO empty dead zones)'
+      : detailKey === 'detailed'
+        ? 'fill the whole frame with rich, layered detail, edge to edge'
+        : 'a clear subject with the whole frame filled edge to edge';
+  const calmZonePhrase: Record<string, string> = {
+    top: 'the top area', bottom: 'the lower area', left: 'the left side',
+    right: 'the right side', center: 'the central area',
+  };
+  const zoneClause = (input.calmZone && input.calmZone !== 'full' && calmZonePhrase[input.calmZone])
+    ? `; keep ${calmZonePhrase[input.calmZone]} a touch calmer and lower-contrast (NOT empty, NOT black) so overlaid text stays legible`
+    : '';
+  const compositionHint = input.backgroundOnly
+    ? (input.calmZone
+        ? `. Composition: ${detailFill}${zoneClause}`
+        : '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay')
+    : '';
 
   // Logo is composited via sharp AFTER generation — never passed to the model
   const prompt = `${userPrompt}${brandTokens}${styleSuffix}${compositionHint}${NEGATIVE_SUFFIX}`;
@@ -360,7 +364,7 @@ export async function generateImageForPost(
         ...(refImageUrl ? { image: refImageUrl, prompt_strength: 0.35 } : {}),
       };
 
-  console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} ref=${refImageUrl ? 'yes' : 'no'} promptLen=${prompt.length}`);
+  console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} ref=${refImageUrl ? 'yes' : 'no'} detail=${detailKey} style=${styleKey} promptLen=${prompt.length}`);
 
   try {
     const createRes = await fetch(
