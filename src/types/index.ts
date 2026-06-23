@@ -141,7 +141,23 @@ export interface VisualKit {
   coverMode?: 'ai' | 'html' | 'ai_html'
   // Language of the text on covers: 'auto' = follow the post language
   coverLanguage?: CoverLanguage
+  // How the neural background image is generated (AI mode; hybrid reuses it).
+  // Detail level — how busy/rich the scene is. Default 'balanced'.
+  coverBgDetail?: CoverBgDetail
+  // Visual style of the generated background. 'auto' = no forced style (current
+  // behaviour). Default 'auto'.
+  coverBgStyle?: CoverBgStyle
 }
+
+export type CoverBgDetail = 'minimal' | 'balanced' | 'detailed'
+export type CoverBgStyle =
+  | 'auto'
+  | 'hyperreal'
+  | 'cinematic'
+  | '3d'
+  | 'cartoon'
+  | 'anime'
+  | 'clay'
 
 export interface HtmlTemplateItem {
   name: string       // rubric label shown in UI, used by AI for matching

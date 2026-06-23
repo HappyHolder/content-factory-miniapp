@@ -296,8 +296,28 @@ export async function generateImageForPost(
         : '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay')
     : '';
 
+  // Background detail + visual style — channel settings (Cover settings, AI mode;
+  // the hybrid reuses the same generated background, so it inherits these too).
+  const bgDetailPhrase: Record<string, string> = {
+    minimal:  'minimalist composition, lots of negative space, a single simple subject, clean and uncluttered',
+    detailed: 'richly detailed, intricate, layered scene with depth',
+  };
+  const bgStylePhrase: Record<string, string> = {
+    hyperreal: 'hyperrealistic, ultra-detailed, lifelike photography',
+    cinematic: 'cinematic film still, dramatic lighting, shallow depth of field, color-graded',
+    '3d':      '3D render, octane render, volumetric lighting, CGI',
+    cartoon:   'flat 2D cartoon illustration, bold clean shapes, vector style',
+    anime:     'anime style illustration, cel shading',
+    clay:      'claymation, plasticine clay model, stop-motion look, soft studio light',
+  };
+  const detailKey = typeof vkObj?.['coverBgDetail'] === 'string' ? vkObj['coverBgDetail'] as string : 'balanced';
+  const styleKey  = typeof vkObj?.['coverBgStyle']  === 'string' ? vkObj['coverBgStyle']  as string : 'auto';
+  const styleHint = [bgStylePhrase[styleKey], bgDetailPhrase[detailKey]]
+    .filter(Boolean).join(', ');
+  const styleSuffix = styleHint ? `. Style: ${styleHint}` : '';
+
   // Logo is composited via sharp AFTER generation — never passed to the model
-  const prompt = `${userPrompt}${brandTokens}${compositionHint}${NEGATIVE_SUFFIX}`;
+  const prompt = `${userPrompt}${brandTokens}${styleSuffix}${compositionHint}${NEGATIVE_SUFFIX}`;
 
   // Reference image: first uploaded reference from visualKit (or logo as fallback).
   // Passed as img2img input so the model inherits the brand's color palette and

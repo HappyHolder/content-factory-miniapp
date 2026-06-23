@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
 import { useApp } from '@/context/AppContext'
-import type { VisualKit, HtmlTemplateItem, ReferenceItem, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage, CoverLanguage } from '@/types'
+import type { VisualKit, HtmlTemplateItem, ReferenceItem, BrandColor, BannerTemplate, CoverAspectRatio, LogoUsage, CoverLanguage, CoverBgDetail, CoverBgStyle } from '@/types'
 import { cn } from '@/lib/utils'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
@@ -468,6 +468,34 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
 
       {/* ── AI MODE ─────────────────────────────────────────────────────────── */}
       {coverMode === 'ai' && <>
+
+      {/* Background detail — how busy the generated scene is (hybrid reuses it) */}
+      <OptionPills<CoverBgDetail>
+        label={t('channelStyle.covers.bgDetail')}
+        value={data.coverBgDetail ?? 'balanced'}
+        onChange={v => set('coverBgDetail', v)}
+        options={[
+          { value: 'minimal',  label: t('channelStyle.covers.bgDetailMinimal')  },
+          { value: 'balanced', label: t('channelStyle.covers.bgDetailBalanced') },
+          { value: 'detailed', label: t('channelStyle.covers.bgDetailDetailed') },
+        ]}
+      />
+
+      {/* Background visual style */}
+      <OptionPills<CoverBgStyle>
+        label={t('channelStyle.covers.bgStyle')}
+        value={data.coverBgStyle ?? 'auto'}
+        onChange={v => set('coverBgStyle', v)}
+        options={[
+          { value: 'auto',      label: t('channelStyle.covers.bgStyleAuto')      },
+          { value: 'hyperreal', label: t('channelStyle.covers.bgStyleHyperreal') },
+          { value: 'cinematic', label: t('channelStyle.covers.bgStyleCinematic') },
+          { value: '3d',        label: t('channelStyle.covers.bgStyle3d')        },
+          { value: 'cartoon',   label: t('channelStyle.covers.bgStyleCartoon')   },
+          { value: 'anime',     label: t('channelStyle.covers.bgStyleAnime')     },
+          { value: 'clay',      label: t('channelStyle.covers.bgStyleClay')      },
+        ]}
+      />
 
       {/* Watermark */}
       <Switch
