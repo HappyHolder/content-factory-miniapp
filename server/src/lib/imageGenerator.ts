@@ -262,7 +262,11 @@ export async function generateImageForPost(
       ? rawAspectRatio
       : '1:1';
   const brandTokens = buildVisualKitPromptHints(input.visualKit);
+  // Respect the channel's logo usage: 'never' = no logo on the cover (e.g. a
+  // writer who wants a clean illustration). 'always'/'when_relevant' keep it.
+  const logoUsage = typeof vkObj?.['logoUsage'] === 'string' ? vkObj['logoUsage'] as string : undefined;
   const logoUrl = !input.backgroundOnly
+    && logoUsage !== 'never'
     && typeof vkObj?.['logoUrl'] === 'string' && (vkObj['logoUrl'] as string).startsWith('http')
     ? vkObj['logoUrl'] as string
     : null;
