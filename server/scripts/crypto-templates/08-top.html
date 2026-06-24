@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#FF5422; --bg:#0B0B0C; --logo:none; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1080px; height:1080px; background:var(--bg); color:#fff; position:relative; overflow:hidden;
+    font-family:'Space Grotesk', system-ui, sans-serif; display:flex; flex-direction:column; padding:72px; }
+  .glow { position:absolute; top:-120px; right:-120px; width:560px; height:560px; z-index:0;
+    background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 22%, transparent) 0%, transparent 62%); }
+  .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.14); border-radius:100px; padding:14px 22px; }
+  .brand { display:flex; align-items:center; gap:14px; font-size:30px; font-weight:500; } .brand .mark { color:var(--primary); font-size:32px; }
+  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:24px; letter-spacing:0.06em; text-transform:uppercase; padding:10px 22px; border-radius:100px; }
+
+  .head { margin-top:50px; font-size:54px; font-weight:500; } .head .accent { color:var(--primary); }
+  .list { flex:1; display:flex; flex-direction:column; justify-content:center; gap:20px; counter-reset:rank; }
+  .row { display:flex; align-items:center; gap:26px; counter-increment:rank; border-bottom:1px solid rgba(255,255,255,0.07); padding-bottom:20px; }
+  .row:last-child { border-bottom:none; }
+  .row:has(.nm:empty) { display:none; }
+  .num { width:58px; height:58px; flex-shrink:0; border-radius:50%; background:var(--primary); color:#0B0B0C; font-weight:700; font-size:30px; display:flex; align-items:center; justify-content:center; }
+  .num::before { content: counter(rank); }
+  .nm { flex:1; font-size:52px; font-weight:500; }
+  .val { font-size:34px; color:#8A8A8E; }
+
+  .bottom { display:flex; align-items:center; justify-content:space-between; padding-top:10px; }
+  .tags { display:flex; gap:12px; } .tags .t { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:9px 20px; font-size:22px; color:#C8C8CC; } .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:24px; color:#8A8A8E; } .handle .logo { width:34px; height:34px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="layer">
+    <div class="topbar"><div class="brand"><span class="mark">✳</span>{{BRAND}}</div><div class="rubric-pill">{{RUBRIC}}</div></div>
+    <div class="head"><span class="white">{{HEAD_WHITE}} </span><span class="accent">{{HEAD_ACCENT}}</span></div>
+    <div class="list">
+      <div class="row"><span class="num"></span><span class="nm">{{NAME1}}</span><span class="val">{{VAL1}}</span></div>
+      <div class="row"><span class="num"></span><span class="nm">{{NAME2}}</span><span class="val">{{VAL2}}</span></div>
+      <div class="row"><span class="num"></span><span class="nm">{{NAME3}}</span><span class="val">{{VAL3}}</span></div>
+      <div class="row"><span class="num"></span><span class="nm">{{NAME4}}</span><span class="val">{{VAL4}}</span></div>
+      <div class="row"><span class="num"></span><span class="nm">{{NAME5}}</span><span class="val">{{VAL5}}</span></div>
+    </div>
+    <div class="bottom">
+      <div class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></div>
+      <div class="handle"><span class="logo"></span>{{HANDLE}}</div>
+    </div>
+  </div>
+</body>
+</html>

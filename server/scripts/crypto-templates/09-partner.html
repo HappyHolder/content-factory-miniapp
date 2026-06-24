@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#FF5422; --bg:#0B0B0C; --logo:none; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1080px; height:1080px; background:var(--bg); color:#fff; position:relative; overflow:hidden;
+    font-family:'Space Grotesk', system-ui, sans-serif; display:flex; flex-direction:column; padding:72px; }
+  .glow { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:820px; height:560px; z-index:0;
+    background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 26%, transparent) 0%, transparent 62%); }
+  .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.14); border-radius:100px; padding:14px 22px; }
+  .brand { display:flex; align-items:center; gap:14px; font-size:30px; font-weight:500; } .brand .mark { color:var(--primary); font-size:32px; }
+  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:24px; letter-spacing:0.06em; text-transform:uppercase; padding:10px 22px; border-radius:100px; }
+
+  .hero { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:40px; }
+
+  /* Два лого-круга + светящийся узел × между ними */
+  .duo { display:flex; align-items:center; justify-content:center; }
+  .lc { width:248px; height:248px; border-radius:50%; border:1px solid rgba(255,255,255,0.12); background:#141416;
+        display:flex; align-items:center; justify-content:center; font-size:60px; font-weight:500; overflow:hidden; }
+  .lc .pl { width:130px; height:130px; background-image:var(--logo); background-size:contain; background-repeat:no-repeat; background-position:center; }
+  .lc .pl.empty { width:auto; height:auto; background:none; color:var(--primary); font-size:96px; }
+  .connector { width:150px; height:150px; display:flex; align-items:center; justify-content:center; position:relative; z-index:2; }
+  .connector::before { content:''; position:absolute; left:-10px; right:-10px; top:50%; height:2px; transform:translateY(-50%);
+        background:linear-gradient(90deg, transparent, var(--primary), transparent); }
+  .node { width:92px; height:92px; border-radius:50%; background:var(--primary); color:#0B0B0C; font-size:50px; font-weight:700;
+        display:flex; align-items:center; justify-content:center; position:relative; z-index:2;
+        box-shadow:0 0 46px color-mix(in srgb, var(--primary) 65%, transparent); }
+
+  .title { font-size:84px; font-weight:500; line-height:1.02; letter-spacing:-0.02em; }
+  .title .accent { color:var(--primary); }
+  .subtitle { font-size:32px; color:#9A9AA0; line-height:1.4; max-width:780px; }
+
+  .bottom { display:flex; align-items:center; justify-content:space-between; }
+  .tags { display:flex; gap:12px; } .tags .t { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:9px 20px; font-size:22px; color:#C8C8CC; } .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:24px; color:#8A8A8E; } .handle .logo { width:34px; height:34px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="layer">
+    <div class="topbar"><div class="brand"><span class="mark">✳</span>{{BRAND}}</div><div class="rubric-pill">{{RUBRIC}}</div></div>
+    <div class="hero">
+      <div class="duo">
+        <div class="lc"><span class="pl empty">✳</span></div>
+        <div class="connector"><span class="node">×</span></div>
+        <div class="lc"><span class="partner">{{PARTNER}}</span></div>
+      </div>
+      <div class="title"><span class="white">{{PROJECT}} </span><span class="accent">× {{PARTNER}}</span></div>
+      <div class="subtitle">{{SUBTITLE}}</div>
+    </div>
+    <div class="bottom">
+      <div class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></div>
+      <div class="handle"><span class="logo"></span>{{HANDLE}}</div>
+    </div>
+  </div>
+</body>
+</html>

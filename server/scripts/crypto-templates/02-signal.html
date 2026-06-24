@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#FF5422; --bg:#0B0B0C; --logo:none; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1080px; height:1080px; background:var(--bg); color:#fff; position:relative; overflow:hidden;
+    font-family:'Space Grotesk', system-ui, sans-serif; display:flex; flex-direction:column; padding:72px; }
+  .glow { position:absolute; top:120px; left:50%; transform:translateX(-50%); width:760px; height:600px; z-index:0;
+    background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 26%, transparent) 0%, transparent 62%); }
+
+  .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.14); border-radius:100px; padding:14px 22px; }
+  .brand { display:flex; align-items:center; gap:14px; font-size:30px; font-weight:500; }
+  .brand .mark { color:var(--primary); font-size:32px; }
+  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:24px; letter-spacing:0.06em; text-transform:uppercase; padding:10px 22px; border-radius:100px; }
+
+  .hero { flex:1; display:flex; flex-direction:column; justify-content:center; gap:34px; }
+  .tickrow { display:flex; align-items:center; gap:24px; }
+  .ticker { font-size:140px; font-weight:500; line-height:0.9; letter-spacing:-0.02em; }
+  .side { font-weight:700; font-size:34px; letter-spacing:0.08em; text-transform:uppercase; padding:14px 30px; border-radius:100px; background:var(--primary); color:#0B0B0C; }
+
+  .cards { display:flex; gap:18px; }
+  .card { flex:1; border-radius:24px; padding:30px 28px; }
+  .card.dark { background:#16161A; border:1px solid rgba(255,255,255,0.08); }
+  .card.orange { background:var(--primary); color:#0B0B0C; }
+  .card .cl { font-size:22px; color:#8A8A8E; text-transform:uppercase; letter-spacing:0.06em; }
+  .card.orange .cl { color:rgba(11,11,12,0.7); }
+  .card .cv { font-size:54px; font-weight:500; margin-top:10px; line-height:1; }
+
+  .bottom { display:flex; align-items:center; justify-content:space-between; }
+  .tags { display:flex; gap:12px; }
+  .tags .t { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:9px 20px; font-size:22px; color:#C8C8CC; }
+  .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:24px; color:#8A8A8E; }
+  .handle .logo { width:34px; height:34px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="layer">
+    <div class="topbar">
+      <div class="brand"><span class="mark">✳</span>{{BRAND}}</div>
+      <div class="rubric-pill">{{RUBRIC}}</div>
+    </div>
+
+    <div class="hero">
+      <div class="tickrow">
+        <div class="ticker">{{TICKER}}</div>
+        <div class="side">{{SIDE}}</div>
+      </div>
+      <div class="cards">
+        <div class="card dark"><div class="cl">Вход</div><div class="cv">{{ENTRY}}</div></div>
+        <div class="card orange"><div class="cl">Цель</div><div class="cv">{{TARGET}}</div></div>
+        <div class="card dark"><div class="cl">Стоп</div><div class="cv">{{STOP}}</div></div>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></div>
+      <div class="handle"><span class="logo"></span>{{HANDLE}}</div>
+    </div>
+  </div>
+</body>
+</html>

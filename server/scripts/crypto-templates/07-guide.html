@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#FF5422; --bg:#0B0B0C; --logo:none; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1080px; height:1080px; background:var(--bg); color:#fff; position:relative; overflow:hidden;
+    font-family:'Space Grotesk', system-ui, sans-serif; display:flex; flex-direction:column; padding:72px; }
+  .glow { position:absolute; bottom:-160px; left:50%; transform:translateX(-50%); width:760px; height:620px; z-index:0;
+    background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 24%, transparent) 0%, transparent 62%); }
+  .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.14); border-radius:100px; padding:14px 22px; }
+  .brand { display:flex; align-items:center; gap:14px; font-size:30px; font-weight:500; } .brand .mark { color:var(--primary); font-size:32px; }
+  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:24px; letter-spacing:0.06em; text-transform:uppercase; padding:10px 22px; border-radius:100px; }
+
+  .hero { flex:1; display:flex; flex-direction:column; justify-content:center; gap:36px; }
+  /* Шаговые пилюли 1-2-3 (активная — оранжевая) */
+  .steps { display:flex; align-items:center; gap:14px; }
+  .step { width:58px; height:58px; border-radius:50%; border:1px solid rgba(255,255,255,0.20); display:flex; align-items:center; justify-content:center; font-size:26px; color:#8A8A8E; }
+  .step.on { background:var(--primary); color:#0B0B0C; border-color:var(--primary); font-weight:700; }
+  .step-line { flex:1; height:1px; background:rgba(255,255,255,0.14); }
+  .steplabel { font-size:26px; color:#8A8A8E; text-transform:uppercase; letter-spacing:0.08em; }
+  .title { font-size:104px; font-weight:500; line-height:1.0; letter-spacing:-0.02em; max-width:940px; }
+  .title .accent { color:var(--primary); }
+  .lead { font-size:32px; color:#9A9AA0; line-height:1.45; max-width:780px; }
+
+  .bottom { display:flex; align-items:center; justify-content:space-between; }
+  .tags { display:flex; gap:12px; } .tags .t { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:9px 20px; font-size:22px; color:#C8C8CC; } .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:24px; color:#8A8A8E; } .handle .logo { width:34px; height:34px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="layer">
+    <div class="topbar"><div class="brand"><span class="mark">✳</span>{{BRAND}}</div><div class="rubric-pill">{{RUBRIC}}</div></div>
+    <div class="hero">
+      <div class="steps">
+        <span class="step on">1</span><span class="step">2</span><span class="step">3</span>
+        <span class="step-line"></span><span class="steplabel">{{STEPLABEL}}</span>
+      </div>
+      <div class="title"><span class="white">{{TITLE_WHITE}} </span><span class="accent">{{TITLE_ACCENT}}</span></div>
+      <div class="lead">{{LEAD}}</div>
+    </div>
+    <div class="bottom">
+      <div class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></div>
+      <div class="handle"><span class="logo"></span>{{HANDLE}}</div>
+    </div>
+  </div>
+</body>
+</html>
