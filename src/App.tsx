@@ -13,7 +13,7 @@ import { ProfileScreen } from '@/screens/ProfileScreen'
 import { PostDetailsScreen } from '@/screens/PostDetailsScreen'
 import { BrandKitScreen } from '@/screens/BrandKitScreen'
 import { PlansScreen } from '@/screens/PlansScreen'
-import { AdminPromoScreen } from '@/screens/AdminPromoScreen'
+import { AdminPanelScreen } from '@/screens/AdminPanelScreen'
 import { OnboardingSlides } from '@/screens/OnboardingSlides'
 import { ChatScreen, type ChatMessage } from '@/screens/ChatScreen'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -26,7 +26,7 @@ type ModalScreen =
   | { type: 'post_detail'; postId: string }
   | { type: 'brand_kit'; channelId: string; channelUsername: string }
   | { type: 'plans' }
-  | { type: 'admin_promo' }
+  | { type: 'admin' }
 
 function AppContent() {
   const { toasts, authStatus, activeChannel, canUseAiAssistant, t } = useApp()
@@ -79,7 +79,7 @@ function AppContent() {
   const handlePostCreated = (id: string) => { setActiveTab('posts'); setModal({ type: 'post_detail', postId: id }) }
   const handleOpenBrandKit = (channelId: string, channelUsername: string) => setModal({ type: 'brand_kit', channelId, channelUsername })
   const handleOpenPlans = () => setModal({ type: 'plans' })
-  const handleOpenAdmin = () => setModal({ type: 'admin_promo' })
+  const handleOpenAdmin = () => setModal({ type: 'admin' })
   const handleBack = () => {
     // Closing the channel-style screen during the walkthrough advances step 2 → 3
     if (wtStep === 'style' && modal.type === 'brand_kit') notifyStyleOpened()
@@ -133,7 +133,7 @@ function AppContent() {
               <BrandKitScreen channelId={modal.channelId} channelUsername={modal.channelUsername} onBack={handleBack} />
             )}
             {modal.type === 'plans' && <PlansScreen onBack={handleBack} />}
-            {modal.type === 'admin_promo' && <AdminPromoScreen onBack={handleBack} />}
+            {modal.type === 'admin' && <AdminPanelScreen onBack={handleBack} />}
           </div>
         ) : (
           <>

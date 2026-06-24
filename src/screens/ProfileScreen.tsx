@@ -178,8 +178,8 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
                   <Ticket size={13} className="text-[#FF6A00]" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-white">Промокоды</p>
-                  <p className="text-[11px] text-[#55555D]">Генерация кодов доступа</p>
+                  <p className="text-[13px] font-medium text-white">{t('admin.panelTitle')}</p>
+                  <p className="text-[11px] text-[#55555D]">{t('admin.panelSubtitle')}</p>
                 </div>
                 <ChevronRight size={13} className="text-[#44444C]" />
               </button>

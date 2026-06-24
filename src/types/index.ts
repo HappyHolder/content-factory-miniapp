@@ -162,6 +162,39 @@ export type CoverBgStyle =
 export interface HtmlTemplateItem {
   name: string       // rubric label shown in UI, used by AI for matching
   url:  string       // public URL of the stored .html file
+  // Demo slot→value map used only to render the static market preview for this
+  // template (e.g. { TITLE_WHITE: 'Bitcoin', TAG: 'crypto' }). Not used at
+  // real cover-generation time (AI fills slots then).
+  demoSlots?: Record<string, string>
+}
+
+// A purchasable cover-style PACK from the Styles market (mirrors the server
+// Style model's public shape, see server/src/lib/styles.ts serializeStyle).
+export interface MarketStyle {
+  id:               string
+  slug:             string
+  nameRu:           string
+  nameEn:           string
+  descRu:           string
+  descEn:           string
+  tags:             string[]
+  priceKind:        'FREE' | 'PAID'
+  priceStars:       number | null
+  priceGram:        number | null
+  brandAdaptive:    boolean
+  recommendedMode:  'html' | 'ai' | 'ai_html'
+  palette:          BrandColor[]
+  visualCoverStyle: string
+  bgStyle:          string | null
+  bgDetail:         string | null
+  fontPreset:       string | null
+  logoUsage:        string | null
+  templates:        HtmlTemplateItem[]
+  previews:         string[]
+  heroPreview:      string | null
+  sortOrder:        number
+  // Admin-only fields (present on /api/admin/styles/list responses).
+  published?:       boolean
 }
 
 export interface Signature {
