@@ -530,3 +530,73 @@ export async function renderHtmlTemplate(
     return null;
   }
 }
+
+// ─── Render a market demo preview ─────────────────────────────────────────────
+// Like renderHtmlTemplate, but fills an ARBITRARY slot map (not just the 5
+// standard slots) with curated demo values — used to pre-render the static
+// preview PNGs shown in the Styles market. Stores under a `styles/previews/`
+// path so previews are easy to identify/clean up.
+
+export interface PreviewRenderInput {
+  htmlTemplateUrl: string;
+  brand:           TemplateBrand;
+  /** Full slot→value map (any {{key}} in the template). */
+  slots:           Record<string, string>;
+  aspectRatio?:    string;
+}
+
+export async function renderHtmlPreview(input: PreviewRenderInput): Promise<string | null> {
+  let html: string;
+  try {
+    const res = await fetch(input.htmlTemplateUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching template`);
+    html = await res.text();
+  } catch (err) {
+    console.warn('[playwrightRenderer] preview: failed to fetch template:', (err as Error).message);
+    return null;
+  }
+
+  // Slot map always carries {{logo}} from the brand so logo-bearing templates work.
+  const slots: Record<string, string> = { logo: input.brand.logoUrl ?? '', ...input.slots };
+  const cssVars = buildCssVars(input.brand);
+  let finalHtml = replaceSlots(html, slots);
+  finalHtml = /<head[\s>]/i.test(finalHtml)
+    ? finalHtml.replace(/(<head[^>]*>)/i, `$1\n${cssVars}`)
+    : cssVars + finalHtml;
+
+  const { W, H } = getDimensions(input.aspectRatio);
+
+  let pngBuffer: Buffer;
+  try {
+    const browser = await getBrowser();
+    const page    = await browser.newPage();
+    await guardPage(page);
+    try {
+      await page.setViewportSize({ width: W, height: H });
+      await page.setContent(injectEmojiFallback(finalHtml), { waitUntil: 'load', timeout: 15_000 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await page.evaluate(() => (globalThis as any).document.fonts.ready).catch(() => {});
+      await page.waitForTimeout(300);
+      await collapseEmptyBlocks(page);
+      await autoFitText(page);
+      const screenshot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
+      pngBuffer = Buffer.from(screenshot);
+    } finally {
+      await page.close();
+    }
+  } catch (err) {
+    console.warn('[playwrightRenderer] preview screenshot failed:', (err as Error).message);
+    return null;
+  }
+
+  try {
+    const obj = await putObject(`styles/previews/preview-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`, pngBuffer, {
+      contentType: 'image/png',
+    });
+    console.log(`[playwrightRenderer] style preview ${W}×${H} → ${obj.url}`);
+    return obj.url;
+  } catch (err) {
+    console.warn('[playwrightRenderer] preview upload failed:', (err as Error).message);
+    return null;
+  }
+}
