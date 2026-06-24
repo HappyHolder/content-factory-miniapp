@@ -13,6 +13,7 @@ import chatRouter from './routes/chat';
 import adminRouter from './routes/admin';
 import promoRouter from './routes/promo';
 import paymentsRouter from './routes/payments';
+import stylesRouter from './routes/styles';
 import ogRouter from './routes/og';
 import { startScheduler } from './lib/scheduler';
 
@@ -55,6 +56,7 @@ app.use('/api/chat',      chatRouter);
 app.use('/api/admin',     adminRouter);
 app.use('/api/promo',     promoRouter);
 app.use('/api/payments',  paymentsRouter);
+app.use('/api/styles',    stylesRouter);
 app.use('/api/og',        ogRouter);
 
 // ─── Start ────────────────────────────────────────────────────────────────────

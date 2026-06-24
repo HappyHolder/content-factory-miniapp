@@ -8,6 +8,7 @@ import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerPreCheckoutQuery,
 import { createDraftPostForChannel, type DraftPost } from '../lib/draftGenerator';
 import { isPostsLimitReached, applyMonthlyQuotaReset, canUseHtmlCovers } from '../lib/subscriptionLimits';
 import { isPaidTier, grantSubscription } from '../lib/payments';
+import { grantStylePurchase } from '../lib/styles';
 import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContent } from '../lib/visionExtractor';
 
@@ -250,8 +251,15 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     const payChatId = update.message.chat.id;
     if (pay.currency === 'XTR') {
       try {
-        const data = JSON.parse(pay.invoice_payload) as { t?: string; tier?: unknown; mt?: unknown; uid?: string };
-        if (data.t === 'sub' && isPaidTier(data.tier) && typeof data.uid === 'string') {
+        const data = JSON.parse(pay.invoice_payload) as { t?: string; tier?: unknown; mt?: unknown; uid?: string; sid?: string };
+        if (data.t === 'style' && typeof data.sid === 'string' && typeof data.uid === 'string') {
+          // One-time style purchase. Idempotent: a duplicate webhook resolves to
+          // alreadyOwned (unique userId+styleId) and skips the confirmation reply.
+          const { alreadyOwned } = await grantStylePurchase(data.uid, data.sid, 'STARS');
+          if (!alreadyOwned) {
+            await trySendReply(payChatId, '✅ Оплата получена. Стиль обложек разблокирован — открой вкладку «Стили» и нажми «Применить».');
+          }
+        } else if (data.t === 'sub' && isPaidTier(data.tier) && typeof data.uid === 'string') {
           const mt: 'LOW' | 'HIGH' = data.mt === 'HIGH' ? 'HIGH' : 'LOW';
           // Idempotency: record the charge first. Telegram may deliver the same
           // successful_payment more than once; the unique chargeId stops a repeat

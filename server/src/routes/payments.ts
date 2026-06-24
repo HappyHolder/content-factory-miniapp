@@ -8,6 +8,7 @@ import {
   pricingFor, isPaidTier, grantSubscription, serializeSub, type PaidTier,
 } from '../lib/payments';
 import { applyTierExpiry, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
+import { grantStylePurchase } from '../lib/styles';
 
 const router = Router();
 
@@ -143,6 +144,90 @@ router.post('/ton/verify', async (req: Request, res: Response): Promise<void> =>
 
   const granted = await grantSubscription(dbUser.id, tier as PaidTier, mt);
   res.json({ subscription: serializeSub(granted) });
+});
+
+// ─── POST /api/payments/stars/create-style-invoice ────────────────────────────
+// Creates a Telegram Stars invoice for a one-time style purchase. The grant
+// happens in the bot's successful_payment handler (authoritative).
+// Body: { initData, styleId }  Response: { invoiceUrl }
+
+router.post('/stars/create-style-invoice', async (req: Request, res: Response): Promise<void> => {
+  const { initData, styleId } = req.body as { initData?: unknown; styleId?: unknown };
+  const dbUser = await resolveUser(initData, res);
+  if (!dbUser) return;
+  if (typeof styleId !== 'string' || !styleId.trim()) { res.status(400).json({ error: 'styleId is required' }); return; }
+
+  const style = await prisma.style.findUnique({
+    where:  { id: styleId },
+    select: { id: true, nameEn: true, priceKind: true, priceStars: true, published: true },
+  }).catch(() => null);
+  if (!style || !style.published) { res.status(404).json({ error: 'Style not found' }); return; }
+  if (style.priceKind !== 'PAID' || !style.priceStars || style.priceStars < 1) {
+    res.status(400).json({ error: 'This style is not purchasable with Stars' }); return;
+  }
+
+  // Payload echoed back in successful_payment — identifies user + style.
+  const payload = JSON.stringify({ t: 'style', sid: style.id, uid: dbUser.id });
+  if (Buffer.byteLength(payload, 'utf8') > 128) { res.status(400).json({ error: 'payload too large' }); return; }
+
+  try {
+    const invoiceUrl = await createStarsInvoiceLink({
+      title:       `Publium · ${style.nameEn}`,
+      description: `Стиль обложек «${style.nameEn}» — разовая покупка`,
+      payload,
+      amountStars: style.priceStars,
+      token:       env.TELEGRAM_BOT_TOKEN,
+    });
+    res.json({ invoiceUrl });
+  } catch (err) {
+    console.error('[payments/stars/style] invoice failed:', (err as Error).message);
+    res.status(502).json({ error: 'Не удалось создать счёт. Попробуйте снова.' });
+  }
+});
+
+// ─── POST /api/payments/ton/verify-style ──────────────────────────────────────
+// Verifies a TON (Gram) payment for a one-time style purchase and records
+// ownership on success.
+// Body: { initData, styleId, senderWallet }  Response: { owned: true, styleId } | error
+
+router.post('/ton/verify-style', async (req: Request, res: Response): Promise<void> => {
+  const { initData, styleId, senderWallet } = req.body as { initData?: unknown; styleId?: unknown; senderWallet?: unknown };
+  const dbUser = await resolveUser(initData, res);
+  if (!dbUser) return;
+  if (typeof styleId !== 'string' || !styleId.trim()) { res.status(400).json({ error: 'styleId is required' }); return; }
+  if (typeof senderWallet !== 'string' || !senderWallet.trim()) { res.status(400).json({ error: 'senderWallet is required' }); return; }
+  if (!env.TON_RECEIVING_WALLET || !env.TONCENTER_API_KEY) {
+    res.status(503).json({ error: 'TON payments are not configured.' }); return;
+  }
+
+  const style = await prisma.style.findUnique({
+    where:  { id: styleId },
+    select: { id: true, priceKind: true, priceGram: true, published: true },
+  }).catch(() => null);
+  if (!style || !style.published) { res.status(404).json({ error: 'Style not found' }); return; }
+  if (style.priceKind !== 'PAID' || !style.priceGram || style.priceGram <= 0) {
+    res.status(400).json({ error: 'This style is not purchasable with Gram' }); return;
+  }
+
+  const result = await verifyTonDeposit({
+    expectedTon:     style.priceGram,
+    senderWallet:    senderWallet.trim(),
+    receivingWallet: env.TON_RECEIVING_WALLET,
+    apiKey:          env.TONCENTER_API_KEY,
+    expectedComment: dbUser.telegramId,
+    isHashUsed: async (hash) => !!(await prisma.stylePurchase.findUnique({ where: { txHash: hash }, select: { id: true } }).catch(() => null)),
+  });
+
+  if (!result.ok || !result.txHash) {
+    res.status(402).json({ error: result.hint ?? 'Платёж не найден. Попробуйте ещё раз через минуту.', code: result.error });
+    return;
+  }
+
+  // The unique txHash + (userId, styleId) constraints are the final guard against
+  // a double-claim race between two verify calls.
+  const { alreadyOwned } = await grantStylePurchase(dbUser.id, style.id, 'GRAM', result.txHash);
+  if (alreadyOwned) { res.status(409).json({ error: 'Этот платёж уже зачтён.' }); return; }
+  res.json({ owned: true, styleId: style.id });
 });
 
 export default router;

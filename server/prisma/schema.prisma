@@ -276,3 +276,69 @@ model Subscription {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+// ─── Styles market ──────────────────────────────────────────────────────────────
+// A Style is a ready-made cover-style PACK curated by us. The user buys (or gets
+// for free) a style and "applies" it to a channel — the engine then pours the
+// channel's brand + content into the style's templates. One style can bundle
+// several HTML templates (e.g. the "Crypto" pack = 9 templates, one per rubric).
+//
+// Why Json for palette/templates: they mirror the frontend VisualKit shapes
+// (BrandColor[], HtmlTemplateItem[]) and are always read/written as a whole —
+// no per-field querying needed. Catalog is small, so no indexing concerns.
+
+model Style {
+  id   String @id @default(cuid())
+  slug String @unique // stable human key, e.g. "crypto", "dither-ascii"
+
+  nameRu String
+  nameEn String
+  descRu String @default("")
+  descEn String @default("")
+  tags   String[] @default([])
+
+  // Pricing — FREE styles skip the purchase flow entirely.
+  priceKind  String @default("FREE") // "FREE" | "PAID"
+  priceStars Int?                     // Telegram Stars (when PAID)
+  priceGram  Float?                   // Gram / TON amount (when PAID)
+
+  // Applied into the channel's VisualKit on "Apply".
+  brandAdaptive    Boolean @default(true)   // true = pull channel color; false = fixed palette
+  recommendedMode  String  @default("html") // "html" | "ai" | "ai_html"
+  palette          Json    @default("[]")   // BrandColor[]
+  visualCoverStyle String  @default("")      // master AI cover-style text
+  bgStyle          String?                   // CoverBgStyle
+  bgDetail         String?                   // CoverBgDetail
+  fontPreset       String?                   // VisualKit.visualFontPreset
+  logoUsage        String?                   // LogoUsage
+  templates        Json    @default("[]")   // HtmlTemplateItem[] { name, url }
+
+  // Static demo previews, pre-rendered with a demo brand.
+  previews    String[] @default([])
+  heroPreview String?
+
+  published Boolean @default(false)
+  sortOrder Int     @default(0)
+  createdBy String?                 // admin telegramId that created it (audit)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchases StylePurchase[]
+
+  @@index([published, sortOrder])
+}
+
+model StylePurchase {
+  id        String   @id @default(cuid())
+  userId    String
+  styleId   String
+  via       String // "STARS" | "GRAM" | "FREE" | "ADMIN"
+  txHash    String?  @unique // TON tx hash — guards against reusing one deposit for several styles
+  createdAt DateTime @default(now())
+
+  style Style @relation(fields: [styleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, styleId]) // one ownership row per user/style
+  @@index([userId])
+}
