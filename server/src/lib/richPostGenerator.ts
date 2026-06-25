@@ -97,6 +97,8 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
   const system =
     'You are a post layout engine. You receive a finished post text and must lay it out as STRUCTURE — you do NOT rewrite, translate, shorten, or invent content. ' +
     'Reuse the exact wording from the post (you may split it across a heading, paragraphs, list items or table cells). ' +
+    'Preserve EVERY part of the post verbatim, including ALL languages present — never omit, summarize, or translate anything. ' +
+    'If the post is bilingual (contains two languages), KEEP BOTH language versions in the layout, each in its own paragraph(s). ' +
     'Output STRICT JSON only, matching this shape: ' +
     '{"heading": string, "elements": [ {"kind":"paragraph","text":"..."} | {"kind":"quote","text":"...","expandable":true} | {"kind":"list","ordered":true,"items":["..."]} | {"kind":"table","headers":["..."],"rows":[["..."]]} | {"kind":"image","index":0} | {"kind":"gallery","layout":"slideshow","indices":[0,1]} ] }. ' +
     'Inline emphasis ONLY via markers inside text: **bold** and ||spoiler||. Never output HTML tags. ' +
@@ -126,7 +128,7 @@ async function callLayoutAI(system: string, user: string): Promise<AiLayout | nu
         model: env.DEEPSEEK_MODEL,
         response_format: { type: 'json_object' },
         messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        max_tokens: 3000,
+        max_tokens: 4096,
         temperature: 0.3,
       }),
     });
@@ -229,9 +231,5 @@ export async function generateRichBlocks(input: RichGenInput): Promise<PostBlock
     }
   }
 
-  // Footer (added by us, never by the AI).
-  if (isStr(input.handle)) {
-    blocks.push({ type: 'paragraph', runs: [{ t: `—— ${input.handle}`, i: true }] });
-  }
   return blocks;
 }
