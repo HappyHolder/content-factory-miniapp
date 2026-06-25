@@ -58,7 +58,7 @@ export function parseInline(text: string): Run[] {
 // ─── AI element schema (what the model returns) ─────────────────────────────────
 
 interface AiElement {
-  kind: 'paragraph' | 'quote' | 'list' | 'table' | 'image' | 'gallery';
+  kind: 'paragraph' | 'quote' | 'list' | 'table' | 'image' | 'gallery' | 'divider';
   text?: string;                 // paragraph / quote
   expandable?: boolean;          // quote
   ordered?: boolean;             // list
@@ -98,9 +98,9 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
     'You are a post layout engine. You receive a finished post text and must lay it out as STRUCTURE — you do NOT rewrite, translate, shorten, or invent content. ' +
     'Reuse the exact wording from the post (you may split it across a heading, paragraphs, list items or table cells). ' +
     'Preserve EVERY part of the post verbatim, including ALL languages present — never omit, summarize, or translate anything. ' +
-    'If the post is bilingual (contains two languages), KEEP BOTH language versions in the layout, each in its own paragraph(s). ' +
+    'If the post is bilingual (contains two languages), KEEP BOTH language versions, and SEPARATE them with a {"kind":"divider"} element: lay out the first language fully, then a divider, then the second language version. ' +
     'Output STRICT JSON only, matching this shape: ' +
-    '{"heading": string, "elements": [ {"kind":"paragraph","text":"..."} | {"kind":"quote","text":"...","expandable":true} | {"kind":"list","ordered":true,"items":["..."]} | {"kind":"table","headers":["..."],"rows":[["..."]]} | {"kind":"image","index":0} | {"kind":"gallery","layout":"slideshow","indices":[0,1]} ] }. ' +
+    '{"heading": string, "elements": [ {"kind":"paragraph","text":"..."} | {"kind":"quote","text":"...","expandable":true} | {"kind":"list","ordered":true,"items":["..."]} | {"kind":"table","headers":["..."],"rows":[["..."]]} | {"kind":"image","index":0} | {"kind":"gallery","layout":"slideshow","indices":[0,1]} | {"kind":"divider"} ] }. ' +
     'Inline emphasis ONLY via markers inside text: **bold** and ||spoiler||. Never output HTML tags. ' +
     'Keep a table to 2-4 columns. Do not add a signature/handle line — it is added separately. ' +
     (ru ? 'Write any structural labels (table headers) in Russian.' : 'Write structural labels in English.');
@@ -170,6 +170,8 @@ function mapElement(el: AiElement, images: string[], usedImages: Set<number>): P
       if (i >= 0 && i < images.length) { usedImages.add(i); return { type: 'image', url: images[i]! }; }
       return null;
     }
+    case 'divider':
+      return { type: 'divider' };
     case 'gallery': {
       const idxs = (Array.isArray(el.indices) ? el.indices : [])
         .filter(i => typeof i === 'number' && i >= 0 && i < images.length);
