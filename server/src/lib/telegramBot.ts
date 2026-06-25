@@ -2,6 +2,7 @@
 // All functions throw TelegramApiError on a non-ok response.
 
 import { env } from '../env';
+import { blocksToRichHtml, blocksToPlainText, firstImage, type PostBlock } from './richPost';
 
 const TG_API = 'https://api.telegram.org';
 
@@ -238,6 +239,75 @@ export async function sendChannelPost(params: {
     : undefined;
 
   await sendBotMessage(chatId, buildMessageText(text), token, replyMarkup, linkPreview);
+}
+
+// ─── Rich Messages (Bot API 10.1) ───────────────────────────────────────────
+// sendRichMessage takes structured rich content as an HTML string in
+// rich_message.html. Telegram parses it into native blocks (headings, tables,
+// lists, expandable quotes, slideshow/collage galleries…). See memory
+// telegram-rich-messages for the verified tag set.
+
+/**
+ * Low-level sendRichMessage call. `html` is the rendered Rich Message HTML.
+ * Throws TelegramApiError on a non-ok response (caller decides on fallback).
+ */
+export async function sendRichMessage(
+  chatId: number | string,
+  html: string,
+  token: string,
+  replyMarkup?: AnyInlineKeyboard,
+): Promise<void> {
+  const url = `${TG_API}/bot${token}/sendRichMessage`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id:      chatId,
+        rich_message: { html },
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      }),
+    });
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling sendRichMessage: ${(err as Error).message}`);
+  }
+  const body = (await res.json()) as TgApiResponse<unknown>;
+  if (!body.ok) {
+    throw new TelegramApiError(body.description ?? 'sendRichMessage returned not-ok', body.error_code);
+  }
+}
+
+/**
+ * Publishes a structured (formatted) post to a channel via sendRichMessage.
+ * On ANY rich failure it falls back to the legacy plain publish (flattened text
+ * + first image as a preview card) so a post is never lost.
+ */
+export async function sendRichChannelPost(params: {
+  chatId:       number | string;
+  blocks:       PostBlock[];
+  token:        string;
+  title?:       string;
+  siteName?:    string;
+  replyMarkup?: AnyInlineKeyboard;
+}): Promise<void> {
+  const { chatId, blocks, token, title, siteName, replyMarkup } = params;
+  const html = blocksToRichHtml(blocks);
+
+  try {
+    await sendRichMessage(chatId, html, token, replyMarkup);
+  } catch (err) {
+    console.warn('[telegramBot] sendRichMessage failed, falling back to plain:', (err as Error).message);
+    await sendChannelPost({
+      chatId,
+      text:      blocksToPlainText(blocks),
+      bannerUrl: firstImage(blocks),
+      title,
+      siteName,
+      token,
+      replyMarkup,
+    });
+  }
 }
 
 /**
