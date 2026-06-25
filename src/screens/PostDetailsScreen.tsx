@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type, LayoutTemplate } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatusChip, SourceChip } from '@/components/ui/StatusChip'
@@ -30,11 +30,7 @@ const MAX_IMAGE_REGENS = 3
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost, deletePost } = useApp()
   const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [openSection, setOpenSection] = useState<Section>(() => {
-    const p = state.posts.find(x => x.id === postId)
-    const sv = p?.variants.find(v => v.id === p.selectedVariantId) || p?.variants[0]
-    return sv?.blocks && sv.blocks.length > 0 ? 'format' : 'variants'
-  })
+  const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
   const [isRegeneratingText, setIsRegeneratingText] = useState(false)
   const [isRegeneratingVisual, setIsRegeneratingVisual] = useState(false)
@@ -54,6 +50,11 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   if (!post) return null
 
   const selectedVariant = post.variants.find(v => v.id === post.selectedVariantId) || post.variants[0]
+  // Formatted post = the selected variant carries structured blocks. Those posts
+  // get the new composer (hero preview + block editor); legacy posts keep the
+  // old text+banner accordion.
+  const hasBlocks = !!(selectedVariant?.blocks && selectedVariant.blocks.length > 0)
+  const channel = state.channels.find(c => c.id === post.channelId)
   // Cover is a post-level asset — show it regardless of which text variant is selected
   const displayBannerUrl = selectedVariant?.bannerUrl || post.variants.find(v => v.bannerUrl)?.bannerUrl || null
   const brandKit = brandKitService.getByChannelId(post.channelId)
@@ -405,30 +406,22 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
           )}
         </GlassCard>
 
+        {/* Formatted post — hero composer (preview + block editor). The post IS
+            the blocks; this is the main surface for formatted posts. */}
+        {hasBlocks && selectedVariant && (
+          <RichPostEditor
+            key={selectedVariant.id}
+            postId={post.id}
+            variantId={selectedVariant.id}
+            blocks={selectedVariant.blocks!}
+            channelName={channel?.title}
+            channelHandle={post.channelUsername}
+            avatarUrl={channel?.avatarUrl}
+          />
+        )}
+
         {/* Accordion sections */}
         <GlassCard padding="none" className="overflow-hidden divide-y divide-white/6">
-          {/* Formatted post — preview + edit (only when the post has structured blocks) */}
-          {selectedVariant?.blocks && selectedVariant.blocks.length > 0 && (
-            <div>
-              {sectionLabel('format', <LayoutTemplate size={15} />, 'Пост')}
-              {openSection === 'format' && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  transition={{ duration: 0.22 }}
-                  className="px-3 pb-3 overflow-hidden"
-                >
-                  <RichPostEditor
-                    key={selectedVariant.id}
-                    postId={post.id}
-                    variantId={selectedVariant.id}
-                    blocks={selectedVariant.blocks}
-                  />
-                </motion.div>
-              )}
-            </div>
-          )}
-
           {/* Variants */}
           <div>
             {sectionLabel('variants', <Layers size={15} />, t('postDetails.variants'), `${post.variants.length}`)}
@@ -465,7 +458,8 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
             )}
           </div>
 
-          {/* Editor */}
+          {/* Editor (legacy plain posts only — formatted posts are edited in the composer above) */}
+          {!hasBlocks && (
           <div>
             {sectionLabel('editor', <span className="text-[13px] font-bold">Aa</span>, t('postDetails.editText'))}
             {openSection === 'editor' && selectedVariant && (
@@ -484,8 +478,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
               </motion.div>
             )}
           </div>
+          )}
 
-          {/* Visual — always shown; upload from files if no image yet */}
+          {/* Visual (legacy plain posts only — formatted posts manage images in the composer) */}
+          {!hasBlocks && (
           <div>
             {/* hidden file input */}
             <input
@@ -611,6 +607,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
               </motion.div>
             )}
           </div>
+          )}
 
           {/* Link buttons */}
           <div>

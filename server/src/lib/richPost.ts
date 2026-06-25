@@ -27,6 +27,7 @@ export interface Run {
   s?:       boolean;   // strikethrough
   code?:    boolean;   // inline monospace
   spoiler?: boolean;   // hidden until tapped
+  mark?:    boolean;   // highlighted (Telegram <mark> "marked" style)
   link?:    string;    // wrap in <a href>
 }
 
@@ -72,6 +73,7 @@ function renderRun(r: Run): string {
   if (r.i)       html = `<i>${html}</i>`;
   if (r.u)       html = `<u>${html}</u>`;
   if (r.s)       html = `<s>${html}</s>`;
+  if (r.mark)    html = `<mark>${html}</mark>`;
   if (r.spoiler) html = `<tg-spoiler>${html}</tg-spoiler>`;
   if (r.link && isHttpUrl(r.link)) html = `<a href="${escapeAttr(r.link)}">${html}</a>`;
   return html;

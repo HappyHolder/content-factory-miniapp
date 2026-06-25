@@ -239,6 +239,7 @@ export interface Run {
   s?:       boolean
   code?:    boolean
   spoiler?: boolean
+  mark?:    boolean   // highlighted (Telegram "marked" style)
   link?:    string
 }
 
