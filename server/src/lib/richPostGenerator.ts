@@ -84,9 +84,7 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
   const levelRule =
     input.level === 'minimal'
       ? 'LEVEL=minimal: keep it simple — a heading and 1-3 short paragraphs. Avoid tables/lists/quotes unless the content is literally a list or table.'
-      : input.level === 'article'
-        ? 'LEVEL=article: use the full toolkit where it genuinely helps — heading, paragraphs, a table for numeric data, an ordered/unordered list for steps/rankings, an expandable quote for extra detail.'
-        : 'LEVEL=auto: pick the lightest structure that fits the content. Use a table only for numeric/comparative data, a list only for steps or rankings, a quote only for a real quotation or a key takeaway.';
+      : 'FORMAT RICHLY. The output must look polished and scannable, NOT a wall of plain paragraphs. Actively use structure: bold the key numbers/percentages/tickers/names, turn any comparative or multi-item numeric data into a TABLE, turn steps or rankings into a LIST, and put a key takeaway or "why" aside into an expandable quote. If a post is just prose with no real structure, at minimum bold its key figures and split it into clean short paragraphs.';
 
   const imageRule = imgCount === 0
     ? 'There are NO images available — do not emit image/gallery elements.'
@@ -95,14 +93,15 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
       : `There are ${imgCount} images (indices 0..${imgCount - 1}). If they are a set worth browsing, emit ONE {"kind":"gallery","layout":"slideshow","indices":[0,...]}. If each illustrates a different point, place separate {"kind":"image","index":N} elements between paragraphs. Use every image once.`;
 
   const system =
-    'You are a post layout engine. You receive a finished post text and must lay it out as STRUCTURE — you do NOT rewrite, translate, shorten, or invent content. ' +
-    'Reuse the exact wording from the post (you may split it across a heading, paragraphs, list items or table cells). ' +
-    'Preserve EVERY part of the post verbatim, including ALL languages present — never omit, summarize, or translate anything. ' +
-    'If the post is bilingual (contains two languages), KEEP BOTH language versions, and SEPARATE them with a {"kind":"divider"} element: lay out the first language fully, then a divider, then the second language version. ' +
+    'You are a post layout engine. You turn a finished post into a beautifully FORMATTED Telegram post that has a real "wow" structure. ' +
+    'Faithfulness: never invent figures or facts, never translate, never drop any language or any fact from the source. ' +
+    'But you MAY restructure prose into headings, paragraphs, lists and tables, and lightly rephrase to fit table cells / list items, as long as every number and fact stays exactly faithful to the source. ' +
+    'Extract figures buried in prose into tables/lists rather than leaving them in a wall of text. ' +
+    'If the post is bilingual (two languages), KEEP BOTH versions and SEPARATE them with a {"kind":"divider"} (first language fully, then divider, then the second). ' +
     'Output STRICT JSON only, matching this shape: ' +
     '{"heading": string, "elements": [ {"kind":"paragraph","text":"..."} | {"kind":"quote","text":"...","expandable":true} | {"kind":"list","ordered":true,"items":["..."]} | {"kind":"table","headers":["..."],"rows":[["..."]]} | {"kind":"image","index":0} | {"kind":"gallery","layout":"slideshow","indices":[0,1]} | {"kind":"divider"} ] }. ' +
-    'Inline emphasis ONLY via markers inside text: **bold** and ||spoiler||. Never output HTML tags. ' +
-    'Keep a table to 2-4 columns. Do not add a signature/handle line — it is added separately. ' +
+    'Inline emphasis ONLY via markers inside text: **bold** and ||spoiler|| — bold the key numbers, percentages, tickers and names. Never output HTML tags. ' +
+    'Keep a table to 2-4 columns. Do not add a signature/handle line. ' +
     (ru ? 'Write any structural labels (table headers) in Russian.' : 'Write structural labels in English.');
 
   const user =
