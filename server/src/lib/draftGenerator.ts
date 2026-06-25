@@ -18,6 +18,8 @@ import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
 import { renderHtmlTemplate, renderHtmlString, measureContentZone } from './playwrightRenderer';
 import { generateHtmlCover, generateHtmlOverlay, buildFallbackOverlayHtml, composeTemplateOverPhoto, injectBrandTokens } from './claudeHtmlGenerator';
+import { generateRichBlocks } from './richPostGenerator';
+import type { PostBlock } from './richPost';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -64,6 +66,7 @@ export interface DraftPost {
     text:       string;
     isSelected: boolean;
     bannerUrl:  string | null;
+    blocks:     PostBlock[] | null;
   }[];
   selectedVariantId: string | null;
   linkButtons:       unknown[];
@@ -251,6 +254,7 @@ export async function createDraftPostForChannel(
   // DB persistence is in a separate try/catch so a write failure doesn't leave
   // the response inconsistent with what /list will return from DB.
   let firstVariantBannerUrl: string | null = null;
+  let firstVariantBlocks: PostBlock[] | null = null;
 
   const visualKit = (useBrandKit && brandKit && typeof brandKit === 'object')
     ? (brandKit as Record<string, unknown>)['visualKit'] ?? undefined
@@ -660,6 +664,36 @@ export async function createDraftPostForChannel(
     }
   }
 
+  // ── Structured formatting — EVERY post is a rich formatted post ────────────
+  // The layout engine reads the post text + the cover image and lays it out
+  // automatically (plain-ish or full structure, decided by content). Persisted
+  // on the selected variant. Non-fatal: a failure leaves blocks null and publish
+  // uses the legacy text+banner path as an emergency fallback only.
+  if (!imageOnly) {
+    try {
+      const selected = dbPost.variants.find(v => v.id === dbPost.selectedVariantId) ?? dbPost.variants[0];
+      if (selected) {
+        const blocks = await generateRichBlocks({
+          postText: selected.text,
+          level:    'auto',
+          images:   cover?.bannerUrl ? [cover.bannerUrl] : [],
+          handle:   channel.handle ? `@${channel.handle.replace(/^@/, '')}` : null,
+          lang:     coverLanguage,
+        });
+        if (blocks.length > 0) {
+          firstVariantBlocks = blocks;
+          await prisma.postVariant.update({
+            where: { id: selected.id },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data:  { blocks: blocks as any },
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[draftGenerator] block generation failed (non-fatal):', (err as Error).message);
+    }
+  }
+
   // ── Map to frontend shape ─────────────────────────────────────────────────
   // - status always 'new' (just created)
   // - createdAt as ISO string (frontend does new Date() on receipt)
@@ -680,6 +714,7 @@ export async function createDraftPostForChannel(
       text:       v.text,
       isSelected: v.id === dbPost.selectedVariantId,
       bannerUrl:  i === 0 ? firstVariantBannerUrl : null,
+      blocks:     v.id === dbPost.selectedVariantId ? firstVariantBlocks : null,
     })),
     selectedVariantId: dbPost.selectedVariantId,
     linkButtons:       buttonLinks,

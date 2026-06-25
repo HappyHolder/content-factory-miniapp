@@ -213,6 +213,9 @@ model PostVariant {
   text            String
   bannerUrl       String?
   isSelected      Boolean @default(false)
+  // Structured formatted-post layout (PostBlock[] — see server/src/lib/richPost.ts).
+  // null = legacy plain post (publish falls back to text + banner).
+  blocks          Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

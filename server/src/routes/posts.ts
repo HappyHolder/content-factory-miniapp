@@ -4,7 +4,13 @@ import { putObject } from '../lib/storage';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { sendChannelPost, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
+import { sendChannelPost, sendRichChannelPost, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
+import type { PostBlock } from '../lib/richPost';
+
+/** Returns the variant's structured blocks if present and non-empty, else null. */
+function variantBlocks(v: { blocks?: unknown }): PostBlock[] | null {
+  return Array.isArray(v.blocks) && v.blocks.length > 0 ? (v.blocks as PostBlock[]) : null;
+}
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { generateImageForPost, buildVisualKitPromptHints, renderCoverFromBase } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
@@ -282,7 +288,7 @@ router.post('/list', async (req: Request, res: Response): Promise<void> => {
         channel:  { select: { handle: true, name: true } },
         variants: {
           orderBy: { variantIndex: 'asc' },
-          select:  { id: true, label: true, text: true, isSelected: true, bannerUrl: true },
+          select:  { id: true, label: true, text: true, isSelected: true, bannerUrl: true, blocks: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -316,6 +322,7 @@ router.post('/list', async (req: Request, res: Response): Promise<void> => {
         text:       v.text,
         isSelected: v.id === post.selectedVariantId,
         bannerUrl:  v.bannerUrl ?? null,
+        blocks:     variantBlocks(v),
       })),
       selectedVariantId: post.selectedVariantId,
       linkButtons:       Array.isArray(post.linkButtons) ? post.linkButtons : [],
@@ -406,7 +413,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       handle: string | null;
       name:   string;
     };
-    variants: { id: string; text: string; bannerUrl: string | null }[];
+    variants: { id: string; text: string; bannerUrl: string | null; blocks: unknown }[];
   } | null = null;
 
   try {
@@ -423,7 +430,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
         },
         variants: {
           orderBy: { variantIndex: 'asc' },
-          select:  { id: true, text: true, bannerUrl: true },
+          select:  { id: true, text: true, bannerUrl: true, blocks: true },
         },
       },
     });
@@ -490,15 +497,30 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   // sendChannelPost picks the method: short post → native photo+caption;
   // long post → full text message with the cover as a large preview card.
   try {
-    await sendChannelPost({
-      chatId:      `@${post.channel.handle}`,
-      text:        selectedVariant.text,
-      bannerUrl:   selectedVariant.bannerUrl,
-      title:       post.title,
-      siteName:    post.channel.name || post.channel.handle || undefined,
-      token:       env.TELEGRAM_BOT_TOKEN,
-      replyMarkup,
-    });
+    const blocks = variantBlocks(selectedVariant);
+    if (blocks) {
+      // Formatted post — structured blocks → Rich Message (with internal fallback
+      // to the legacy plain path inside sendRichChannelPost if the API rejects it).
+      await sendRichChannelPost({
+        chatId:      `@${post.channel.handle}`,
+        blocks,
+        title:       post.title,
+        siteName:    post.channel.name || post.channel.handle || undefined,
+        token:       env.TELEGRAM_BOT_TOKEN,
+        replyMarkup,
+      });
+    } else {
+      // Legacy posts created before formatting existed (no stored blocks).
+      await sendChannelPost({
+        chatId:      `@${post.channel.handle}`,
+        text:        selectedVariant.text,
+        bannerUrl:   selectedVariant.bannerUrl,
+        title:       post.title,
+        siteName:    post.channel.name || post.channel.handle || undefined,
+        token:       env.TELEGRAM_BOT_TOKEN,
+        replyMarkup,
+      });
+    }
   } catch (err) {
     const msg = err instanceof TelegramApiError
       ? err.message
@@ -533,6 +555,46 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       publishedAt: publishedAt.toISOString(),
     },
   });
+});
+
+// ─── PATCH /api/posts/:postId/blocks ─────────────────────────────────────────
+// Saves the user's edited formatted-post layout (PostBlock[]) onto a variant.
+// Body: { initData, variantId, blocks }
+// Response 200: { ok: true }
+router.patch('/:postId/blocks', async (req: Request, res: Response): Promise<void> => {
+  const { postId } = req.params as { postId: string };
+  const { initData, variantId, blocks } = req.body as {
+    initData?: unknown; variantId?: unknown; blocks?: unknown;
+  };
+
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (typeof variantId !== 'string' || !variantId.trim()) { res.status(400).json({ error: 'variantId is required' }); return; }
+  if (!Array.isArray(blocks)) { res.status(400).json({ error: 'blocks must be an array' }); return; }
+  if (blocks.length > 80) { res.status(400).json({ error: 'too many blocks' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  // Verify the variant belongs to a post on a channel owned by this user.
+  const variant = await prisma.postVariant.findUnique({
+    where:  { id: variantId },
+    select: { id: true, generatedPost: { select: { id: true, channel: { select: { userId: true } } } } },
+  }).catch(() => null);
+  if (!variant || variant.generatedPost.id !== postId) { res.status(404).json({ error: 'Variant not found.' }); return; }
+  if (variant.generatedPost.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await prisma.postVariant.update({ where: { id: variantId }, data: { blocks: blocks as any } });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[posts/blocks] update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ─── POST /api/posts/select-variant ──────────────────────────────────────────

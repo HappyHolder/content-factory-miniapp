@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type, LayoutTemplate } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatusChip, SourceChip } from '@/components/ui/StatusChip'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { VariantSelector } from '@/components/posts/VariantSelector'
 import { PostTextEditor } from '@/components/posts/PostTextEditor'
 import { BannerPreview } from '@/components/posts/BannerPreview'
+import { RichPostEditor } from '@/components/posts/RichPostEditor'
 import { LinkButtonsPreview } from '@/components/posts/LinkButtonsPreview'
 import { ScheduleSheet } from '@/components/posts/ScheduleSheet'
 import { brandKitService } from '@/services/brandKitService'
@@ -20,7 +21,7 @@ interface PostDetailsScreenProps {
   onBack: () => void
 }
 
-type Section = 'variants' | 'editor' | 'banner' | 'buttons'
+type Section = 'format' | 'variants' | 'editor' | 'banner' | 'buttons'
 
 // Per-post regeneration caps — must match server lib/subscriptionLimits.ts
 const MAX_TEXT_REGENS = 3
@@ -29,7 +30,11 @@ const MAX_IMAGE_REGENS = 3
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost, deletePost } = useApp()
   const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [openSection, setOpenSection] = useState<Section>('variants')
+  const [openSection, setOpenSection] = useState<Section>(() => {
+    const p = state.posts.find(x => x.id === postId)
+    const sv = p?.variants.find(v => v.id === p.selectedVariantId) || p?.variants[0]
+    return sv?.blocks && sv.blocks.length > 0 ? 'format' : 'variants'
+  })
   const [isPublishing, setIsPublishing] = useState(false)
   const [isRegeneratingText, setIsRegeneratingText] = useState(false)
   const [isRegeneratingVisual, setIsRegeneratingVisual] = useState(false)
@@ -402,6 +407,28 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
 
         {/* Accordion sections */}
         <GlassCard padding="none" className="overflow-hidden divide-y divide-white/6">
+          {/* Formatted post — preview + edit (only when the post has structured blocks) */}
+          {selectedVariant?.blocks && selectedVariant.blocks.length > 0 && (
+            <div>
+              {sectionLabel('format', <LayoutTemplate size={15} />, 'Пост')}
+              {openSection === 'format' && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  transition={{ duration: 0.22 }}
+                  className="px-3 pb-3 overflow-hidden"
+                >
+                  <RichPostEditor
+                    key={selectedVariant.id}
+                    postId={post.id}
+                    variantId={selectedVariant.id}
+                    blocks={selectedVariant.blocks}
+                  />
+                </motion.div>
+              )}
+            </div>
+          )}
+
           {/* Variants */}
           <div>
             {sectionLabel('variants', <Layers size={15} />, t('postDetails.variants'), `${post.variants.length}`)}

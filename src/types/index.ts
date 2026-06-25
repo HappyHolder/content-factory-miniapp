@@ -230,12 +230,36 @@ export interface BrandKit {
   postRules: PostRules
 }
 
+// ─── Formatted post (Telegram Rich Messages) — mirrors server/src/lib/richPost.ts ──
+export interface Run {
+  t:        string
+  b?:       boolean
+  i?:       boolean
+  u?:       boolean
+  s?:       boolean
+  code?:    boolean
+  spoiler?: boolean
+  link?:    string
+}
+
+export type PostBlock =
+  | { type: 'heading';   text: string }
+  | { type: 'paragraph'; runs: Run[] }
+  | { type: 'list';      ordered?: boolean; items: Run[][] }
+  | { type: 'quote';     runs: Run[]; expandable?: boolean }
+  | { type: 'table';     headers: string[]; rows: string[][] }
+  | { type: 'image';     url: string }
+  | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
+  | { type: 'divider' }
+
 export interface PostVariant {
   id: string
   label: string
   text: string
   isSelected: boolean
   bannerUrl?: string | null
+  // Structured formatted-post layout (null/absent = legacy plain post).
+  blocks?: PostBlock[] | null
 }
 
 export interface Banner {

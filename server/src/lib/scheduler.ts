@@ -18,7 +18,8 @@
 
 import { prisma } from '../db';
 import { env } from '../env';
-import { sendChannelPost, TelegramInlineKeyboard } from './telegramBot';
+import { sendChannelPost, sendRichChannelPost, TelegramInlineKeyboard } from './telegramBot';
+import type { PostBlock } from './richPost';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ async function publishDuePosts(): Promise<void> {
     selectedVariantId: string | null;
     linkButtons:       unknown;
     channel:           { handle: string | null; name: string };
-    variants:          { id: string; text: string; bannerUrl: string | null }[];
+    variants:          { id: string; text: string; bannerUrl: string | null; blocks: unknown }[];
   }[];
 
   try {
@@ -72,7 +73,7 @@ async function publishDuePosts(): Promise<void> {
         },
         variants: {
           orderBy: { variantIndex: 'asc' },
-          select:  { id: true, text: true, bannerUrl: true },
+          select:  { id: true, text: true, bannerUrl: true, blocks: true },
         },
       },
     });
@@ -128,15 +129,29 @@ async function publishDuePosts(): Promise<void> {
     // Send to Telegram — short post → native photo+caption; long post → full
     // text message with the cover as a large preview card (sendChannelPost).
     try {
-      await sendChannelPost({
-        chatId:      `@${post.channel.handle}`,
-        text:        selectedVariant.text,
-        bannerUrl:   selectedVariant.bannerUrl,
-        title:       post.title,
-        siteName:    post.channel.name || post.channel.handle || undefined,
-        token:       env.TELEGRAM_BOT_TOKEN,
-        replyMarkup,
-      });
+      const blocks = Array.isArray(selectedVariant.blocks) && selectedVariant.blocks.length > 0
+        ? (selectedVariant.blocks as PostBlock[])
+        : null;
+      if (blocks) {
+        await sendRichChannelPost({
+          chatId:      `@${post.channel.handle}`,
+          blocks,
+          title:       post.title,
+          siteName:    post.channel.name || post.channel.handle || undefined,
+          token:       env.TELEGRAM_BOT_TOKEN,
+          replyMarkup,
+        });
+      } else {
+        await sendChannelPost({
+          chatId:      `@${post.channel.handle}`,
+          text:        selectedVariant.text,
+          bannerUrl:   selectedVariant.bannerUrl,
+          title:       post.title,
+          siteName:    post.channel.name || post.channel.handle || undefined,
+          token:       env.TELEGRAM_BOT_TOKEN,
+          replyMarkup,
+        });
+      }
     } catch (err) {
       console.error(`[scheduler] Post ${post.id}: Telegram send failed — will retry next poll:`, (err as Error).message);
       // Leave status=SCHEDULED so the next sweep retries.
