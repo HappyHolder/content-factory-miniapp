@@ -106,23 +106,31 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   }
 
   const [genLoading, setGenLoading] = useState(false)
-  const generateImage = async () => {
+  const [genOpen, setGenOpen] = useState(false)   // new-image prompt panel
+  const [genPrompt, setGenPrompt] = useState('')
+  const [regenIndex, setRegenIndex] = useState<number | null>(null) // which block is being regenerated
+
+  // Generates an AI image from `prompt` (empty = derive from the post). When
+  // `replaceIndex` is given, replaces that block; otherwise appends a new one.
+  const generateImage = async (prompt: string, replaceIndex?: number) => {
     const initData = getTelegramInitData()
     if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
-    setGenLoading(true)
+    setGenLoading(true); setRegenIndex(replaceIndex ?? null)
     try {
       const res = await fetch(`${API_BASE}/api/posts/generate-block-image`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData, postId }),
+        body: JSON.stringify({ initData, postId, prompt: prompt.trim() || undefined }),
       })
       const data = await res.json().catch(() => ({})) as { url?: string; error?: string }
       if (!res.ok || !data.url) { showToast(data.error ?? 'Не удалось сгенерировать', 'error'); return }
-      mutate([...blocks, { type: 'image', url: data.url }])
-      setAddOpen(false)
+      const block: PostBlock = { type: 'image', url: data.url, prompt: prompt.trim() }
+      if (typeof replaceIndex === 'number') patch(replaceIndex, block)
+      else mutate([...blocks, block])
+      setGenOpen(false); setGenPrompt(''); setAddOpen(false)
     } catch {
       showToast('Ошибка генерации', 'error')
     } finally {
-      setGenLoading(false)
+      setGenLoading(false); setRegenIndex(null)
     }
   }
 
@@ -242,6 +250,8 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                   onChange={next => patch(i, next)}
                   onReplace={() => (b.type === 'video' ? pickVideo(i) : pickImage(i))}
                   onAddGalleryPhoto={() => pickImage({ gallery: i })}
+                  onRegenerate={(p: string) => generateImage(p, i)}
+                  regenLoading={genLoading && regenIndex === i}
                   uploading={uploading && (uploadTarget === i || (typeof uploadTarget === 'object' && uploadTarget?.gallery === i))}
                 />
               </div>
@@ -272,11 +282,27 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                   {uploading && uploadTarget === 'new' ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
                   Видео
                 </button>
-                <button onClick={generateImage} disabled={genLoading}
-                  className="px-3 py-1.5 rounded-full bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] disabled:opacity-50 flex items-center gap-1">
-                  {genLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-                  {genLoading ? 'Генерирую…' : 'AI-картинка'}
+                <button onClick={() => { setGenOpen(o => !o); setAddOpen(true) }}
+                  className="px-3 py-1.5 rounded-full bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] flex items-center gap-1">
+                  <Sparkles size={11} /> AI-картинка
                 </button>
+              </div>
+            )}
+
+            {/* AI image prompt panel — control WHAT gets generated */}
+            {addOpen && genOpen && (
+              <div className="mt-2 p-2.5 rounded-[12px] bg-[rgba(255,106,0,0.06)] border border-[rgba(255,106,0,0.2)] space-y-2">
+                <p className="text-[11px] text-[#A1A1AA]">Опиши, что сгенерировать. Пусто = движок придумает по посту и стилю канала.</p>
+                <textarea
+                  value={genPrompt}
+                  onChange={e => setGenPrompt(e.target.value)}
+                  rows={2}
+                  placeholder="напр.: Илон Маск на сцене, тёмный фон, неон"
+                  className="glass-input w-full px-3 py-2 text-sm resize-none"
+                />
+                <Button variant="primary" size="sm" fullWidth onClick={() => generateImage(genPrompt)} disabled={genLoading}>
+                  {genLoading && regenIndex === null ? <><Loader2 size={13} className="animate-spin" /> Генерирую…</> : <><Sparkles size={13} /> Сгенерировать</>}
+                </Button>
               </div>
             )}
           </div>
@@ -324,8 +350,9 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
 
 // ─── Per-block editors ──────────────────────────────────────────────────────────
 
-function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, uploading }: {
-  b: PostBlock; onChange: (next: PostBlock) => void; onReplace?: () => void; onAddGalleryPhoto?: () => void; uploading?: boolean
+function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onRegenerate, regenLoading, uploading }: {
+  b: PostBlock; onChange: (next: PostBlock) => void; onReplace?: () => void; onAddGalleryPhoto?: () => void
+  onRegenerate?: (prompt: string) => void; regenLoading?: boolean; uploading?: boolean
 }) {
   switch (b.type) {
     case 'heading':
@@ -385,6 +412,18 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, uploading }: {
       return (
         <div className="space-y-1.5">
           <img src={b.url} alt="" className="w-full rounded-[10px] object-cover max-h-44" />
+          {/* AI-generated image (has a prompt) → editable prompt + regenerate */}
+          {typeof b.prompt === 'string' && (
+            <>
+              <textarea value={b.prompt} onChange={e => onChange({ ...b, prompt: e.target.value })}
+                rows={2} placeholder="Опиши картинку (пусто = по посту)"
+                className="glass-input w-full px-3 py-2 text-[12px] resize-none" />
+              <button onClick={() => onRegenerate?.(b.prompt ?? '')} disabled={regenLoading}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] disabled:opacity-50">
+                {regenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Перегенерировать
+              </button>
+            </>
+          )}
           <button onClick={onReplace} disabled={uploading}
             className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
             {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Заменить

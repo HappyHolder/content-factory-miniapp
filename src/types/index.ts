@@ -249,7 +249,7 @@ export type PostBlock =
   | { type: 'list';      ordered?: boolean; items: Run[][] }
   | { type: 'quote';     runs: Run[]; expandable?: boolean }
   | { type: 'table';     headers: string[]; rows: string[][] }
-  | { type: 'image';     url: string }
+  | { type: 'image';     url: string; prompt?: string } // prompt set = AI-generated (regeneratable)
   | { type: 'video';     url: string; poster?: string }
   | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
   | { type: 'divider' }
