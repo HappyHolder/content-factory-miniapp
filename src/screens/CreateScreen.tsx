@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Sparkles, Check, Loader2, Radio, ImagePlus, X } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
@@ -22,11 +22,14 @@ type GenerateApiPost = Omit<GeneratedPost, 'createdAt' | 'scheduledAt' | 'publis
 
 interface CreateScreenProps {
   onPostCreated: (id: string) => void
+  /** Text handed over from the AI assistant ("Отправить в Create") — prefills
+   *  the input and auto-starts generation. `nonce` re-triggers on each handoff. */
+  prefill?: { text: string; nonce: number } | null
 }
 
 const isUrl = (s: string) => /^https?:\/\/\S+$/i.test(s.trim())
 
-export function CreateScreen({ onPostCreated }: CreateScreenProps) {
+export function CreateScreen({ onPostCreated, prefill }: CreateScreenProps) {
   const { state, activeChannel, addPost, showToast, t, language, authStatus, canGenerate: hasQuota, createsRemaining } = useApp()
   const isRu = language === 'ru'
   const { step: wtStep } = useWalkthrough()
@@ -60,14 +63,15 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
     }
   }
 
-  const handleGenerate = async () => {
-    if (!hasInput || !activeChannel) return
+  const handleGenerate = async (overrideInput?: string) => {
+    const text = (overrideInput ?? input).trim()
+    if ((!text && !imageUrl) || !activeChannel || isGenerating) return
     if (!hasQuota) { showToast(t('create.limitToast'), 'error'); return }
 
     setIsGenerating(true); setDone(false)
     try {
       let post: GeneratedPost
-      const sourceType = imageUrl ? 'photo' : isUrl(input) ? 'link' : 'prompt'
+      const sourceType = imageUrl ? 'photo' : isUrl(text) ? 'link' : 'prompt'
 
       if (authStatus === 'authenticated') {
         const initData = getTelegramInitData()
@@ -78,7 +82,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
           body:    JSON.stringify({
             initData,
             channelId: state.activeChannelId,
-            input:     input.trim(),
+            input:     text,
             sourceType,
             useBrandKit,
             ...(imageUrl ? { imageUrl } : {}),
@@ -96,7 +100,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
         const brandKit = brandKitService.getByChannelId(state.activeChannelId)
         if (!brandKit) { showToast(t('create.generationFailed'), 'error'); return }
         post = await generationService.generate({
-          input: input.trim(), sourceType, channelId: state.activeChannelId,
+          input: text, sourceType, channelId: state.activeChannelId,
           channelUsername: activeChannel.username, brandKit,
         })
       }
@@ -111,6 +115,14 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
       setIsGenerating(false)
     }
   }
+
+  // AI assistant → Create handoff: prefill the input and auto-start generation.
+  useEffect(() => {
+    if (!prefill?.text) return
+    setInput(prefill.text)
+    handleGenerate(prefill.text)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.nonce])
 
   return (
     <div>
@@ -201,7 +213,7 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
 
               <HighlightRing active={wtStep === 'create'}>
                 <motion.button
-                  onClick={handleGenerate}
+                  onClick={() => handleGenerate()}
                   disabled={!canGenerate}
                   whileTap={{ scale: canGenerate ? 0.97 : 1 }}
                   className={cn('w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[14px] text-sm font-semibold transition-all duration-200',

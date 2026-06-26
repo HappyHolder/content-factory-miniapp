@@ -34,6 +34,7 @@ function AppContent() {
   const [activeTab, setActiveTab]             = useState<MainTab>('posts')
   const [modal, setModal]                     = useState<ModalScreen>({ type: 'none' })
   const [chatMessages, setChatMessages]       = useState<ChatMessage[]>([])
+  const [createPrefill, setCreatePrefill]     = useState<{ text: string; nonce: number } | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(() => {
     try { return !localStorage.getItem('cf_onboarded') } catch { return true }
   })
@@ -80,6 +81,12 @@ function AppContent() {
   const handleOpenBrandKit = (channelId: string, channelUsername: string) => setModal({ type: 'brand_kit', channelId, channelUsername })
   const handleOpenPlans = () => setModal({ type: 'plans' })
   const handleOpenAdmin = () => setModal({ type: 'admin' })
+  // AI assistant → Create handoff: prefill Create with a reply and switch tabs.
+  const handleSendToCreate = useCallback((text: string) => {
+    setCreatePrefill({ text, nonce: Date.now() })
+    setModal({ type: 'none' })
+    setActiveTab('create')
+  }, [])
   const handleBack = () => {
     // Closing the channel-style screen during the walkthrough advances step 2 → 3
     if (wtStep === 'style' && modal.type === 'brand_kit') notifyStyleOpened()
@@ -145,6 +152,7 @@ function AppContent() {
                   historyLoaded={chatHistoryLoaded}
                   setHistoryLoaded={setChatHistoryLoaded}
                   onSend={sendChatMessage}
+                  onSendToCreate={handleSendToCreate}
                   loading={chatLoading}
                   active={activeTab === 'ai'}
                   onBack={() => { setActiveTab('posts'); setShowChatScrollBtn(false) }}
@@ -173,7 +181,7 @@ function AppContent() {
             {activeTab !== 'ai' && (
               <AppShell key={activeTab} pageKey={activeTab}>
                 {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
-                {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} />}
+                {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} prefill={createPrefill} />}
                 {activeTab === 'styles' && <StylesScreen />}
                 {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenPlans={handleOpenPlans} onOpenAdmin={handleOpenAdmin} />}
               </AppShell>

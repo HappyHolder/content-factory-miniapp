@@ -24,6 +24,8 @@ interface ChatScreenProps {
   historyLoaded: boolean
   setHistoryLoaded: React.Dispatch<React.SetStateAction<boolean>>
   onSend: (text: string) => void
+  /** Hand an assistant reply to the Create flow (generates a post from it). */
+  onSendToCreate?: (text: string) => void
   loading: boolean
   /** True while the AI tab is the visible one. The screen stays mounted (hidden)
    *  when other tabs are active, so we use this to re-pin to the bottom on entry. */
@@ -32,7 +34,7 @@ interface ChatScreenProps {
   onScrollBtnChange: (visible: boolean, scrollFn: () => void) => void
 }
 
-export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, loading, active, onBack, onScrollBtnChange }: ChatScreenProps) {
+export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, onSendToCreate, loading, active, onBack, onScrollBtnChange }: ChatScreenProps) {
   const { activeChannel, authStatus } = useApp()
   const bottomRef    = useRef<HTMLDivElement>(null)
   const scrollRef    = useRef<HTMLDivElement>(null)
@@ -184,16 +186,26 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
               transition={{ duration: 0.18 }}
               className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
             >
-              <div
-                className={cn(
-                  'max-w-[82%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap',
-                  msg.role === 'user'
-                    ? 'bg-[#FF6A00] text-white rounded-br-sm'
-                    : 'bg-white/[0.06] text-[#E0E0E0] rounded-bl-sm'
-                )}
-              >
-                {msg.content}
-              </div>
+              {msg.role === 'assistant' ? (
+                <div className="max-w-[82%] flex flex-col items-start gap-1.5">
+                  <div className="px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] leading-relaxed whitespace-pre-wrap bg-white/[0.06] text-[#E0E0E0]">
+                    {msg.content}
+                  </div>
+                  {onSendToCreate && msg.content.trim().length > 20 && (
+                    <button
+                      onClick={() => onSendToCreate(msg.content)}
+                      disabled={loading}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.25)] text-[11px] font-medium text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] disabled:opacity-50 transition-colors"
+                    >
+                      <Sparkles size={11} /> Отправить в Create
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="max-w-[82%] px-3 py-2 rounded-2xl rounded-br-sm text-[13px] leading-relaxed whitespace-pre-wrap bg-[#FF6A00] text-white">
+                  {msg.content}
+                </div>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>
