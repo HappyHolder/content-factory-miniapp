@@ -70,6 +70,20 @@ async function generateHighChatReply(opts: {
   });
 }
 
+/**
+ * Forced pre-search. Searches the user's OWN words (not a model-rewritten query —
+ * that dropped specifics like place names and returned the wrong event). Grounds
+ * the answer with real results so it doesn't depend on the model calling the tool.
+ * Returns '' if not configured or nothing was found.
+ */
+async function decidedSearchBlock(message: string, _currentYear: number): Promise<string> {
+  const q = message.trim();
+  if (q.length < 6) return '';   // skip trivial greetings
+  const results = await webSearch(q.slice(0, 400));
+  if (results) return `\n\nWEB SEARCH RESULTS for the user's query (current facts fetched for you — base any recent/real-world answer ONLY on these, cite briefly):\n${results}\n`;
+  return '';
+}
+
 // ─── GET /api/chat/history ────────────────────────────────────────────────────
 // Returns the user's full chat history (oldest → newest).
 // Query: { initData }
@@ -231,6 +245,9 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     `Tailor all advice to the active channel's BrandKit style and audience.\n` +
     `If the user asks about a different channel, switch context accordingly.\n` +
     `Always respond in the same language the user writes in.\n` +
+    `CRITICAL ANTI-HALLUCINATION RULE: never invent or guess facts, news, events, dates, places, names, quotes, numbers, or outcomes. ` +
+    `For any question about real-world or recent events, rely ONLY on a "WEB SEARCH RESULTS" block. ` +
+    `If there is no such block, or it does not actually contain the answer, say plainly that you can't confirm it (and offer to look it up) — do NOT fabricate a plausible-sounding answer.\n` +
     (canSearch
       ? (modelTier === 'HIGH'
           ? `If a "WEB SEARCH RESULTS" block appears in the conversation, it holds current information fetched for you — base any time-sensitive or factual answer on it and briefly mention the sources, building reasoning around the year ${currentYear}. If no such block is present and the question depends on very recent events, answer from your knowledge and note any uncertainty rather than guessing.\n`
@@ -298,6 +315,14 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     if (modelTier === 'HIGH' && env.REPLICATE_API_TOKEN) {
       const high = await generateHighChatReply({ systemPrompt, history, message, canSearch, currentYear });
       if (high && high.trim()) reply = high.trim();
+    }
+
+    // Forced pre-search (LOW / HIGH fallback): ground the answer with real data
+    // instead of trusting the model to call the tool. Inject the results as a
+    // system turn right before the latest user message.
+    if (!reply && canSearch) {
+      const block = await decidedSearchBlock(message, currentYear);
+      if (block) messages.splice(messages.length - 1, 0, { role: 'system', content: block });
     }
 
     // LOW (or HIGH fallback): up to 3 turns; the model may call web_search and
