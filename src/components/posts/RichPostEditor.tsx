@@ -134,6 +134,28 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
     }
   }
 
+  // Generate an AI photo straight into a gallery block (append to its urls).
+  const [galleryGenIdx, setGalleryGenIdx] = useState<number | null>(null)
+  const generateGalleryPhoto = async (gi: number, prompt: string) => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    setGalleryGenIdx(gi)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/generate-block-image`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, postId, prompt: prompt.trim() || undefined }),
+      })
+      const data = await res.json().catch(() => ({})) as { url?: string; error?: string }
+      if (!res.ok || !data.url) { showToast(data.error ?? 'Не удалось сгенерировать', 'error'); return }
+      const blk = blocks[gi]
+      if (blk?.type === 'gallery') patch(gi, { ...blk, urls: [...blk.urls, data.url] })
+    } catch {
+      showToast('Ошибка генерации', 'error')
+    } finally {
+      setGalleryGenIdx(null)
+    }
+  }
+
   const mutate = (next: PostBlock[]) => { setBlocks(next); setDirty(true) }
   const patch  = (i: number, next: PostBlock) => mutate(blocks.map((b, idx) => idx === i ? next : b))
   const remove = (i: number) => mutate(blocks.filter((_, idx) => idx !== i))
@@ -250,6 +272,8 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                   onChange={next => patch(i, next)}
                   onReplace={() => (b.type === 'video' ? pickVideo(i) : pickImage(i))}
                   onAddGalleryPhoto={() => pickImage({ gallery: i })}
+                  onGenerateGalleryPhoto={(p: string) => generateGalleryPhoto(i, p)}
+                  galleryGenLoading={galleryGenIdx === i}
                   onRegenerate={(p: string) => generateImage(p, i)}
                   regenLoading={genLoading && regenIndex === i}
                   uploading={uploading && (uploadTarget === i || (typeof uploadTarget === 'object' && uploadTarget?.gallery === i))}
@@ -350,10 +374,14 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
 
 // ─── Per-block editors ──────────────────────────────────────────────────────────
 
-function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onRegenerate, regenLoading, uploading }: {
+function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGalleryPhoto, galleryGenLoading, onRegenerate, regenLoading, uploading }: {
   b: PostBlock; onChange: (next: PostBlock) => void; onReplace?: () => void; onAddGalleryPhoto?: () => void
+  onGenerateGalleryPhoto?: (prompt: string) => void; galleryGenLoading?: boolean
   onRegenerate?: (prompt: string) => void; regenLoading?: boolean; uploading?: boolean
 }) {
+  // Local prompt state for the gallery "+ AI-фото" panel (one photo at a time).
+  const [galPromptOpen, setGalPromptOpen] = useState(false)
+  const [galPrompt, setGalPrompt] = useState('')
   switch (b.type) {
     case 'heading':
       return <input value={b.text} onChange={e => onChange({ ...b, text: e.target.value })}
@@ -464,10 +492,27 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onRegenerate, 
               ))}
             </div>
           )}
-          <button onClick={onAddGalleryPhoto} disabled={uploading}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
-            {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} + Фото
-          </button>
+          <div className="flex gap-1.5">
+            <button onClick={onAddGalleryPhoto} disabled={uploading}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
+              {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} + Фото
+            </button>
+            <button onClick={() => setGalPromptOpen(o => !o)} disabled={galleryGenLoading}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] disabled:opacity-50">
+              {galleryGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} + AI-фото
+            </button>
+          </div>
+          {galPromptOpen && (
+            <div className="p-2 rounded-[10px] bg-[rgba(255,106,0,0.06)] border border-[rgba(255,106,0,0.2)] space-y-1.5">
+              <textarea value={galPrompt} onChange={e => setGalPrompt(e.target.value)} rows={2}
+                placeholder="Опиши фото для карусели (пусто = по посту)"
+                className="glass-input w-full px-2.5 py-1.5 text-[12px] resize-none" />
+              <button onClick={() => { onGenerateGalleryPhoto?.(galPrompt); setGalPrompt('') }} disabled={galleryGenLoading}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-[#FF6A00] text-white text-[12px] font-semibold disabled:opacity-50">
+                {galleryGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Сгенерировать фото
+              </button>
+            </div>
+          )}
           <p className="text-[11px] text-[#55555D]">{b.urls.length} фото{b.urls.length < 2 ? ' · нужно 2+ для галереи' : ''}</p>
         </div>
       )
