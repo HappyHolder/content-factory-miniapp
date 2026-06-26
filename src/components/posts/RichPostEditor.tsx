@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -41,6 +41,35 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  // Image upload target: 'new' = append a new image block; number = replace block at index.
+  const [uploadTarget, setUploadTarget] = useState<'new' | number | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const pickImage = (target: 'new' | number) => { setUploadTarget(target); fileRef.current?.click() }
+
+  const handleFile = async (file: File) => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    const target = uploadTarget
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('initData', initData)
+      form.append('image', file)
+      const res = await fetch(`${API_BASE}/api/posts/upload-block-image`, { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({})) as { url?: string; error?: string }
+      if (!res.ok || !data.url) { showToast(data.error ?? 'Не удалось загрузить', 'error'); return }
+      if (target === 'new') mutate([...blocks, { type: 'image', url: data.url }])
+      else if (typeof target === 'number') patch(target, { type: 'image', url: data.url })
+      setAddOpen(false)
+    } catch {
+      showToast('Ошибка загрузки', 'error')
+    } finally {
+      setUploading(false)
+      setUploadTarget(null)
+    }
+  }
 
   const mutate = (next: PostBlock[]) => { setBlocks(next); setDirty(true) }
   const patch  = (i: number, next: PostBlock) => mutate(blocks.map((b, idx) => idx === i ? next : b))
@@ -83,6 +112,15 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
 
   return (
     <div className="space-y-3">
+      {/* shared hidden file input for image upload (add / replace) */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
+      />
+
       {/* mode toggle */}
       <div className="flex gap-1 p-1 rounded-[12px] bg-white/[0.04] border border-white/[0.06]">
         {([['preview', Eye, 'Превью'], ['edit', Pencil, 'Редактор']] as const).map(([m, Icon, label]) => (
@@ -108,7 +146,12 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                 <button onClick={() => remove(i)} className="p-1 text-[#55555D] hover:text-red-400"><Trash2 size={13} /></button>
               </div>
               <div className="p-2.5">
-                <BlockEditor b={b} onChange={next => patch(i, next)} />
+                <BlockEditor
+                  b={b}
+                  onChange={next => patch(i, next)}
+                  onReplace={() => pickImage(i)}
+                  uploading={uploading && uploadTarget === i}
+                />
               </div>
             </div>
           ))}
@@ -127,6 +170,11 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                     {BLOCK_LABEL[tp]}
                   </button>
                 ))}
+                <button onClick={() => pickImage('new')} disabled={uploading}
+                  className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50 flex items-center gap-1">
+                  {uploading && uploadTarget === 'new' ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+                  Изображение
+                </button>
               </div>
             )}
           </div>
@@ -174,7 +222,9 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
 
 // ─── Per-block editors ──────────────────────────────────────────────────────────
 
-function BlockEditor({ b, onChange }: { b: PostBlock; onChange: (next: PostBlock) => void }) {
+function BlockEditor({ b, onChange, onReplace, uploading }: {
+  b: PostBlock; onChange: (next: PostBlock) => void; onReplace?: () => void; uploading?: boolean
+}) {
   switch (b.type) {
     case 'heading':
       return <input value={b.text} onChange={e => onChange({ ...b, text: e.target.value })}
@@ -230,11 +280,22 @@ function BlockEditor({ b, onChange }: { b: PostBlock; onChange: (next: PostBlock
         </div>
       )
     case 'image':
-      return <img src={b.url} alt="" className="w-full rounded-[10px] object-cover max-h-44" />
+      return (
+        <div className="space-y-1.5">
+          <img src={b.url} alt="" className="w-full rounded-[10px] object-cover max-h-44" />
+          <button onClick={onReplace} disabled={uploading}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
+            {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Заменить
+          </button>
+        </div>
+      )
     case 'gallery':
       return (
-        <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-          {b.urls.map((u, i) => <img key={i} src={u} alt="" className="h-16 rounded-[8px] object-cover shrink-0" />)}
+        <div className="space-y-1.5">
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+            {b.urls.map((u, i) => <img key={i} src={u} alt="" className="h-16 rounded-[8px] object-cover shrink-0" />)}
+          </div>
+          <p className="text-[11px] text-[#55555D]">{b.urls.length} фото · {b.layout === 'collage' ? 'сетка' : 'карусель'}</p>
         </div>
       )
     case 'divider':

@@ -597,6 +597,34 @@ router.patch('/:postId/blocks', async (req: Request, res: Response): Promise<voi
   }
 });
 
+// ─── POST /api/posts/upload-block-image ──────────────────────────────────────
+// Uploads an image to use inside a formatted post's image/gallery block and
+// returns its public URL. Does NOT touch the DB — the caller puts the URL into
+// the block and persists via PATCH /:postId/blocks.
+// Request: multipart { initData, image }   Response 200: { url }
+router.post('/upload-block-image', uploadMiddleware.single('image'), async (req: Request, res: Response): Promise<void> => {
+  const initData = req.body['initData'] as unknown;
+  const file = req.file;
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (!file) { res.status(400).json({ error: 'image is required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  try {
+    const ext = (file.originalname.split('.').pop() || 'jpg').replace(/[^a-z0-9]/gi, '').slice(0, 5) || 'jpg';
+    const obj = await putObject(`posts/blocks/${dbUser.id}-${Date.now()}.${ext}`, file.buffer, { contentType: file.mimetype });
+    res.json({ url: obj.url });
+  } catch (err) {
+    console.error('[posts/upload-block-image] upload failed:', (err as Error).message);
+    res.status(500).json({ error: 'Upload failed. Try again.' });
+  }
+});
+
 // ─── POST /api/posts/select-variant ──────────────────────────────────────────
 //
 // Persists the user's variant selection to GeneratedPost.selectedVariantId.
