@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -359,10 +359,18 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
   return (
     <div>
       <div className="flex flex-wrap gap-1 mb-1">
-        {([['**', 'Ж'], ['__', 'Курсив'], ['~~', 'Зачёрк'], ['`', 'Моно'], ['==', 'Подсветка'], ['||', 'Спойлер']] as const).map(([mk, label]) => (
-          <button key={mk} onMouseDown={e => e.preventDefault()} onClick={() => wrap(mk)}
-            className="px-2 py-0.5 rounded-[7px] bg-white/[0.06] border border-white/[0.08] text-[11px] text-[#A1A1AA] hover:text-white hover:border-[#FF6A00]/40">
-            {label}
+        {([
+          ['**', Bold, 'Жирный'],
+          ['__', Italic, 'Курсив'],
+          ['~~', Strikethrough, 'Зачёркнутый'],
+          ['`', Code, 'Моноширинный'],
+          ['==', Highlighter, 'Подсветка'],
+          ['||', EyeOff, 'Спойлер'],
+        ] as const).map(([mk, Icon, title]) => (
+          <button key={mk} type="button" title={title} aria-label={title}
+            onMouseDown={e => e.preventDefault()} onClick={() => wrap(mk)}
+            className="w-7 h-7 flex items-center justify-center rounded-[8px] bg-white/[0.05] border border-white/[0.08] text-[#A1A1AA] hover:text-[#FF6A00] hover:border-[#FF6A00]/40 active:bg-[rgba(255,106,0,0.12)] transition-colors">
+            <Icon size={14} />
           </button>
         ))}
       </div>
