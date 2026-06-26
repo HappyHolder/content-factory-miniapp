@@ -677,6 +677,65 @@ router.post('/upload-block-video', uploadVideoMiddleware.single('video'), async 
   }
 });
 
+// ─── POST /api/posts/generate-block-image ────────────────────────────────────
+// Generates an AI illustration for a post block (clean scene, no burned-in title)
+// and returns its URL. Optional `prompt` lets the user art-direct it; otherwise
+// it's derived from the post + channel style. Does NOT touch bannerUrl.
+// Request: { initData, postId, prompt? }   Response 200: { url }
+router.post('/generate-block-image', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId, prompt: userPrompt } = req.body as { initData?: unknown; postId?: unknown; prompt?: unknown };
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (typeof postId !== 'string' || !postId.trim()) { res.status(400).json({ error: 'postId is required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  const post = await prisma.generatedPost.findUnique({
+    where:  { id: postId },
+    select: {
+      title: true, sourceSummary: true, coverAspectRatio: true,
+      channel: { select: { userId: true, brandKit: { select: { visualKit: true } } } },
+    },
+  }).catch(() => null);
+  if (!post) { res.status(404).json({ error: 'Post not found.' }); return; }
+  if (post.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
+
+  const visualKit = post.channel.brandKit?.visualKit ?? undefined;
+  const vkObj = visualKit && typeof visualKit === 'object' ? visualKit as Record<string, unknown> : null;
+  const rawAr = post.coverAspectRatio ?? vkObj?.['aspectRatio'];
+  const aspectRatio: '1:1' | '16:9' | '4:5' | '9:16' =
+    rawAr === '16:9' || rawAr === '4:5' || rawAr === '9:16' ? rawAr : '1:1';
+
+  const art = typeof userPrompt === 'string' && userPrompt.trim() ? userPrompt.trim().slice(0, 400) : undefined;
+  let prompt = art ?? `abstract cover art, ${(post.title ?? '').slice(0, 80)}, dark premium background, modern aesthetic`;
+  try {
+    const aiPrompt = await generateImagePromptWithAI({
+      title: post.title, excerpt: post.sourceSummary ?? post.title, visualKit, artDirection: art,
+    });
+    if (aiPrompt) prompt = aiPrompt;
+  } catch { /* non-fatal — use fallback prompt */ }
+
+  let modelTier: 'LOW' | 'HIGH' = 'LOW';
+  try {
+    const sub = await prisma.subscription.findUnique({ where: { userId: dbUser.id }, select: { modelTier: true } });
+    if (sub) modelTier = sub.modelTier;
+  } catch { /* default LOW */ }
+
+  let cover: Awaited<ReturnType<typeof generateImageForPost>> = null;
+  try {
+    // No headline → a clean illustration for the post body (not a cover with text).
+    cover = await generateImageForPost({ prompt, visualKit, aspectRatio, model: modelTier === 'HIGH' ? env.HIGH_IMAGE_MODEL : env.IMAGE_MODEL });
+  } catch (err) {
+    console.warn('[posts/generate-block-image] generation threw:', (err as Error).message);
+  }
+  if (!cover?.bannerUrl) { res.status(502).json({ error: 'Не удалось сгенерировать картинку. Попробуй ещё раз.' }); return; }
+  res.json({ url: cover.bannerUrl });
+});
+
 // ─── POST /api/posts/select-variant ──────────────────────────────────────────
 //
 // Persists the user's variant selection to GeneratedPost.selectedVariantId.

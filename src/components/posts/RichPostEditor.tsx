@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -102,6 +102,27 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
     } finally {
       setUploading(false)
       setUploadTarget(null)
+    }
+  }
+
+  const [genLoading, setGenLoading] = useState(false)
+  const generateImage = async () => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    setGenLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/generate-block-image`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, postId }),
+      })
+      const data = await res.json().catch(() => ({})) as { url?: string; error?: string }
+      if (!res.ok || !data.url) { showToast(data.error ?? 'Не удалось сгенерировать', 'error'); return }
+      mutate([...blocks, { type: 'image', url: data.url }])
+      setAddOpen(false)
+    } catch {
+      showToast('Ошибка генерации', 'error')
+    } finally {
+      setGenLoading(false)
     }
   }
 
@@ -250,6 +271,11 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                   className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50 flex items-center gap-1">
                   {uploading && uploadTarget === 'new' ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
                   Видео
+                </button>
+                <button onClick={generateImage} disabled={genLoading}
+                  className="px-3 py-1.5 rounded-full bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] disabled:opacity-50 flex items-center gap-1">
+                  {genLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                  {genLoading ? 'Генерирую…' : 'AI-картинка'}
                 </button>
               </div>
             )}
