@@ -26,6 +26,8 @@ function collectMediaUrls(variants: { bannerUrl?: string | null; blocks?: unknow
   return [...urls];
 }
 import { createDraftPostForChannel } from '../lib/draftGenerator';
+import { fetchArticle } from '../lib/urlContentExtractor';
+import { extractImageContentFromUrl } from '../lib/visionExtractor';
 import { generateImageForPost, buildVisualKitPromptHints, renderCoverFromBase } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
 import { isCreatesLimitReached, applyMonthlyQuotaReset, canUseHtmlCovers, MAX_TEXT_REGENS_PER_POST, MAX_IMAGE_REGENS_PER_POST } from '../lib/subscriptionLimits';
@@ -94,7 +96,7 @@ function normalizeTelegramUrl(raw: unknown): string | null {
 // Response 500: DB error
 
 router.post('/generate', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, input, sourceType, imagePrompt, useBrandKit, imageOnly, coverMode } = req.body as {
+  const { initData, channelId, input, sourceType, imagePrompt, useBrandKit, imageOnly, coverMode, imageUrl } = req.body as {
     initData?:    unknown;
     channelId?:   unknown;
     input?:       unknown;
@@ -103,6 +105,7 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     useBrandKit?: unknown;
     imageOnly?:   unknown;
     coverMode?:   unknown;
+    imageUrl?:    unknown;  // uploaded screenshot URL → vision-extracted into the source
   };
 
   // ── 1. Input validation ───────────────────────────────────────────────────
@@ -116,7 +119,9 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
   }
   // input is required unless imageOnly mode (image prompt is used as the creative brief)
   const isImageOnly = imageOnly === true;
-  if (!isImageOnly && (typeof input !== 'string' || !input.trim())) {
+  const hasImageUrl = typeof imageUrl === 'string' && /^https?:\/\//i.test(imageUrl);
+  // input is required unless: imageOnly mode, or a screenshot (imageUrl) is provided.
+  if (!isImageOnly && !hasImageUrl && (typeof input !== 'string' || !input.trim())) {
     res.status(400).json({ error: 'input is required and must be a non-empty string' });
     return;
   }
@@ -210,15 +215,39 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  // ── 5b. Resolve a rich source: screenshot (vision) or pasted link (article) ──
+  // Mirrors the bot flow so Create accepts the same inputs. Non-fatal: on any
+  // failure we fall back to the raw text the user typed.
+  let effectiveInput = trimmedInput;
+  let resolvedSourceUrl: string | null = null;
+  try {
+    if (hasImageUrl) {
+      const vis = await extractImageContentFromUrl(imageUrl as string);
+      if (vis) effectiveInput = [trimmedInput, vis].filter(s => s && s.trim()).join('\n\n');
+    } else {
+      const urlMatch = trimmedInput.match(/https?:\/\/\S+/);
+      // Treat the input as a link only when it is essentially just a URL.
+      if (urlMatch && trimmedInput.replace(urlMatch[0], '').trim().length < 40) {
+        const article = await fetchArticle(urlMatch[0]);
+        if (article && article.text.trim()) {
+          effectiveInput = `${article.title}\n\n${article.text}`.trim();
+          resolvedSourceUrl = urlMatch[0];
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[posts/generate] source extraction failed (non-fatal):', (err as Error).message);
+  }
+
   // ── 6. Create draft: BrandKit load + AI generation + DB persist ─────────────
   // Delegated to the shared draftGenerator helper so the logic is not
   // duplicated between this route and the bot webhook auto-draft flow.
   try {
     const draft = await createDraftPostForChannel({
       channelId:   channel.id,
-      input:       trimmedInput,
+      input:       effectiveInput,
       sourceType:  sourceType as string,
-      sourceUrl:   null,
+      sourceUrl:   resolvedSourceUrl,
       imagePrompt: typeof imagePrompt === 'string' ? imagePrompt : undefined,
       useBrandKit: useBrandKit === false ? false : true,
       imageOnly:   isImageOnly,

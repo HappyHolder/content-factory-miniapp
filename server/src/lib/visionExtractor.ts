@@ -119,17 +119,12 @@ export async function analyzeReferenceStyle(imageUrl: string): Promise<string | 
 }
 
 /**
- * Reads an image (by Telegram file_id) and returns extracted text, or null on
- * failure / when image reading isn't configured.
+ * Core: runs the vision model on an `image_input` (a data URI or a public URL)
+ * and returns the extracted text, or null on failure / when not configured.
  */
-export async function extractImageContent(fileId: string): Promise<string | null> {
+async function runVisionExtract(imageInput: string): Promise<string | null> {
   if (!env.REPLICATE_API_TOKEN || !env.VISION_MODEL) return null;
-
   try {
-    const { buf, mime } = await downloadTelegramFile(fileId);
-    const dataUri = `data:${mime};base64,${buf.toString('base64')}`;
-
-    // Create prediction
     const createRes = await fetch(`${REPLICATE_API}/models/${env.VISION_MODEL}/predictions`, {
       method:  'POST',
       headers: {
@@ -137,11 +132,7 @@ export async function extractImageContent(fileId: string): Promise<string | null
         'Content-Type':  'application/json',
       },
       body: JSON.stringify({
-        input: {
-          prompt:                EXTRACT_PROMPT,
-          image_input:           [dataUri],
-          max_completion_tokens: 800,
-        },
+        input: { prompt: EXTRACT_PROMPT, image_input: [imageInput], max_completion_tokens: 800 },
       }),
     });
 
@@ -153,7 +144,6 @@ export async function extractImageContent(fileId: string): Promise<string | null
 
     let prediction = await createRes.json() as ReplicatePrediction;
 
-    // Poll until done
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     while (
       (prediction.status === 'starting' || prediction.status === 'processing') &&
@@ -178,4 +168,25 @@ export async function extractImageContent(fileId: string): Promise<string | null
     console.warn('[visionExtractor] failed:', (err as Error).message);
     return null;
   }
+}
+
+/**
+ * Reads an image (by Telegram file_id) and returns extracted text, or null on
+ * failure / when image reading isn't configured.
+ */
+export async function extractImageContent(fileId: string): Promise<string | null> {
+  if (!env.REPLICATE_API_TOKEN || !env.VISION_MODEL) return null;
+  try {
+    const { buf, mime } = await downloadTelegramFile(fileId);
+    return await runVisionExtract(`data:${mime};base64,${buf.toString('base64')}`);
+  } catch (err) {
+    console.warn('[visionExtractor] file read failed:', (err as Error).message);
+    return null;
+  }
+}
+
+/** Extracts text/content from an image at a public URL (e.g. an uploaded screenshot). */
+export async function extractImageContentFromUrl(imageUrl: string): Promise<string | null> {
+  if (typeof imageUrl !== 'string' || !/^https?:\/\//i.test(imageUrl)) return null;
+  return runVisionExtract(imageUrl);
 }

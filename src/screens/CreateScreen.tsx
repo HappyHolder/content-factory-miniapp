@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Sparkles, Check, Loader2, Radio } from 'lucide-react'
+import { Sparkles, Check, Loader2, Radio, ImagePlus, X } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { useWalkthrough } from '@/context/WalkthroughContext'
 import { Coachmark, HighlightRing } from '@/components/onboarding/Coachmark'
@@ -14,7 +14,6 @@ import { API_BASE } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import type { GeneratedPost } from '@/types'
 
-// API returns dates as ISO strings; banner is absent (undefined on receipt).
 type GenerateApiPost = Omit<GeneratedPost, 'createdAt' | 'scheduledAt' | 'publishedAt' | 'banner'> & {
   createdAt:   string
   scheduledAt: string | null
@@ -25,61 +24,67 @@ interface CreateScreenProps {
   onPostCreated: (id: string) => void
 }
 
+const isUrl = (s: string) => /^https?:\/\/\S+$/i.test(s.trim())
+
 export function CreateScreen({ onPostCreated }: CreateScreenProps) {
   const { state, activeChannel, addPost, showToast, t, language, authStatus, canGenerate: hasQuota, createsRemaining } = useApp()
   const isRu = language === 'ru'
   const { step: wtStep } = useWalkthrough()
-  const [textPrompt, setTextPrompt] = useState('')
-  const [imagePrompt, setImagePrompt] = useState('')
+  const [input, setInput] = useState('')
   const [useBrandKit, setUseBrandKit] = useState(true)
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [uploadingShot, setUploadingShot] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [done, setDone] = useState(false)
+  const shotRef = useRef<HTMLInputElement>(null)
 
-  // Cover engine for THIS generation. Defaults to the channel's saved mode,
-  // re-synced when the active channel changes. HTML is a paid feature.
-  const channelCoverMode =
-    (brandKitService.getByChannelId(state.activeChannelId)?.visualKit?.coverMode ?? 'ai') as 'ai' | 'html' | 'ai_html'
-  const canUseHtml = state.user.subscription.planTier !== 'free'
-  const [coverMode, setCoverMode] = useState<'ai' | 'html' | 'ai_html'>(channelCoverMode)
-  useEffect(() => { setCoverMode(channelCoverMode) }, [state.activeChannelId, channelCoverMode])
-
-  const hasInput = textPrompt.trim().length > 3 || imagePrompt.trim().length > 3
+  const hasInput = input.trim().length > 3 || !!imageUrl
   const canGenerate = hasInput && !isGenerating && hasQuota
+
+  const uploadShot = async (file: File) => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast(isRu ? 'Доступно только в Telegram' : 'Telegram only', 'error'); return }
+    setUploadingShot(true)
+    try {
+      const form = new FormData()
+      form.append('initData', initData)
+      form.append('image', file)
+      const res = await fetch(`${API_BASE}/api/posts/upload-block-image`, { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({})) as { url?: string; error?: string }
+      if (!res.ok || !data.url) { showToast(data.error ?? (isRu ? 'Не удалось загрузить' : 'Upload failed'), 'error'); return }
+      setImageUrl(data.url)
+    } catch {
+      showToast(isRu ? 'Ошибка загрузки' : 'Upload error', 'error')
+    } finally {
+      setUploadingShot(false)
+    }
+  }
 
   const handleGenerate = async () => {
     if (!hasInput || !activeChannel) return
-    if (!hasQuota) {
-      showToast(t('create.limitToast'), 'error')
-      return
-    }
+    if (!hasQuota) { showToast(t('create.limitToast'), 'error'); return }
 
-    setIsGenerating(true)
-    setDone(false)
-
+    setIsGenerating(true); setDone(false)
     try {
       let post: GeneratedPost
+      const sourceType = imageUrl ? 'photo' : isUrl(input) ? 'link' : 'prompt'
 
       if (authStatus === 'authenticated') {
         const initData = getTelegramInitData()
         if (!initData) throw new Error('No initData')
-
-        const effectiveInput = textPrompt.trim() || imagePrompt.trim()
         const res = await fetch(`${API_BASE}/api/posts/generate`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({
             initData,
-            channelId:   state.activeChannelId,
-            input:       effectiveInput,
-            sourceType:  'prompt',
+            channelId: state.activeChannelId,
+            input:     input.trim(),
+            sourceType,
             useBrandKit,
-            imageOnly:   !textPrompt.trim() && !!imagePrompt.trim(),
-            ...(useBrandKit ? { coverMode } : {}),
-            ...(imagePrompt.trim() ? { imagePrompt: imagePrompt.trim() } : {}),
+            ...(imageUrl ? { imageUrl } : {}),
           }),
         })
         if (!res.ok) throw new Error(`generate failed: ${res.status}`)
-
         const data = await res.json() as { post: GenerateApiPost }
         post = {
           ...data.post,
@@ -89,27 +94,17 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
         }
       } else {
         const brandKit = brandKitService.getByChannelId(state.activeChannelId)
-        if (!brandKit) {
-          showToast(t('create.generationFailed'), 'error')
-          return
-        }
+        if (!brandKit) { showToast(t('create.generationFailed'), 'error'); return }
         post = await generationService.generate({
-          input:           textPrompt.trim(),
-          sourceType:      'prompt',
-          channelId:       state.activeChannelId,
-          channelUsername: activeChannel.username,
-          brandKit,
+          input: input.trim(), sourceType, channelId: state.activeChannelId,
+          channelUsername: activeChannel.username, brandKit,
         })
       }
 
       addPost(post)
       setDone(true)
-      setTextPrompt('')
-      setImagePrompt('')
-      setTimeout(() => {
-        setDone(false)
-        onPostCreated(post.id)
-      }, 900)
+      setInput(''); setImageUrl(null)
+      setTimeout(() => { setDone(false); onPostCreated(post.id) }, 700)
     } catch {
       showToast(t('create.generationFailed'), 'error')
     } finally {
@@ -122,121 +117,68 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
       <ChannelSwitcherHeader />
 
       <div className="px-4 space-y-2.5">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
           <GlassCard strong padding="none" className="overflow-hidden">
-            <div className="p-4 space-y-4">
-              <h2 className="text-[15px] font-semibold text-white">{t('create.title')}</h2>
-
-              {/* Text prompt */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-[#55555D] uppercase tracking-wider">
-                  {t('create.textPromptLabel')}
-                </label>
-                <textarea
-                  value={textPrompt}
-                  onChange={e => setTextPrompt(e.target.value)}
-                  placeholder={t('create.textPromptPlaceholder')}
-                  rows={5}
-                  className="glass-input w-full px-3 py-3 text-sm leading-relaxed"
-                  style={{ background: 'rgba(255,255,255,0.03)' }}
-                />
+            <div className="p-4 space-y-3.5">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-[8px] bg-[rgba(255,106,0,0.14)] flex items-center justify-center">
+                  <Sparkles size={14} className="text-[#FF6A00]" />
+                </div>
+                <h2 className="text-[15px] font-semibold text-white">{isRu ? 'Создать пост' : 'Create a post'}</h2>
               </div>
 
-              {/* Image prompt */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-[#55555D] uppercase tracking-wider">
-                  {t('create.imagePromptLabel')}
-                </label>
-                <textarea
-                  value={imagePrompt}
-                  onChange={e => setImagePrompt(e.target.value)}
-                  placeholder={t('create.imagePromptPlaceholder')}
-                  rows={3}
-                  className="glass-input w-full px-3 py-3 text-sm leading-relaxed"
-                  style={{ background: 'rgba(255,255,255,0.03)' }}
-                />
-              </div>
+              {/* Single AI input: text, link, or idea */}
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                placeholder={isRu
+                  ? 'Ссылка, текст или идея. Напр.: «новость про X», вставь ссылку на статью, или опиши пост…'
+                  : 'A link, text, or idea. e.g. "news about X", paste an article link, or describe the post…'}
+                rows={5}
+                className="glass-input w-full px-3 py-3 text-sm leading-relaxed"
+                style={{ background: 'rgba(255,255,255,0.03)' }}
+              />
 
-              {/* BrandKit toggle */}
+              {/* Screenshot attach */}
+              <input ref={shotRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadShot(f); e.target.value = '' }} />
+              {imageUrl ? (
+                <div className="flex items-center gap-2.5 p-2 rounded-[12px] bg-white/[0.03] border border-white/[0.07]">
+                  <img src={imageUrl} alt="" className="w-12 h-12 rounded-[8px] object-cover" />
+                  <span className="flex-1 text-[12px] text-[#A1A1AA]">{isRu ? 'Скриншот прикреплён' : 'Screenshot attached'}</span>
+                  <button onClick={() => setImageUrl(null)} className="p-1.5 text-[#55555D] hover:text-red-400"><X size={14} /></button>
+                </div>
+              ) : (
+                <button onClick={() => shotRef.current?.click()} disabled={uploadingShot}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-[12px] border border-dashed border-white/[0.12] text-[12.5px] text-[#A1A1AA] hover:border-[#FF6A00]/40 hover:text-[#FF6A00] transition-colors disabled:opacity-50">
+                  {uploadingShot ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
+                  {isRu ? 'Прикрепить скриншот' : 'Attach a screenshot'}
+                </button>
+              )}
+
               <Switch
                 label={t('create.useBrandKit')}
                 description={t('create.useBrandKitDesc')}
                 value={useBrandKit}
                 onChange={setUseBrandKit}
               />
-
-              {/* Cover engine for this generation (only with channel style) */}
-              {useBrandKit && (
-                <div>
-                  <p className="text-[11px] font-semibold text-[#55555D] uppercase tracking-wider mb-1.5">
-                    {isRu ? 'Движок обложки' : 'Cover engine'}
-                  </p>
-                  <div className="flex gap-1 p-1 rounded-[12px] bg-white/[0.04] border border-white/[0.06]">
-                    {(['ai', 'html', 'ai_html'] as const).map(mode => {
-                      const locked = mode !== 'ai' && !canUseHtml
-                      const label = mode === 'ai'
-                        ? '✦ AI'
-                        : mode === 'html'
-                          ? (locked ? '🔒 HTML' : '</> HTML')
-                          : (locked ? '🔒 AI+HTML' : 'AI+HTML')
-                      return (
-                        <button
-                          key={mode}
-                          onClick={() => {
-                            if (locked) {
-                              showToast(isRu
-                                ? 'Доступно на платных тарифах'
-                                : 'Available on paid plans', 'info')
-                              return
-                            }
-                            setCoverMode(mode)
-                          }}
-                          className={cn(
-                            'flex-1 py-1.5 rounded-[9px] text-[11px] font-semibold transition-all',
-                            coverMode === mode
-                              ? 'bg-[#FF6A00] text-white shadow-sm'
-                              : locked ? 'text-[#44444C]' : 'text-[#55555D] hover:text-[#A1A1AA]'
-                          )}
-                        >
-                          {label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
 
             <div className="px-4 pb-4 space-y-2">
-              {/* Walkthrough step 3 */}
               {wtStep === 'create' && (
-                <Coachmark
-                  stepLabel={t('onboarding.step3')}
-                  title={t('onboarding.createTitle')}
-                  text={t('onboarding.createText')}
-                />
+                <Coachmark stepLabel={t('onboarding.step3')} title={t('onboarding.createTitle')} text={t('onboarding.createText')} />
               )}
 
-              {/* Quota counter */}
               {createsRemaining !== null && (
-                <div className={cn(
-                  'flex items-center justify-between px-3 py-2 rounded-[10px] text-[12px]',
-                  createsRemaining === 0
-                    ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-                    : createsRemaining <= 5
-                      ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
-                      : 'bg-white/[0.03] border border-white/[0.07] text-[#55555D]'
-                )}>
+                <div className={cn('flex items-center justify-between px-3 py-2 rounded-[10px] text-[12px]',
+                  createsRemaining === 0 ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+                  : createsRemaining <= 5 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                  : 'bg-white/[0.03] border border-white/[0.07] text-[#55555D]')}>
                   <span>{t('create.creditsLeft')}</span>
                   <span className="font-semibold">{createsRemaining}</span>
                 </div>
               )}
 
-              {/* Limit reached banner */}
               {!hasQuota && (
                 <div className="flex items-center gap-2 px-3 py-2.5 rounded-[10px] bg-red-500/10 border border-red-500/20">
                   <span className="text-[12px] text-red-400 leading-snug">
@@ -245,49 +187,38 @@ export function CreateScreen({ onPostCreated }: CreateScreenProps) {
                 </div>
               )}
 
+              {/* Progress + note while generating */}
+              {isGenerating && (
+                <div className="space-y-1.5">
+                  <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                    <div className="h-full w-2/3 bg-[#FF6A00] rounded-full animate-pulse" />
+                  </div>
+                  <p className="text-[11px] text-[#55555D] text-center">
+                    {isRu ? 'Собираю пост — это может занять до минуты' : 'Building the post — this can take up to a minute'}
+                  </p>
+                </div>
+              )}
+
               <HighlightRing active={wtStep === 'create'}>
                 <motion.button
                   onClick={handleGenerate}
                   disabled={!canGenerate}
                   whileTap={{ scale: canGenerate ? 0.97 : 1 }}
-                  className={cn(
-                    'w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[14px] text-sm font-semibold transition-all duration-200',
-                    canGenerate && !isGenerating && !done
-                      ? 'bg-[#FF6A00] text-white hover:bg-[#ff7a1a] orange-glow'
-                      : done
-                        ? 'bg-[rgba(255,106,0,0.20)] text-[#FF6A00] border border-[rgba(255,106,0,0.38)]'
-                        : 'bg-white/[0.04] text-[#44444C] border border-white/[0.06] cursor-not-allowed'
-                  )}
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      {t('create.generating')}
-                    </>
-                  ) : done ? (
-                    <>
-                      <Check size={16} />
-                      {t('create.postsReady')}
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles size={16} />
-                      {t('create.generatePost')}
-                    </>
-                  )}
+                  className={cn('w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[14px] text-sm font-semibold transition-all duration-200',
+                    canGenerate && !isGenerating && !done ? 'bg-[#FF6A00] text-white hover:bg-[#ff7a1a] orange-glow'
+                    : done ? 'bg-[rgba(255,106,0,0.20)] text-[#FF6A00] border border-[rgba(255,106,0,0.38)]'
+                    : 'bg-white/[0.04] text-[#44444C] border border-white/[0.06] cursor-not-allowed')}>
+                  {isGenerating ? <><Loader2 size={16} className="animate-spin" />{t('create.generating')}</>
+                    : done ? <><Check size={16} />{t('create.postsReady')}</>
+                    : <><Sparkles size={16} />{isRu ? 'Создать' : 'Create'}</>}
                 </motion.button>
               </HighlightRing>
             </div>
           </GlassCard>
         </motion.div>
 
-        {/* No-channel notice */}
         {state.channels.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05, duration: 0.2 }}
-          >
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.2 }}>
             <div className="flex items-start gap-3 px-3.5 py-3 rounded-[14px] bg-white/[0.03] border border-white/[0.07]">
               <Radio size={15} className="text-[#44444C] shrink-0 mt-0.5" />
               <div>
