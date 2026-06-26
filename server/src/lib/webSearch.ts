@@ -52,13 +52,29 @@ async function callTavily(query: string, extra: Record<string, unknown>): Promis
  * the old "basic" general search missed; falls back to a general advanced search
  * when the news pass is empty (non-news factual queries).
  */
+const RU_NEWS_DOMAINS = [
+  'tass.ru', 'ria.ru', 'interfax.ru', 'rbc.ru', 'kommersant.ru',
+  'lenta.ru', 'gazeta.ru', 'rt.com', 'dw.com', 'iz.ru', 'vedomosti.ru',
+];
+
+const hasResults = (d: TavilyResponse | null): d is TavilyResponse =>
+  !!d && Array.isArray(d.results) && d.results.length > 0;
+
 export async function webSearch(query: string): Promise<string | null> {
   if (!env.TAVILY_API_KEY || !query || !query.trim()) return null;
 
-  let data = await callTavily(query, { topic: 'news', days: FRESH_DAYS, search_depth: 'advanced' });
-  if (!data || !(Array.isArray(data.results) && data.results.length > 0)) {
-    data = await callTavily(query, { search_depth: 'advanced' });
+  const cyrillic = /[Ѐ-ӿ]/.test(query);
+
+  // Pass 1 (RU queries): authoritative Russian news sources — Tavily otherwise
+  // returns only Western/English coverage, which misses or mis-frames RU events.
+  let data: TavilyResponse | null = null;
+  if (cyrillic) {
+    data = await callTavily(query, { topic: 'news', days: FRESH_DAYS, search_depth: 'advanced', include_domains: RU_NEWS_DOMAINS });
   }
+  // Pass 2: general news (recency).
+  if (!hasResults(data)) data = await callTavily(query, { topic: 'news', days: FRESH_DAYS, search_depth: 'advanced' });
+  // Pass 3: general advanced (non-news factual queries).
+  if (!hasResults(data)) data = await callTavily(query, { search_depth: 'advanced' });
   if (!data) return null;
 
   const lines: string[] = [];
