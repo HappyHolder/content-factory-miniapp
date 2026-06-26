@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -117,6 +117,17 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   }
   const add = (type: PostBlock['type']) => { mutate([...blocks, makeBlock(type)]); setAddOpen(false) }
 
+  // Drag-and-drop reorder (pointer events — works on touch + mouse).
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
+  const moveTo = (from: number, to: number) => {
+    if (from === to) return
+    const copy = blocks.slice()
+    const [item] = copy.splice(from, 1)
+    copy.splice(to, 0, item!)
+    mutate(copy)
+  }
+
   const save = async () => {
     const initData = getTelegramInitData()
     if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
@@ -178,9 +189,27 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
       ) : (
         <div className="space-y-2">
           {blocks.map((b, i) => (
-            <div key={i} className="rounded-[12px] bg-white/[0.03] border border-white/[0.07] overflow-hidden">
+            <div
+              key={i}
+              data-block-index={i}
+              className={cn('rounded-[12px] bg-white/[0.03] border overflow-hidden transition-colors',
+                dragIndex === i ? 'opacity-50 border-[#FF6A00]/50' : 'border-white/[0.07]',
+                overIndex === i && dragIndex !== null && dragIndex !== i ? 'ring-2 ring-[#FF6A00]' : '')}
+            >
               {/* card header */}
               <div className="flex items-center gap-1 px-2.5 py-1.5 bg-white/[0.02] border-b border-white/[0.05]">
+                <div
+                  onPointerDown={e => { e.preventDefault(); setDragIndex(i); setOverIndex(i); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) }}
+                  onPointerMove={e => {
+                    if (dragIndex === null) return
+                    const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+                    const card = el?.closest('[data-block-index]') as HTMLElement | null
+                    if (card) { const idx = Number(card.dataset['blockIndex']); if (!Number.isNaN(idx)) setOverIndex(idx) }
+                  }}
+                  onPointerUp={() => { if (dragIndex !== null && overIndex !== null) moveTo(dragIndex, overIndex); setDragIndex(null); setOverIndex(null) }}
+                  style={{ touchAction: 'none', cursor: 'grab' }}
+                  className="p-1 -ml-1 text-[#55555D] hover:text-white"
+                ><GripVertical size={14} /></div>
                 <span className="text-[10px] font-semibold text-[#55555D] uppercase tracking-wider flex-1">{BLOCK_LABEL[b.type]}</span>
                 <button onClick={() => move(i, -1)} disabled={i === 0} className="p-1 text-[#66666E] hover:text-white disabled:opacity-25"><ChevronUp size={14} /></button>
                 <button onClick={() => move(i, 1)} disabled={i === blocks.length - 1} className="p-1 text-[#66666E] hover:text-white disabled:opacity-25"><ChevronDown size={14} /></button>
