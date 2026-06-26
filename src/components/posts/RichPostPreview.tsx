@@ -19,24 +19,31 @@ export function runsToText(runs: Run[]): string {
     if (r.s)       t = `~~${t}~~`
     if (r.mark)    t = `==${t}==`
     if (r.spoiler) t = `||${t}||`
+    if (r.link)    t = `[${t}](${r.link})`
     return t
   }).join('')
 }
 
 export function textToRuns(text: string): Run[] {
   const runs: Run[] = []
-  const re = /(\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|`[^`]+`|==[^=]+==|\|\|[^|]+\|\|)/g
+  const re = /(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|`[^`]+`|==[^=]+==|\|\|[^|]+\|\|)/g
   let last = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) runs.push({ t: text.slice(last, m.index) })
-    const tok = m[0], inner = tok.slice(2, -2), inner1 = tok.slice(1, -1)
-    if      (tok.startsWith('**')) runs.push({ t: inner, b: true })
-    else if (tok.startsWith('__')) runs.push({ t: inner, i: true })
-    else if (tok.startsWith('~~')) runs.push({ t: inner, s: true })
-    else if (tok.startsWith('==')) runs.push({ t: inner, mark: true })
-    else if (tok.startsWith('||')) runs.push({ t: inner, spoiler: true })
-    else                           runs.push({ t: inner1, code: true })
+    const tok = m[0]
+    if (tok.startsWith('[')) {
+      const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok)
+      if (lm) runs.push({ t: lm[1]!, link: lm[2]! })
+    } else {
+      const inner = tok.slice(2, -2), inner1 = tok.slice(1, -1)
+      if      (tok.startsWith('**')) runs.push({ t: inner, b: true })
+      else if (tok.startsWith('__')) runs.push({ t: inner, i: true })
+      else if (tok.startsWith('~~')) runs.push({ t: inner, s: true })
+      else if (tok.startsWith('==')) runs.push({ t: inner, mark: true })
+      else if (tok.startsWith('||')) runs.push({ t: inner, spoiler: true })
+      else                           runs.push({ t: inner1, code: true })
+    }
     last = m.index + tok.length
   }
   if (last < text.length) runs.push({ t: text.slice(last) })

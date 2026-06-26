@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -348,14 +348,34 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
   value: string; onChange: (v: string) => void; rows?: number; placeholder?: string
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const sel = useRef<{ s: number; e: number }>({ s: 0, e: 0 })
+
   const wrap = (mk: string) => {
     const el = ref.current; if (!el) return
     const s = el.selectionStart, e = el.selectionEnd
-    const sel = value.slice(s, e) || 'текст'
-    const next = value.slice(0, s) + mk + sel + mk + value.slice(e)
+    const t = value.slice(s, e) || 'текст'
+    const next = value.slice(0, s) + mk + t + mk + value.slice(e)
     onChange(next)
-    requestAnimationFrame(() => { el.focus(); el.selectionStart = s + mk.length; el.selectionEnd = s + mk.length + sel.length })
+    requestAnimationFrame(() => { el.focus(); el.selectionStart = s + mk.length; el.selectionEnd = s + mk.length + t.length })
   }
+
+  const openLink = () => {
+    const el = ref.current; if (!el) return
+    sel.current = { s: el.selectionStart, e: el.selectionEnd }
+    setLinkUrl(''); setLinkOpen(true)
+  }
+  const applyLink = () => {
+    const url = linkUrl.trim()
+    if (!url) { setLinkOpen(false); return }
+    const { s, e } = sel.current
+    const t = value.slice(s, e) || 'ссылка'
+    const href = /^https?:\/\//i.test(url) ? url : url.startsWith('@') ? `https://t.me/${url.slice(1)}` : `https://${url}`
+    onChange(value.slice(0, s) + `[${t}](${href})` + value.slice(e))
+    setLinkOpen(false); setLinkUrl('')
+  }
+
   return (
     <div>
       <div className="flex flex-wrap gap-1 mb-1">
@@ -373,7 +393,22 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
             <Icon size={14} />
           </button>
         ))}
+        <button type="button" title="Ссылка" aria-label="Ссылка"
+          onMouseDown={e => e.preventDefault()} onClick={openLink}
+          className="w-7 h-7 flex items-center justify-center rounded-[8px] bg-white/[0.05] border border-white/[0.08] text-[#A1A1AA] hover:text-[#FF6A00] hover:border-[#FF6A00]/40 active:bg-[rgba(255,106,0,0.12)] transition-colors">
+          <Link2 size={14} />
+        </button>
       </div>
+      {linkOpen && (
+        <div className="flex gap-1.5 mb-1">
+          <input autoFocus value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyLink() } }}
+            placeholder="https://… (ссылка на выделенный текст)"
+            className="glass-input flex-1 px-2.5 py-1.5 text-[12px]" />
+          <button type="button" onClick={applyLink}
+            className="px-3 py-1.5 rounded-[8px] bg-[#FF6A00] text-white text-[12px] font-semibold">OK</button>
+        </div>
+      )}
       <textarea ref={ref} value={value} onChange={e => onChange(e.target.value)} rows={rows} placeholder={placeholder}
         className="glass-input w-full px-3 py-2 text-sm resize-none" />
     </div>
