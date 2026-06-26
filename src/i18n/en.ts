@@ -172,7 +172,7 @@ export const en = {
     tabs: {
       new:       'New',
       scheduled: 'Scheduled',
-      published: 'Published',
+      published: 'Archive',
     },
     status: {
       new:       'New',

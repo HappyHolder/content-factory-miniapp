@@ -172,7 +172,7 @@ export const ru: Dict = {
     tabs: {
       new:       'Новые',
       scheduled: 'Отложка',
-      published: 'Опублик.',
+      published: 'Архив',
     },
     status: {
       new:       'Новый',
