@@ -40,6 +40,7 @@ export type PostBlock =
   | { type: 'quote';     runs: Run[]; expandable?: boolean }
   | { type: 'table';     headers: string[]; rows: string[][] }
   | { type: 'image';     url: string }
+  | { type: 'video';     url: string; poster?: string }
   | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
   | { type: 'divider' };
 
@@ -112,6 +113,10 @@ function renderBlock(b: PostBlock): string {
     }
     case 'image':
       return renderImg(b.url);
+    case 'video':
+      return isHttpUrl(b.url)
+        ? `<video src="${escapeAttr(b.url)}"${b.poster && isHttpUrl(b.poster) ? ` poster="${escapeAttr(b.poster)}"` : ''}></video>`
+        : '';
     case 'gallery': {
       const tag = b.layout === 'collage' ? 'tg-collage' : 'tg-slideshow';
       const imgs = b.urls.filter(isHttpUrl).map(renderImg).join('');

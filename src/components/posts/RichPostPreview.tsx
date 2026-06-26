@@ -104,6 +104,8 @@ function Block({ b }: { b: PostBlock }) {
       )
     case 'image':
       return <img src={b.url} alt="" className="w-full rounded-[12px] object-cover bg-black" />
+    case 'video':
+      return <video src={b.url} poster={b.poster} controls playsInline className="w-full rounded-[12px] bg-black" />
     case 'gallery':
       return b.layout === 'collage' ? (
         <div className="grid grid-cols-2 gap-1">

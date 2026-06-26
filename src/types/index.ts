@@ -250,6 +250,7 @@ export type PostBlock =
   | { type: 'quote';     runs: Run[]; expandable?: boolean }
   | { type: 'table';     headers: string[]; rows: string[][] }
   | { type: 'image';     url: string }
+  | { type: 'video';     url: string; poster?: string }
   | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
   | { type: 'divider' }
 

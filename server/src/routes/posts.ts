@@ -27,6 +27,17 @@ const uploadMiddleware = multer({
   },
 });
 
+// Video uploads — capped at 20 MB because Telegram fetches the video by URL when
+// we send it in a Rich Message, and URL-based sends are limited to ~20 MB.
+const uploadVideoMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 20 * 1024 * 1024 }, // 20 MB (Telegram URL fetch limit)
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['video/mp4', 'video/webm', 'video/quicktime'];
+    allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error('Unsupported video type — use MP4'));
+  },
+});
+
 const router = Router();
 
 // ─── Local helpers ────────────────────────────────────────────────────────────
@@ -621,6 +632,33 @@ router.post('/upload-block-image', uploadMiddleware.single('image'), async (req:
     res.json({ url: obj.url });
   } catch (err) {
     console.error('[posts/upload-block-image] upload failed:', (err as Error).message);
+    res.status(500).json({ error: 'Upload failed. Try again.' });
+  }
+});
+
+// ─── POST /api/posts/upload-block-video ──────────────────────────────────────
+// Uploads a video to use inside a formatted post's video block and returns its
+// public URL. Telegram fetches this URL when the post is sent (≤20 MB, MP4).
+// Request: multipart { initData, video }   Response 200: { url }
+router.post('/upload-block-video', uploadVideoMiddleware.single('video'), async (req: Request, res: Response): Promise<void> => {
+  const initData = req.body['initData'] as unknown;
+  const file = req.file;
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (!file) { res.status(400).json({ error: 'video is required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  try {
+    const ext = file.mimetype === 'video/webm' ? 'webm' : file.mimetype === 'video/quicktime' ? 'mov' : 'mp4';
+    const obj = await putObject(`posts/blocks/${dbUser.id}-${Date.now()}.${ext}`, file.buffer, { contentType: file.mimetype });
+    res.json({ url: obj.url });
+  } catch (err) {
+    console.error('[posts/upload-block-video] upload failed:', (err as Error).message);
     res.status(500).json({ error: 'Upload failed. Try again.' });
   }
 });

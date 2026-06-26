@@ -19,7 +19,7 @@ interface RichPostEditorProps {
 
 const BLOCK_LABEL: Record<PostBlock['type'], string> = {
   heading: 'Заголовок', paragraph: 'Абзац', list: 'Список', quote: 'Цитата',
-  table: 'Таблица', image: 'Картинка', gallery: 'Галерея', divider: 'Разделитель',
+  table: 'Таблица', image: 'Картинка', video: 'Видео', gallery: 'Галерея', divider: 'Разделитель',
 }
 
 function makeBlock(type: PostBlock['type']): PostBlock {
@@ -45,8 +45,10 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   const [uploadTarget, setUploadTarget] = useState<'new' | number | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLInputElement>(null)
 
   const pickImage = (target: 'new' | number) => { setUploadTarget(target); fileRef.current?.click() }
+  const pickVideo = (target: 'new' | number) => { setUploadTarget(target); videoRef.current?.click() }
 
   const handleFile = async (file: File) => {
     const initData = getTelegramInitData()
@@ -65,6 +67,30 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
       setAddOpen(false)
     } catch {
       showToast('Ошибка загрузки', 'error')
+    } finally {
+      setUploading(false)
+      setUploadTarget(null)
+    }
+  }
+
+  const handleVideoFile = async (file: File) => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    if (file.size > 20 * 1024 * 1024) { showToast('Видео до 20 МБ (Telegram качает по ссылке)', 'error'); return }
+    const target = uploadTarget
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('initData', initData)
+      form.append('video', file)
+      const res = await fetch(`${API_BASE}/api/posts/upload-block-video`, { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({})) as { url?: string; error?: string }
+      if (!res.ok || !data.url) { showToast(data.error ?? 'Не удалось загрузить видео', 'error'); return }
+      if (target === 'new') mutate([...blocks, { type: 'video', url: data.url }])
+      else if (typeof target === 'number') patch(target, { type: 'video', url: data.url })
+      setAddOpen(false)
+    } catch {
+      showToast('Ошибка загрузки видео', 'error')
     } finally {
       setUploading(false)
       setUploadTarget(null)
@@ -120,6 +146,13 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
         className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
       />
+      <input
+        ref={videoRef}
+        type="file"
+        accept="video/mp4,video/webm,video/quicktime"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleVideoFile(f); e.target.value = '' }}
+      />
 
       {/* mode toggle */}
       <div className="flex gap-1 p-1 rounded-[12px] bg-white/[0.04] border border-white/[0.06]">
@@ -149,7 +182,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                 <BlockEditor
                   b={b}
                   onChange={next => patch(i, next)}
-                  onReplace={() => pickImage(i)}
+                  onReplace={() => (b.type === 'video' ? pickVideo(i) : pickImage(i))}
                   uploading={uploading && uploadTarget === i}
                 />
               </div>
@@ -174,6 +207,11 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                   className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50 flex items-center gap-1">
                   {uploading && uploadTarget === 'new' ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
                   Изображение
+                </button>
+                <button onClick={() => pickVideo('new')} disabled={uploading}
+                  className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50 flex items-center gap-1">
+                  {uploading && uploadTarget === 'new' ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+                  Видео
                 </button>
               </div>
             )}
@@ -283,6 +321,16 @@ function BlockEditor({ b, onChange, onReplace, uploading }: {
       return (
         <div className="space-y-1.5">
           <img src={b.url} alt="" className="w-full rounded-[10px] object-cover max-h-44" />
+          <button onClick={onReplace} disabled={uploading}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
+            {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Заменить
+          </button>
+        </div>
+      )
+    case 'video':
+      return (
+        <div className="space-y-1.5">
+          <video src={b.url} controls playsInline className="w-full rounded-[10px] max-h-44 bg-black" />
           <button onClick={onReplace} disabled={uploading}
             className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
             {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Заменить
