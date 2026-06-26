@@ -53,3 +53,28 @@ export async function putObject(
   const base = env.PUBLIC_BASE_URL.replace(/\/+$/, '');
   return { url: `${base}${PUBLIC_PREFIX}/${clean}`, pathname: clean };
 }
+
+/**
+ * Deletes a previously stored object by its public URL (or storage-relative path).
+ * Non-fatal and bounded: ignores URLs that aren't ours, rejects path traversal,
+ * and never deletes outside STORAGE_DIR. Swallows all errors (best-effort cleanup).
+ */
+export async function deleteObject(urlOrPath: string): Promise<void> {
+  try {
+    if (!urlOrPath || typeof urlOrPath !== 'string') return;
+    // Accept either a full ".../uploads/<path>" URL or a bare storage-relative path.
+    const marker = `${PUBLIC_PREFIX}/`;
+    const idx = urlOrPath.indexOf(marker);
+    const rel = (idx >= 0 ? urlOrPath.slice(idx + marker.length) : urlOrPath)
+      .split('?')[0]!
+      .replace(/^\/+/, '');
+    if (!rel || rel.includes('..')) return;
+
+    const dest = path.resolve(env.STORAGE_DIR, rel);
+    const root = path.resolve(env.STORAGE_DIR);
+    if (dest !== root && !dest.startsWith(root + path.sep)) return; // outside storage — refuse
+    await fs.unlink(dest).catch(() => { /* already gone — fine */ });
+  } catch {
+    /* best-effort: never throw from cleanup */
+  }
+}

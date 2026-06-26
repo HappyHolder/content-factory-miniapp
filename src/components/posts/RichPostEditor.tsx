@@ -29,6 +29,7 @@ function makeBlock(type: PostBlock['type']): PostBlock {
     case 'list':      return { type: 'list', ordered: false, items: [[{ t: '' }]] }
     case 'quote':     return { type: 'quote', runs: [{ t: '' }], expandable: false }
     case 'table':     return { type: 'table', headers: ['', ''], rows: [['', '']] }
+    case 'gallery':   return { type: 'gallery', layout: 'slideshow', urls: [] }
     case 'divider':   return { type: 'divider' }
     default:          return { type: 'paragraph', runs: [{ t: '' }] }
   }
@@ -41,13 +42,15 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
-  // Image upload target: 'new' = append a new image block; number = replace block at index.
-  const [uploadTarget, setUploadTarget] = useState<'new' | number | null>(null)
+  // Upload target: 'new' = append a new block; number = replace block at index;
+  // { gallery } = append a photo into the gallery block at that index.
+  type UploadTarget = 'new' | number | { gallery: number }
+  const [uploadTarget, setUploadTarget] = useState<UploadTarget | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLInputElement>(null)
 
-  const pickImage = (target: 'new' | number) => { setUploadTarget(target); fileRef.current?.click() }
+  const pickImage = (target: UploadTarget) => { setUploadTarget(target); fileRef.current?.click() }
   const pickVideo = (target: 'new' | number) => { setUploadTarget(target); videoRef.current?.click() }
 
   const handleFile = async (file: File) => {
@@ -64,6 +67,11 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
       if (!res.ok || !data.url) { showToast(data.error ?? 'Не удалось загрузить', 'error'); return }
       if (target === 'new') mutate([...blocks, { type: 'image', url: data.url }])
       else if (typeof target === 'number') patch(target, { type: 'image', url: data.url })
+      else if (target && typeof target === 'object') {
+        const gi = target.gallery
+        const blk = blocks[gi]
+        if (blk?.type === 'gallery') patch(gi, { ...blk, urls: [...blk.urls, data.url] })
+      }
       setAddOpen(false)
     } catch {
       showToast('Ошибка загрузки', 'error')
@@ -183,7 +191,8 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                   b={b}
                   onChange={next => patch(i, next)}
                   onReplace={() => (b.type === 'video' ? pickVideo(i) : pickImage(i))}
-                  uploading={uploading && uploadTarget === i}
+                  onAddGalleryPhoto={() => pickImage({ gallery: i })}
+                  uploading={uploading && (uploadTarget === i || (typeof uploadTarget === 'object' && uploadTarget?.gallery === i))}
                 />
               </div>
             </div>
@@ -197,7 +206,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
             </button>
             {addOpen && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {(['paragraph', 'heading', 'list', 'table', 'quote', 'divider'] as const).map(tp => (
+                {(['paragraph', 'heading', 'list', 'table', 'quote', 'gallery', 'divider'] as const).map(tp => (
                   <button key={tp} onClick={() => add(tp)}
                     className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40">
                     {BLOCK_LABEL[tp]}
@@ -244,8 +253,8 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
   }
   return (
     <div>
-      <div className="flex gap-1 mb-1">
-        {([['**', 'Ж'], ['==', 'Подсветка'], ['||', 'Спойлер']] as const).map(([mk, label]) => (
+      <div className="flex flex-wrap gap-1 mb-1">
+        {([['**', 'Ж'], ['__', 'Курсив'], ['~~', 'Зачёрк'], ['`', 'Моно'], ['==', 'Подсветка'], ['||', 'Спойлер']] as const).map(([mk, label]) => (
           <button key={mk} onMouseDown={e => e.preventDefault()} onClick={() => wrap(mk)}
             className="px-2 py-0.5 rounded-[7px] bg-white/[0.06] border border-white/[0.08] text-[11px] text-[#A1A1AA] hover:text-white hover:border-[#FF6A00]/40">
             {label}
@@ -260,8 +269,8 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
 
 // ─── Per-block editors ──────────────────────────────────────────────────────────
 
-function BlockEditor({ b, onChange, onReplace, uploading }: {
-  b: PostBlock; onChange: (next: PostBlock) => void; onReplace?: () => void; uploading?: boolean
+function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, uploading }: {
+  b: PostBlock; onChange: (next: PostBlock) => void; onReplace?: () => void; onAddGalleryPhoto?: () => void; uploading?: boolean
 }) {
   switch (b.type) {
     case 'heading':
@@ -339,11 +348,33 @@ function BlockEditor({ b, onChange, onReplace, uploading }: {
       )
     case 'gallery':
       return (
-        <div className="space-y-1.5">
-          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-            {b.urls.map((u, i) => <img key={i} src={u} alt="" className="h-16 rounded-[8px] object-cover shrink-0" />)}
+        <div className="space-y-2">
+          {/* layout toggle */}
+          <div className="flex gap-1 p-0.5 rounded-[9px] bg-white/[0.04] border border-white/[0.06] w-fit">
+            {([['slideshow', 'Карусель'], ['collage', 'Сетка']] as const).map(([lay, label]) => (
+              <button key={lay} onClick={() => onChange({ ...b, layout: lay })}
+                className={cn('px-2.5 py-1 rounded-[7px] text-[11px] font-medium', b.layout === lay ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]')}>
+                {label}
+              </button>
+            ))}
           </div>
-          <p className="text-[11px] text-[#55555D]">{b.urls.length} фото · {b.layout === 'collage' ? 'сетка' : 'карусель'}</p>
+          {/* thumbnails with remove */}
+          {b.urls.length > 0 && (
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+              {b.urls.map((u, i) => (
+                <div key={i} className="relative shrink-0">
+                  <img src={u} alt="" className="h-16 w-16 rounded-[8px] object-cover" />
+                  <button onClick={() => onChange({ ...b, urls: b.urls.filter((_, k) => k !== i) })}
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center text-[10px]">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button onClick={onAddGalleryPhoto} disabled={uploading}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
+            {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} + Фото
+          </button>
+          <p className="text-[11px] text-[#55555D]">{b.urls.length} фото{b.urls.length < 2 ? ' · нужно 2+ для галереи' : ''}</p>
         </div>
       )
     case 'divider':

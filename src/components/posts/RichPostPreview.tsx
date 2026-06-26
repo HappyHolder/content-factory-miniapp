@@ -8,29 +8,35 @@ import type { PostBlock, Run } from '@/types'
 
 // ─── Inline runs ↔ plain text (for the editor) ──────────────────────────────────
 
-/** Serializes Run[] to editable plain text with **bold** / ||spoiler|| / ==mark== markers. */
+// Inline markers (one style per run; non-nested — the editor wraps a selection
+// in a single marker): **bold** __italic__ ~~strike~~ `code` ==mark== ||spoiler||
 export function runsToText(runs: Run[]): string {
   return runs.map(r => {
     let t = r.t
-    if (r.b) t = `**${t}**`
+    if (r.code)    t = '`' + t + '`'
+    if (r.b)       t = `**${t}**`
+    if (r.i)       t = `__${t}__`
+    if (r.s)       t = `~~${t}~~`
+    if (r.mark)    t = `==${t}==`
     if (r.spoiler) t = `||${t}||`
-    if ((r as Run & { mark?: boolean }).mark) t = `==${t}==`
     return t
   }).join('')
 }
 
-/** Parses plain text with **bold** / ||spoiler|| / ==mark== markers back into Run[]. */
 export function textToRuns(text: string): Run[] {
   const runs: Run[] = []
-  const re = /(\*\*[^*]+\*\*|\|\|[^|]+\|\||==[^=]+==)/g
+  const re = /(\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|`[^`]+`|==[^=]+==|\|\|[^|]+\|\|)/g
   let last = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) runs.push({ t: text.slice(last, m.index) })
-    const tok = m[0]
-    if (tok.startsWith('**')) runs.push({ t: tok.slice(2, -2), b: true })
-    else if (tok.startsWith('||')) runs.push({ t: tok.slice(2, -2), spoiler: true })
-    else runs.push({ t: tok.slice(2, -2), ...( { mark: true } as object) } as Run)
+    const tok = m[0], inner = tok.slice(2, -2), inner1 = tok.slice(1, -1)
+    if      (tok.startsWith('**')) runs.push({ t: inner, b: true })
+    else if (tok.startsWith('__')) runs.push({ t: inner, i: true })
+    else if (tok.startsWith('~~')) runs.push({ t: inner, s: true })
+    else if (tok.startsWith('==')) runs.push({ t: inner, mark: true })
+    else if (tok.startsWith('||')) runs.push({ t: inner, spoiler: true })
+    else                           runs.push({ t: inner1, code: true })
     last = m.index + tok.length
   }
   if (last < text.length) runs.push({ t: text.slice(last) })
@@ -46,8 +52,8 @@ function RunSpan({ r }: { r: Run }) {
   if (r.i) node = <i>{node}</i>
   if (r.u) node = <u>{node}</u>
   if (r.s) node = <s>{node}</s>
-  if ((r as Run & { mark?: boolean }).mark) node = <mark className="bg-[#FF6A00]/25 text-white rounded px-1">{node}</mark>
-  if (r.spoiler) node = <span className="bg-white/15 text-transparent rounded px-1 select-none">{node}</span>
+  if (r.mark) node = <mark className="bg-[#FF6A00]/30 text-white rounded px-1">{node}</mark>
+  if (r.spoiler) node = <span className="bg-white/20 text-white/30 rounded px-1 select-none">{node}</span>
   if (r.link) node = <span className="text-[#5AA9FF]">{node}</span>
   return <>{node}</>
 }

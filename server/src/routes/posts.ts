@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { putObject } from '../lib/storage';
+import { putObject, deleteObject } from '../lib/storage';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -10,6 +10,20 @@ import type { PostBlock } from '../lib/richPost';
 /** Returns the variant's structured blocks if present and non-empty, else null. */
 function variantBlocks(v: { blocks?: unknown }): PostBlock[] | null {
   return Array.isArray(v.blocks) && v.blocks.length > 0 ? (v.blocks as PostBlock[]) : null;
+}
+
+/** Collects every stored media URL (cover + block images/videos) from variants. */
+function collectMediaUrls(variants: { bannerUrl?: string | null; blocks?: unknown }[]): string[] {
+  const urls = new Set<string>();
+  for (const v of variants) {
+    if (v.bannerUrl) urls.add(v.bannerUrl);
+    for (const b of variantBlocks(v) ?? []) {
+      if (b.type === 'image' && b.url) urls.add(b.url);
+      else if (b.type === 'video') { if (b.url) urls.add(b.url); if (b.poster) urls.add(b.poster); }
+      else if (b.type === 'gallery') for (const u of b.urls) if (u) urls.add(u);
+    }
+  }
+  return [...urls];
 }
 import { createDraftPostForChannel } from '../lib/draftGenerator';
 import { generateImageForPost, buildVisualKitPromptHints, renderCoverFromBase } from '../lib/imageGenerator';
@@ -1040,12 +1054,12 @@ router.post('/delete', async (req: Request, res: Response): Promise<void> => {
     res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
   }
 
-  // ── 4. Load post with ownership check ────────────────────────────────────
-  let post: { id: string; channel: { userId: string } } | null = null;
+  // ── 4. Load post with ownership check (+ media for file cleanup) ──────────
+  let post: { id: string; channel: { userId: string }; variants: { bannerUrl: string | null; blocks: unknown }[] } | null = null;
   try {
     post = await prisma.generatedPost.findUnique({
       where:  { id: postId },
-      select: { id: true, channel: { select: { userId: true } } },
+      select: { id: true, channel: { select: { userId: true } }, variants: { select: { bannerUrl: true, blocks: true } } },
     });
   } catch (err) {
     console.error('[posts/delete] Post lookup failed:', (err as Error).message);
@@ -1064,6 +1078,14 @@ router.post('/delete', async (req: Request, res: Response): Promise<void> => {
   } catch (err) {
     console.error('[posts/delete] Delete failed:', (err as Error).message);
     res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  // ── 6. Best-effort: remove the post's stored media files (cover + block media)
+  // so deleted posts don't leave orphaned files growing on disk. Non-fatal.
+  try {
+    await Promise.all(collectMediaUrls(post.variants).map(deleteObject));
+  } catch (err) {
+    console.warn('[posts/delete] media cleanup failed (non-fatal):', (err as Error).message);
   }
 
   res.json({ ok: true });
