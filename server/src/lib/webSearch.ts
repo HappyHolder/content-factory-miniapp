@@ -1,25 +1,84 @@
 /**
  * webSearch.ts
  *
- * Minimal web search for the AI assistant via the Tavily API (search built for
- * LLMs). Returns a compact, model-friendly text block (a short answer + the top
- * results with title, URL, snippet). Never throws — returns null when the key is
- * missing, the request fails, or there are no results, so callers degrade
- * gracefully (assistant just answers without fresh data).
+ * Web search for the AI assistant. Prefers Serper (real Google results — best
+ * for Russian-language and fresh events) when SERPER_API_KEY is set; otherwise
+ * falls back to Tavily. Returns a compact, model-friendly text block (summary +
+ * top results with title, URL, date, snippet), or null when nothing is found /
+ * not configured, so callers degrade gracefully.
  */
 
 import { env } from '../env';
 
-const TAVILY_URL    = 'https://api.tavily.com/search';
 const TIMEOUT_MS    = 15_000;
 const MAX_RESULTS   = 8;
 const MAX_OUT_CHARS = 4_500;
-const FRESH_DAYS    = 14;   // recency window for the news pass
+const FRESH_DAYS    = 14;   // recency window for the Tavily news pass
 
-interface TavilyResult { title?: string; url?: string; content?: string; published_date?: string; }
-interface TavilyResponse { answer?: string; results?: TavilyResult[]; }
+// ─── Serper (Google) ────────────────────────────────────────────────────────────
 
-/** One Tavily call with the given extra params. Returns parsed data or null. */
+const SERPER_URL = 'https://google.serper.dev/search';
+const SERPER_KEY = process.env['SERPER_API_KEY'] || '';
+
+interface SerperOrganic { title?: string; link?: string; snippet?: string; date?: string }
+interface SerperNews    { title?: string; link?: string; snippet?: string; date?: string; source?: string }
+interface SerperResponse {
+  answerBox?:      { answer?: string; snippet?: string };
+  knowledgeGraph?: { description?: string };
+  organic?:        SerperOrganic[];
+  topStories?:     SerperNews[];
+  news?:           SerperNews[];
+}
+
+async function serperSearch(query: string): Promise<string | null> {
+  if (!SERPER_KEY) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(SERPER_URL, {
+      method:  'POST',
+      signal:  controller.signal,
+      headers: { 'X-API-KEY': SERPER_KEY, 'Content-Type': 'application/json' },
+      // gl/hl=ru → Russian Google results (interfax/tass/dw etc.) for RU queries.
+      body: JSON.stringify({ q: query.trim().slice(0, 400), gl: 'ru', hl: 'ru', num: 10 }),
+    });
+    if (!res.ok) { console.warn(`[webSearch] Serper HTTP ${res.status}`); return null; }
+    const data = (await res.json()) as SerperResponse;
+
+    const lines: string[] = [];
+    const summary = data.answerBox?.answer || data.answerBox?.snippet || data.knowledgeGraph?.description;
+    if (summary && summary.trim()) lines.push(`Summary: ${summary.trim()}`);
+
+    const news = [...(data.topStories ?? []), ...(data.news ?? [])].slice(0, 5);
+    news.forEach((n, i) => {
+      const t = (n.title ?? '').trim(), u = (n.link ?? '').trim();
+      const meta = [n.source, n.date].filter(Boolean).join(', ');
+      if (t || u) lines.push(`[news ${i + 1}] ${t}${meta ? ` (${meta})` : ''}\n${u}\n${(n.snippet ?? '').trim().slice(0, 280)}`);
+    });
+
+    (data.organic ?? []).slice(0, MAX_RESULTS).forEach((r, i) => {
+      const t = (r.title ?? '').trim(), u = (r.link ?? '').trim();
+      const snippet = (r.snippet ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      if (t || u) lines.push(`[${i + 1}] ${t}${r.date ? ` (${r.date})` : ''}\n${u}\n${snippet}`);
+    });
+
+    const out = lines.join('\n\n').slice(0, MAX_OUT_CHARS);
+    return out.trim() || null;
+  } catch (err) {
+    console.warn('[webSearch] Serper failed:', (err as Error).message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ─── Tavily (fallback) ────────────────────────────────────────────────────────────
+
+const TAVILY_URL = 'https://api.tavily.com/search';
+
+interface TavilyResult { title?: string; url?: string; content?: string; published_date?: string }
+interface TavilyResponse { answer?: string; results?: TavilyResult[] }
+
 async function callTavily(query: string, extra: Record<string, unknown>): Promise<TavilyResponse | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -39,56 +98,44 @@ async function callTavily(query: string, extra: Record<string, unknown>): Promis
     if (!res.ok) { console.warn(`[webSearch] Tavily HTTP ${res.status}`); return null; }
     return (await res.json()) as TavilyResponse;
   } catch (err) {
-    console.warn('[webSearch] failed:', (err as Error).message);
+    console.warn('[webSearch] Tavily failed:', (err as Error).message);
     return null;
   } finally {
     clearTimeout(timer);
   }
 }
 
-/**
- * Searches the web and returns a formatted result block, or null.
- * Recency-first: a NEWS pass (last 14 days, advanced depth) catches fresh events
- * the old "basic" general search missed; falls back to a general advanced search
- * when the news pass is empty (non-news factual queries).
- */
-const RU_NEWS_DOMAINS = [
-  'tass.ru', 'ria.ru', 'interfax.ru', 'rbc.ru', 'kommersant.ru',
-  'lenta.ru', 'gazeta.ru', 'rt.com', 'dw.com', 'iz.ru', 'vedomosti.ru',
-];
-
-const hasResults = (d: TavilyResponse | null): d is TavilyResponse =>
+const tavilyHasResults = (d: TavilyResponse | null): d is TavilyResponse =>
   !!d && Array.isArray(d.results) && d.results.length > 0;
 
-export async function webSearch(query: string): Promise<string | null> {
-  if (!env.TAVILY_API_KEY || !query || !query.trim()) return null;
-
-  const cyrillic = /[Ѐ-ӿ]/.test(query);
-
-  // Pass 1 (RU queries): authoritative Russian news sources — Tavily otherwise
-  // returns only Western/English coverage, which misses or mis-frames RU events.
-  let data: TavilyResponse | null = null;
-  if (cyrillic) {
-    data = await callTavily(query, { topic: 'news', days: FRESH_DAYS, search_depth: 'advanced', include_domains: RU_NEWS_DOMAINS });
-  }
-  // Pass 2: general news (recency).
-  if (!hasResults(data)) data = await callTavily(query, { topic: 'news', days: FRESH_DAYS, search_depth: 'advanced' });
-  // Pass 3: general advanced (non-news factual queries).
-  if (!hasResults(data)) data = await callTavily(query, { search_depth: 'advanced' });
+async function tavilySearch(query: string): Promise<string | null> {
+  if (!env.TAVILY_API_KEY) return null;
+  // News-first for recency, then general — NO domain restriction (restricting to
+  // RU domains returned almost nothing; Tavily indexes them poorly).
+  let data = await callTavily(query, { topic: 'news', days: FRESH_DAYS, search_depth: 'advanced' });
+  if (!tavilyHasResults(data)) data = await callTavily(query, { search_depth: 'advanced' });
   if (!data) return null;
 
   const lines: string[] = [];
   if (data.answer && data.answer.trim()) lines.push(`Summary: ${data.answer.trim()}`);
-
-  const results = Array.isArray(data.results) ? data.results.slice(0, MAX_RESULTS) : [];
-  results.forEach((r, i) => {
-    const title   = (r.title ?? '').trim();
-    const url     = (r.url ?? '').trim();
-    const date    = (r.published_date ?? '').trim();
+  (data.results ?? []).slice(0, MAX_RESULTS).forEach((r, i) => {
+    const t = (r.title ?? '').trim(), u = (r.url ?? '').trim();
+    const date = (r.published_date ?? '').trim();
     const snippet = (r.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
-    if (title || url) lines.push(`[${i + 1}] ${title}${date ? ` (${date})` : ''}\n${url}\n${snippet}`);
+    if (t || u) lines.push(`[${i + 1}] ${t}${date ? ` (${date})` : ''}\n${u}\n${snippet}`);
   });
-
   const out = lines.join('\n\n').slice(0, MAX_OUT_CHARS);
   return out.trim() || null;
+}
+
+// ─── Public API ────────────────────────────────────────────────────────────────
+
+/** Searches the web (Serper/Google preferred, Tavily fallback). Returns null on no result. */
+export async function webSearch(query: string): Promise<string | null> {
+  if (!query || !query.trim()) return null;
+  if (SERPER_KEY) {
+    const viaGoogle = await serperSearch(query);
+    if (viaGoogle) return viaGoogle;
+  }
+  return tavilySearch(query);
 }
