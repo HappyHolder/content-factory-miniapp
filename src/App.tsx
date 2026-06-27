@@ -181,7 +181,7 @@ function AppContent() {
             {activeTab !== 'ai' && (
               <AppShell key={activeTab} pageKey={activeTab}>
                 {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
-                {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} prefill={createPrefill} />}
+                {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} prefill={createPrefill} onPrefillConsumed={() => setCreatePrefill(null)} />}
                 {activeTab === 'styles' && <StylesScreen />}
                 {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenPlans={handleOpenPlans} onOpenAdmin={handleOpenAdmin} />}
               </AppShell>

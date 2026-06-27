@@ -25,11 +25,14 @@ interface CreateScreenProps {
   /** Text handed over from the AI assistant ("Отправить в Create") — prefills
    *  the input and auto-starts generation. `nonce` re-triggers on each handoff. */
   prefill?: { text: string; nonce: number } | null
+  /** Called once the prefill has been consumed, so the parent clears it and a
+   *  later remount of this screen never re-runs the same handoff generation. */
+  onPrefillConsumed?: () => void
 }
 
 const isUrl = (s: string) => /^https?:\/\/\S+$/i.test(s.trim())
 
-export function CreateScreen({ onPostCreated, prefill }: CreateScreenProps) {
+export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: CreateScreenProps) {
   const { state, activeChannel, addPost, showToast, t, language, authStatus, canGenerate: hasQuota, createsRemaining } = useApp()
   const isRu = language === 'ru'
   const { step: wtStep } = useWalkthrough()
@@ -117,10 +120,14 @@ export function CreateScreen({ onPostCreated, prefill }: CreateScreenProps) {
   }
 
   // AI assistant → Create handoff: prefill the input and auto-start generation.
+  // Clear the prefill in the parent the moment it's consumed — otherwise a later
+  // remount of this screen (e.g. navigating back to the Create tab) would re-run
+  // the same handoff and create a duplicate post with its own cover.
   useEffect(() => {
     if (!prefill?.text) return
     setInput(prefill.text)
     handleGenerate(prefill.text)
+    onPrefillConsumed?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill?.nonce])
 
