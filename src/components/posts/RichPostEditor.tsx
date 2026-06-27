@@ -5,7 +5,7 @@ import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { RichPostPreview, runsToText, textToRuns } from '@/components/posts/RichPostPreview'
-import type { PostBlock } from '@/types'
+import type { PostBlock, LinkItem } from '@/types'
 import { cn } from '@/lib/utils'
 
 interface RichPostEditorProps {
@@ -15,6 +15,8 @@ interface RichPostEditorProps {
   channelName?:  string
   channelHandle?: string
   avatarUrl?:    string | null
+  /** Manual posts: let the user add their own inline-keyboard buttons here. */
+  enableButtons?: boolean
 }
 
 const BLOCK_LABEL: Record<PostBlock['type'], string> = {
@@ -35,12 +37,30 @@ function makeBlock(type: PostBlock['type']): PostBlock {
   }
 }
 
-export function RichPostEditor({ postId, variantId, blocks: initial, channelName, channelHandle, avatarUrl }: RichPostEditorProps) {
+export function RichPostEditor({ postId, variantId, blocks: initial, channelName, channelHandle, avatarUrl, enableButtons }: RichPostEditorProps) {
   const { state, updatePost, showToast } = useApp()
   const [blocks, setBlocks] = useState<PostBlock[]>(() => structuredClone(initial))
   const [mode, setMode] = useState<'preview' | 'edit'>('preview')
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+
+  // Manual-post inline-keyboard buttons (post-level, persisted separately from
+  // blocks). Initialised from the post's current linkButtons.
+  const [buttons, setButtons] = useState<LinkItem[]>(
+    () => (state.posts.find(p => p.id === postId)?.linkButtons ?? []).map(b => ({ ...b })),
+  )
+  const [buttonsDirty, setButtonsDirty] = useState(false)
+  const addButton = () => {
+    setButtons([...buttons, {
+      id: `btn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      label: '', url: '', anchorText: '', buttonLabel: '', usage: 'button',
+    }])
+    setButtonsDirty(true)
+  }
+  const patchButton = (i: number, field: 'label' | 'url', v: string) => {
+    setButtons(buttons.map((b, idx) => idx === i ? { ...b, [field]: v } : b)); setButtonsDirty(true)
+  }
+  const removeButton = (i: number) => { setButtons(buttons.filter((_, idx) => idx !== i)); setButtonsDirty(true) }
   const [addOpen, setAddOpen] = useState(false)
   // Upload target: 'new' = append a new block; number = replace block at index;
   // { gallery } = append a photo into the gallery block at that index.
@@ -184,21 +204,47 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
     if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
     setSaving(true)
     try {
-      const res = await fetch(`${API_BASE}/api/posts/${postId}/blocks`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData, variantId, blocks }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { error?: string }
-        showToast(err.error ?? 'Не удалось сохранить', 'error'); return
+      // Blocks (variant-level).
+      if (dirty) {
+        const res = await fetch(`${API_BASE}/api/posts/${postId}/blocks`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData, variantId, blocks }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: string }
+          showToast(err.error ?? 'Не удалось сохранить', 'error'); return
+        }
       }
+      // Buttons (post-level). Only valid (label + url) entries are persisted.
+      let savedButtons: LinkItem[] | null = null
+      if (buttonsDirty) {
+        const clean = buttons
+          .map(b => ({ ...b, label: b.label.trim(), url: b.url.trim(), buttonLabel: b.label.trim() }))
+          .filter(b => b.label && b.url)
+        const res = await fetch(`${API_BASE}/api/posts/${postId}/buttons`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData, buttons: clean }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: string }
+          showToast(err.error ?? 'Не удалось сохранить кнопки', 'error'); return
+        }
+        const data = await res.json().catch(() => ({})) as { buttons?: LinkItem[] }
+        savedButtons = data.buttons ?? clean
+      }
+      // Reflect into app state.
       const current = state.posts.find(p => p.id === postId)
       if (current) {
-        updatePost(postId, { variants: current.variants.map(v => v.id === variantId ? { ...v, blocks } : v) })
+        updatePost(postId, {
+          ...(dirty ? { variants: current.variants.map(v => v.id === variantId ? { ...v, blocks } : v) } : {}),
+          ...(savedButtons ? { linkButtons: savedButtons } : {}),
+        })
       }
       showToast('Сохранено')
-      setDirty(false)
+      setDirty(false); setButtonsDirty(false)
+      if (savedButtons) setButtons(savedButtons)
     } catch {
       showToast('Ошибка сохранения', 'error')
     } finally {
@@ -333,7 +379,46 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
         </div>
       )}
 
-      {dirty && (
+      {/* Manual posts: inline-keyboard buttons — editor in edit mode, chips in preview */}
+      {enableButtons && mode === 'edit' && (
+        <div className="rounded-[12px] bg-white/[0.03] border border-white/[0.07] p-2.5 space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Link2 size={13} className="text-[#FF6A00]" />
+            <span className="text-[10px] font-semibold text-[#55555D] uppercase tracking-wider">Кнопки поста</span>
+          </div>
+          {buttons.length === 0 && (
+            <p className="text-[11px] text-[#55555D] leading-relaxed">
+              Кнопки-ссылки под постом (инлайн-клавиатура). Текст + ссылка. Напр.: «Подробнее» → https://…
+            </p>
+          )}
+          {buttons.map((b, i) => (
+            <div key={b.id} className="space-y-1">
+              <div className="flex gap-1.5">
+                <input value={b.label} onChange={e => patchButton(i, 'label', e.target.value)}
+                  placeholder="Текст кнопки" className="glass-input flex-1 min-w-0 px-2.5 py-1.5 text-[12px]" />
+                <button onClick={() => removeButton(i)} className="p-1.5 text-[#55555D] hover:text-red-400"><Trash2 size={13} /></button>
+              </div>
+              <input value={b.url} onChange={e => patchButton(i, 'url', e.target.value)}
+                placeholder="https://… или @канал" className="glass-input w-full px-2.5 py-1.5 text-[12px]" />
+            </div>
+          ))}
+          <button onClick={addButton}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] border border-dashed border-white/[0.12] text-[12px] text-[#A1A1AA] hover:border-[#FF6A00]/40 hover:text-[#FF6A00] transition-colors">
+            <Plus size={13} /> Добавить кнопку
+          </button>
+        </div>
+      )}
+      {enableButtons && mode === 'preview' && buttons.some(b => b.label.trim() && b.url.trim()) && (
+        <div className="flex flex-col gap-1.5">
+          {buttons.filter(b => b.label.trim() && b.url.trim()).map(b => (
+            <div key={b.id} className="w-full text-center py-2 rounded-[10px] bg-white/[0.06] border border-white/[0.1] text-[13px] font-medium text-[#5AA9FF]">
+              {b.label}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(dirty || buttonsDirty) && (
         <Button variant="primary" size="md" fullWidth onClick={save} disabled={saving}>
           {saving ? <><Loader2 size={14} className="animate-spin" /> Сохраняю…</> : 'Сохранить изменения'}
         </Button>

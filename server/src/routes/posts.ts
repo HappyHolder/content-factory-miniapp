@@ -334,15 +334,9 @@ router.post('/create-blank', async (req: Request, res: Response): Promise<void> 
   const coverAspectRatio: '1:1' | '16:9' | '4:5' | '9:16' =
     rawAr === '16:9' || rawAr === '4:5' || rawAr === '9:16' ? rawAr : '1:1';
 
-  // Channel link buttons (usage button|always) → publishable inline keyboard.
-  const lk = (channel.brandKit?.linkKit && typeof channel.brandKit.linkKit === 'object')
-    ? channel.brandKit.linkKit as Record<string, unknown> : null;
-  const rawLinks = lk && Array.isArray(lk['links']) ? lk['links'] as unknown[] : [];
-  const buttonLinks = rawLinks.filter(l => {
-    if (!l || typeof l !== 'object') return false;
-    const usage = (l as Record<string, unknown>)['usage'];
-    return usage === 'button' || usage === 'always';
-  });
+  // No channel buttons on a from-scratch post — the user adds their own buttons
+  // in the block editor (PATCH /:postId/buttons). Manual = fully hand-built.
+  const buttonLinks: unknown[] = [];
 
   // A truly blank canvas — the user builds every block themselves. The post is
   // still treated as block-based on the frontend (by sourceType 'manual'), so the
@@ -790,6 +784,57 @@ router.patch('/:postId/blocks', async (req: Request, res: Response): Promise<voi
     res.json({ ok: true });
   } catch (err) {
     console.error('[posts/blocks] update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── PATCH /api/posts/:postId/buttons ────────────────────────────────────────
+// Saves the post's inline-keyboard buttons (label + URL) — used by the manual
+// block editor, where the user adds their own buttons instead of inheriting the
+// channel's. Stored on GeneratedPost.linkButtons in the LinkItem shape so publish
+// builds the keyboard from them exactly like channel buttons.
+// Body: { initData, buttons: { id?, label, url }[] }   Response 200: { ok, buttons }
+router.patch('/:postId/buttons', async (req: Request, res: Response): Promise<void> => {
+  const { postId } = req.params as { postId: string };
+  const { initData, buttons } = req.body as { initData?: unknown; buttons?: unknown };
+
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (!Array.isArray(buttons)) { res.status(400).json({ error: 'buttons must be an array' }); return; }
+  if (buttons.length > 10) { res.status(400).json({ error: 'too many buttons (max 10)' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  const post = await prisma.generatedPost.findUnique({
+    where:  { id: postId },
+    select: { id: true, channel: { select: { userId: true } } },
+  }).catch(() => null);
+  if (!post) { res.status(404).json({ error: 'Post not found.' }); return; }
+  if (post.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
+
+  // Sanitize into the LinkItem shape publish understands. Drop entries without
+  // both a label and a URL. URL validity is re-checked at publish (normalizeTelegramUrl).
+  const clean = (buttons as unknown[])
+    .filter(b => b && typeof b === 'object')
+    .map((b, i) => {
+      const o = b as Record<string, unknown>;
+      const label = typeof o['label'] === 'string' ? o['label'].trim().slice(0, 64) : '';
+      const url   = typeof o['url']   === 'string' ? o['url'].trim().slice(0, 500) : '';
+      const id    = typeof o['id'] === 'string' && o['id'] ? o['id'] : `btn-${Date.now()}-${i}`;
+      return { id, label, url, anchorText: '', buttonLabel: label, usage: 'button' };
+    })
+    .filter(b => b.label && b.url);
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await prisma.generatedPost.update({ where: { id: postId }, data: { linkButtons: clean as any } });
+    res.json({ ok: true, buttons: clean });
+  } catch (err) {
+    console.error('[posts/buttons] update failed:', (err as Error).message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -423,6 +423,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
             channelName={channel?.title}
             channelHandle={post.channelUsername}
             avatarUrl={channel?.avatarUrl}
+            enableButtons={isManual}
           />
         )}
 
@@ -617,7 +618,9 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
           </div>
           )}
 
-          {/* Link buttons */}
+          {/* Link buttons — channel buttons section. Hidden for manual posts,
+              which manage their own buttons inside the block editor. */}
+          {!isManual && (
           <div>
             {sectionLabel(
               'buttons',
@@ -639,6 +642,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
               </motion.div>
             )}
           </div>
+          )}
         </GlassCard>
 
         {/* Actions — new post */}
