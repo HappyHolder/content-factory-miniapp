@@ -32,6 +32,12 @@ interface CreateScreenProps {
 
 const isUrl = (s: string) => /^https?:\/\/\S+$/i.test(s.trim())
 
+// Handoff nonces that have already kicked off a generation. Module-level so the
+// guard survives this screen unmounting/remounting (tab switch, navigation to the
+// new post, AnimatePresence churn). Without it, a remount with a still-present
+// prefill re-fires the same handoff — which produced an endless generation loop.
+const consumedHandoffNonces = new Set<number>()
+
 export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: CreateScreenProps) {
   const { state, activeChannel, addPost, showToast, t, language, authStatus, canGenerate: hasQuota, createsRemaining } = useApp()
   const isRu = language === 'ru'
@@ -159,6 +165,12 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
   // the same handoff and create a duplicate post with its own cover.
   useEffect(() => {
     if (!prefill?.text) return
+    // Fire each handoff exactly once, ever. Clearing the prefill in the parent is
+    // not enough on its own: a remount can read a still-present prefill before the
+    // clear commits, re-firing generation in a loop. This module-level set is the
+    // authoritative once-only guard.
+    if (consumedHandoffNonces.has(prefill.nonce)) return
+    consumedHandoffNonces.add(prefill.nonce)
     setMode('ai')
     setInput(prefill.text)
     handleGenerate(prefill.text)
