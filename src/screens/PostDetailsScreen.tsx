@@ -54,6 +54,12 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   // get the new composer (hero preview + block editor); legacy posts keep the
   // old text+banner accordion.
   const hasBlocks = !!(selectedVariant?.blocks && selectedVariant.blocks.length > 0)
+  // A manually built post ("from scratch") is block-based even with zero blocks:
+  // the user writes every block by hand. It has a single empty-text variant, so the
+  // variant selector / text-regeneration is hidden and the block editor is its only
+  // surface. Detected by sourceType so it holds even before any block is added.
+  const isManual = post.sourceType === 'manual'
+  const isBlockPost = hasBlocks || isManual
   const channel = state.channels.find(c => c.id === post.channelId)
   // Cover is a post-level asset — show it regardless of which text variant is selected
   const displayBannerUrl = selectedVariant?.bannerUrl || post.variants.find(v => v.bannerUrl)?.bannerUrl || null
@@ -408,12 +414,12 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
 
         {/* Formatted post — hero composer (preview + block editor). The post IS
             the blocks; this is the main surface for formatted posts. */}
-        {hasBlocks && selectedVariant && (
+        {isBlockPost && selectedVariant && (
           <RichPostEditor
             key={selectedVariant.id}
             postId={post.id}
             variantId={selectedVariant.id}
-            blocks={selectedVariant.blocks!}
+            blocks={selectedVariant.blocks ?? []}
             channelName={channel?.title}
             channelHandle={post.channelUsername}
             avatarUrl={channel?.avatarUrl}
@@ -422,7 +428,8 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
 
         {/* Accordion sections */}
         <GlassCard padding="none" className="overflow-hidden divide-y divide-white/6">
-          {/* Variants */}
+          {/* Variants — hidden for a manual post (one empty-text variant, no regen) */}
+          {!isManual && (
           <div>
             {sectionLabel('variants', <Layers size={15} />, t('postDetails.variants'), `${post.variants.length}`)}
             {openSection === 'variants' && (
@@ -457,9 +464,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
               </motion.div>
             )}
           </div>
+          )}
 
           {/* Editor (legacy plain posts only — formatted posts are edited in the composer above) */}
-          {!hasBlocks && (
+          {!isBlockPost && (
           <div>
             {sectionLabel('editor', <span className="text-[13px] font-bold">Aa</span>, t('postDetails.editText'))}
             {openSection === 'editor' && selectedVariant && (
@@ -481,7 +489,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
           )}
 
           {/* Visual (legacy plain posts only — formatted posts manage images in the composer) */}
-          {!hasBlocks && (
+          {!isBlockPost && (
           <div>
             {/* hidden file input */}
             <input

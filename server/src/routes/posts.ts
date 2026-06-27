@@ -344,12 +344,10 @@ router.post('/create-blank', async (req: Request, res: Response): Promise<void> 
     return usage === 'button' || usage === 'always';
   });
 
-  // Starter blocks: an empty heading + paragraph so hasBlocks is true and the
-  // block editor (not the legacy text accordion) is the surface in PostDetails.
-  const starterBlocks: PostBlock[] = [
-    { type: 'heading', text: '' },
-    { type: 'paragraph', runs: [{ t: '' }] },
-  ];
+  // A truly blank canvas — the user builds every block themselves. The post is
+  // still treated as block-based on the frontend (by sourceType 'manual'), so the
+  // block editor opens even with zero blocks.
+  const starterBlocks: PostBlock[] = [];
 
   const finalTitle = typeof title === 'string' && title.trim() ? title.trim().slice(0, 80) : 'Новый пост';
 
@@ -657,8 +655,10 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   const selectedVariant =
     post.variants.find(v => v.id === post!.selectedVariantId) ?? post.variants[0];
 
-  if (!selectedVariant?.text?.trim()) {
-    res.status(400).json({ error: 'Post has no variant text to publish.' });
+  // Publishable when there's variant text OR structured blocks (a manually built
+  // post has empty text but real blocks — its content lives entirely in blocks).
+  if (!selectedVariant?.text?.trim() && !variantBlocks(selectedVariant)) {
+    res.status(400).json({ error: 'Post has no content to publish.' });
     return;
   }
 
