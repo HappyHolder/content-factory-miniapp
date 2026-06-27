@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type, Tag, ChevronDown } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
+import type { PostBlock } from '@/types'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatusChip, SourceChip } from '@/components/ui/StatusChip'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -15,6 +16,7 @@ import { ScheduleSheet } from '@/components/posts/ScheduleSheet'
 import { brandKitService } from '@/services/brandKitService'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 interface PostDetailsScreenProps {
   postId: string
@@ -28,7 +30,10 @@ const MAX_TEXT_REGENS = 3
 const MAX_IMAGE_REGENS = 3
 
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
-  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, authStatus, updatePost, deletePost } = useApp()
+  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, language, authStatus, updatePost, deletePost } = useApp()
+  const isRu = language === 'ru'
+  const [isSettingRubric, setIsSettingRubric] = useState(false)
+  const [rubricMenuOpen, setRubricMenuOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
@@ -67,6 +72,9 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const allLinkButtons = brandKit?.linkKit.links.filter(l =>
     l.usage === 'button' || l.usage === 'always'
   ) || []
+  // Rubrics the channel defines — drive the post's cover. Override re-renders only
+  // the cover. Hidden for manual posts and when the channel has no rubrics.
+  const channelRubrics = (brandKit?.visualKit?.rubrics ?? []).filter(r => r.name && r.name.trim())
   // HTML / AI+HTML cover modes → visual regeneration (Flux) and the cover-text
   // overlay editor are disabled (the cover is composed, not a Flux+sharp overlay).
   const effectiveCoverMode = post.coverMode ?? brandKit?.visualKit?.coverMode ?? 'ai'
@@ -368,6 +376,46 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     }
   }
 
+  // Override the post's rubric → re-render only the cover under the new recipe.
+  const handleSetRubric = async (rubricId: string) => {
+    if (isSettingRubric) return
+    const initData = getTelegramInitData()
+    if (!initData) { showToast(isRu ? 'Доступно только в Telegram' : 'Telegram only', 'error'); return }
+    setRubricMenuOpen(false)
+    setIsSettingRubric(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/set-rubric`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, postId: post.id, rubricId }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string }
+        showToast(err.error ?? (isRu ? 'Не удалось сменить рубрику' : 'Could not change rubric'), 'error')
+        return
+      }
+      const data = await res.json() as {
+        bannerUrl: string; coverMode: 'ai' | 'html' | 'ai_html'
+        rubricId: string | null; rubricName: string | null; blocks: PostBlock[] | null
+      }
+      const selId = post.selectedVariantId ?? post.variants[0]?.id
+      updatePost(post.id, {
+        rubricId:   data.rubricId,
+        rubricName: data.rubricName,
+        coverMode:  data.coverMode,
+        variants:   post.variants.map(v =>
+          v.id === selId
+            ? { ...v, bannerUrl: data.bannerUrl, ...(data.blocks ? { blocks: data.blocks } : {}) }
+            : { ...v, bannerUrl: data.bannerUrl }),
+      })
+      showToast(isRu ? 'Рубрика обновлена' : 'Rubric updated')
+    } catch {
+      showToast(isRu ? 'Ошибка' : 'Error', 'error')
+    } finally {
+      setIsSettingRubric(false)
+    }
+  }
+
   const sectionLabel = (id: Section, icon: React.ReactNode, label: string, badge?: string) => (
     <button
       onClick={() => setOpenSection(openSection === id ? 'variants' : id)}
@@ -402,7 +450,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
       />
 
       <div className="px-4 space-y-2 mt-1">
-        {/* Source block */}
+        {/* Source block + rubric chip */}
         <GlassCard padding="sm" className="flex items-center gap-2.5">
           <SourceChip source={post.sourceType} className="shrink-0" />
           {post.sourceSummary && (
@@ -410,13 +458,45 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
               {post.sourceSummary}
             </p>
           )}
+          {!isManual && channelRubrics.length > 0 && (
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setRubricMenuOpen(o => !o)}
+                disabled={isSettingRubric}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.05] border border-white/[0.08] text-[11px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50"
+              >
+                {isSettingRubric
+                  ? <Loader2 size={11} className="animate-spin" />
+                  : <Tag size={11} className="text-[#FF6A00]" />}
+                <span className="font-medium max-w-[90px] truncate">{post.rubricName ?? (isRu ? 'Разное' : 'General')}</span>
+                <ChevronDown size={11} className="text-[#55555D]" />
+              </button>
+              {rubricMenuOpen && (
+                <div className="absolute z-20 mt-1 right-0 min-w-[170px] max-h-[240px] overflow-y-auto rounded-[12px] bg-[#16161A] border border-white/[0.1] shadow-xl py-1">
+                  {[...channelRubrics.map(r => ({ id: r.id, name: r.name })), { id: 'misc', name: isRu ? 'Разное' : 'General' }].map(r => {
+                    const active = (post.rubricId ?? 'misc') === r.id || post.rubricName === r.name
+                    return (
+                      <button
+                        key={r.id}
+                        onClick={() => handleSetRubric(r.id)}
+                        className={cn('w-full text-left px-3 py-2 text-[12.5px] hover:bg-white/[0.05] flex items-center gap-2',
+                          active ? 'text-[#FF6A00]' : 'text-[#D4D4D8]')}
+                      >
+                        <Tag size={11} className={active ? 'text-[#FF6A00]' : 'text-[#55555D]'} />{r.name || '—'}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </GlassCard>
 
         {/* Formatted post — hero composer (preview + block editor). The post IS
             the blocks; this is the main surface for formatted posts. */}
         {isBlockPost && selectedVariant && (
           <RichPostEditor
-            key={selectedVariant.id}
+            key={`${selectedVariant.id}:${selectedVariant.bannerUrl ?? ''}`}
             postId={post.id}
             variantId={selectedVariant.id}
             blocks={selectedVariant.blocks ?? []}

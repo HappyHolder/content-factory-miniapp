@@ -135,6 +135,8 @@ interface ListApiPost {
   imageRegensUsed:   number
   coverMode:         'ai' | 'html' | 'ai_html' | null
   coverAspectRatio:  '1:1' | '16:9' | '4:5' | '9:16' | null
+  rubricId?:         string | null
+  rubricName?:       string | null
 }
 
 function mapListPost(p: ListApiPost): GeneratedPost {
@@ -157,6 +159,8 @@ function mapListPost(p: ListApiPost): GeneratedPost {
     imageRegensUsed:   p.imageRegensUsed,
     coverMode:         p.coverMode ?? undefined,
     coverAspectRatio:  p.coverAspectRatio ?? undefined,
+    rubricId:          p.rubricId ?? null,
+    rubricName:        p.rubricName ?? null,
   }
 }
 

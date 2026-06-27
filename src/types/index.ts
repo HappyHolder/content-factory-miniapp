@@ -314,6 +314,8 @@ export interface GeneratedPost {
   imageRegensUsed?: number
   coverMode?: 'ai' | 'html' | 'ai_html'
   coverAspectRatio?: CoverAspectRatio
+  rubricId?: string | null      // rubric the post was classified into (null = legacy / none)
+  rubricName?: string | null    // denormalized rubric name for the post chip
 }
 
 // Represents a bot-saved source input returned by POST /api/sources.

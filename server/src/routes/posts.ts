@@ -26,6 +26,7 @@ function collectMediaUrls(variants: { bannerUrl?: string | null; blocks?: unknow
   return [...urls];
 }
 import { createDraftPostForChannel } from '../lib/draftGenerator';
+import { buildCover } from '../lib/coverBuilder';
 import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContentFromUrl } from '../lib/visionExtractor';
 import { generateImageForPost, buildVisualKitPromptHints, renderCoverFromBase } from '../lib/imageGenerator';
@@ -408,6 +409,8 @@ router.post('/create-blank', async (req: Request, res: Response): Promise<void> 
       imageRegensUsed:   0,
       coverMode,
       coverAspectRatio,
+      rubricId:          null,
+      rubricName:        null,
     },
   });
 });
@@ -523,6 +526,8 @@ router.post('/list', async (req: Request, res: Response): Promise<void> => {
       imageRegensUsed:   post.imageRegensUsed,
       coverMode:         post.coverMode,
       coverAspectRatio:  post.coverAspectRatio,
+      rubricId:          post.rubricId,
+      rubricName:        post.rubricName,
     })),
   });
 });
@@ -2029,6 +2034,156 @@ router.post('/set-cover-text', async (req: Request, res: Response): Promise<void
   }
 
   res.json({ bannerUrl });
+});
+
+// ─── POST /api/posts/set-rubric ──────────────────────────────────────────────
+//
+// Overrides the rubric the AI chose for a post and RE-RENDERS only the cover under
+// the new rubric's recipe (mode + template) via the same coverBuilder engine used
+// at generation, so behaviour is identical. Text/blocks are preserved except the
+// cover image inside the blocks is swapped to the new cover. rubricId '' or 'misc'
+// → the neutral AI default ("Разное").
+//
+// Body: { initData, postId, rubricId }
+// Response 200: { bannerUrl, coverMode, rubricId, rubricName, blocks }
+
+router.post('/set-rubric', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId, rubricId } = req.body as {
+    initData?: unknown; postId?: unknown; rubricId?: unknown;
+  };
+
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (typeof postId   !== 'string' || !postId.trim())   { res.status(400).json({ error: 'postId is required' }); return; }
+  if (typeof rubricId !== 'string')                     { res.status(400).json({ error: 'rubricId must be a string' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  const post = await prisma.generatedPost.findUnique({
+    where:  { id: postId },
+    select: {
+      id: true, title: true, sourceSummary: true, imagePrompt: true,
+      coverAspectRatio: true, selectedVariantId: true,
+      channel: {
+        select: {
+          userId: true, handle: true, name: true,
+          brandKit: { select: { channelAbout: true, voiceProfile: true, visualKit: true } },
+        },
+      },
+      variants: { select: { id: true, text: true, bannerUrl: true, blocks: true }, orderBy: { variantIndex: 'asc' } },
+    },
+  }).catch(() => null);
+  if (!post) { res.status(404).json({ error: 'Post not found.' }); return; }
+  if (post.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
+
+  const vk    = post.channel.brandKit?.visualKit ?? undefined;
+  const vkObj = (vk && typeof vk === 'object') ? vk as Record<string, unknown> : null;
+
+  // Resolve the chosen rubric → mode + template + id/name.
+  const rawRubrics = vkObj && Array.isArray(vkObj['rubrics']) ? vkObj['rubrics'] as Record<string, unknown>[] : [];
+  let chosenMode:     'ai' | 'html' | 'ai_html' = 'ai';
+  let chosenTemplate: { name: string; url: string } | null = null;
+  let chosenId:       string | null = null;
+  let chosenName:     string | null = 'Разное';
+  if (rubricId && rubricId !== 'misc') {
+    const r = rawRubrics.find(x => x && (x['id'] === rubricId || x['name'] === rubricId));
+    if (!r) { res.status(404).json({ error: 'Rubric not found.' }); return; }
+    const tplUrl = typeof r['templateUrl'] === 'string' && r['templateUrl'] ? r['templateUrl'] as string : undefined;
+    const m = r['mode'];
+    chosenMode = (m === 'html' || m === 'ai_html') && tplUrl ? m : 'ai';
+    if (tplUrl) chosenTemplate = { name: typeof r['name'] === 'string' ? r['name'] as string : '', url: tplUrl };
+    chosenName = typeof r['name'] === 'string' ? r['name'] as string : null;
+    chosenId   = typeof r['id'] === 'string' && r['id'] ? r['id'] as string : chosenName;
+  }
+
+  // Plan guards: FREE coerces html/hybrid → ai; HIGH picks GPT Image, LOW Flux.
+  let allowHtmlCovers = true;
+  let modelTier: 'LOW' | 'HIGH' = 'LOW';
+  try {
+    const sub = await prisma.subscription.findUnique({ where: { userId: dbUser.id }, select: { tier: true, modelTier: true } });
+    if (sub) { allowHtmlCovers = canUseHtmlCovers(sub.tier); modelTier = sub.modelTier; }
+  } catch { /* default allow + LOW */ }
+  let coverMode: 'ai' | 'html' | 'ai_html' = chosenMode;
+  if ((coverMode === 'html' || coverMode === 'ai_html') && !allowHtmlCovers) coverMode = 'ai';
+  const imageModel = modelTier === 'HIGH' ? env.HIGH_IMAGE_MODEL : env.IMAGE_MODEL;
+
+  const rawAr = post.coverAspectRatio ?? vkObj?.['aspectRatio'];
+  const aspectRatio: '1:1' | '16:9' | '4:5' | '9:16' =
+    rawAr === '16:9' || rawAr === '4:5' || rawAr === '9:16' ? rawAr : '1:1';
+
+  // Cover language (explicit ru/en, else inherit channel voiceProfile.language).
+  const bkRec = post.channel.brandKit;
+  const rawCoverLang = vkObj?.['coverLanguage'];
+  let coverLanguage: 'ru' | 'en' | undefined =
+    rawCoverLang === 'ru' || rawCoverLang === 'en' ? rawCoverLang : undefined;
+  if (!coverLanguage) {
+    const vp = bkRec?.voiceProfile;
+    const chLang = (vp && typeof vp === 'object') ? (vp as Record<string, unknown>)['language'] : undefined;
+    if (chLang === 'EN') coverLanguage = 'en';
+    else if (chLang === 'RU') coverLanguage = 'ru';
+  }
+  const slotBrandCtx = {
+    handle: post.channel.handle,
+    name:   post.channel.name,
+    about:  bkRec?.channelAbout && typeof bkRec.channelAbout === 'object' ? JSON.stringify(bkRec.channelAbout).slice(0, 400) : undefined,
+    voice:  bkRec?.voiceProfile ? JSON.stringify(bkRec.voiceProfile).slice(0, 400) : undefined,
+  };
+
+  const selected = post.variants.find(v => v.id === post.selectedVariantId) ?? post.variants[0];
+  const input    = selected?.text ?? '';
+
+  let cover: Awaited<ReturnType<typeof buildCover>> = null;
+  try {
+    cover = await buildCover({
+      coverMode, useBrandKit: true, visualKit: vk, vkObj,
+      rubricTemplate: chosenTemplate,
+      title: post.title, sourceSummary: post.sourceSummary ?? post.title, finalTitle: post.title,
+      input, imagePrompt: post.imagePrompt?.trim() || undefined,
+      coverLanguage, aspectRatio, imageModel, slotBrandCtx,
+    });
+  } catch (err) {
+    console.warn('[posts/set-rubric] buildCover threw:', (err as Error).message);
+  }
+  if (!cover?.bannerUrl) { res.status(502).json({ error: 'Не удалось пересобрать обложку. Попробуй ещё раз.' }); return; }
+
+  // Swap the cover image inside the selected variant's blocks (match the old cover
+  // URL, else the first image block, else prepend) so the editor shows the new cover.
+  const oldBanner = post.variants.find(v => v.bannerUrl)?.bannerUrl ?? null;
+  let updatedBlocks: PostBlock[] | null = null;
+  if (selected) {
+    const blocks = variantBlocks(selected);
+    if (blocks) {
+      const copy = blocks.map(b => ({ ...b }));
+      let idx = oldBanner ? copy.findIndex(b => b.type === 'image' && b.url === oldBanner) : -1;
+      if (idx < 0) idx = copy.findIndex(b => b.type === 'image');
+      if (idx >= 0) copy[idx] = { type: 'image', url: cover.bannerUrl };
+      else copy.unshift({ type: 'image', url: cover.bannerUrl });
+      updatedBlocks = copy;
+    }
+  }
+
+  try {
+    await prisma.$transaction([
+      prisma.postVariant.updateMany({ where: { generatedPostId: postId }, data: { bannerUrl: cover.bannerUrl } }),
+      ...(updatedBlocks && selected
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? [prisma.postVariant.update({ where: { id: selected.id }, data: { blocks: updatedBlocks as any } })]
+        : []),
+      prisma.generatedPost.update({
+        where: { id: postId },
+        data:  { coverMode, rubricId: chosenId, rubricName: chosenName, ...(cover.coverBaseUrl ? { coverBaseUrl: cover.coverBaseUrl } : {}) },
+      }),
+    ]);
+  } catch (err) {
+    console.error('[posts/set-rubric] DB update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({ bannerUrl: cover.bannerUrl, coverMode, rubricId: chosenId, rubricName: chosenName, blocks: updatedBlocks });
 });
 
 export default router;

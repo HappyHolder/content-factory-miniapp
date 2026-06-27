@@ -189,6 +189,8 @@ model GeneratedPost {
   coverBaseUrl      String? // clean (text-free) cover background — lets the headline be re-rendered without regenerating the picture
   coverMode         String? // actual engine used for this post: ai | html | ai_html
   coverAspectRatio  String? // actual cover ratio used for this post: 1:1 | 16:9 | 4:5 | 9:16
+  rubricId          String? // chosen rubric id (from visualKit.rubrics); null = legacy / no rubric
+  rubricName        String? // denormalized rubric name — shown on the post chip without a join
   linkButtons       Json? // LinkItem[]
   selectedVariantId String?
 
