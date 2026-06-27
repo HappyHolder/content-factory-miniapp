@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sparkles, Check, Loader2, Radio, ImagePlus, X } from 'lucide-react'
+import { Sparkles, Check, Loader2, Radio, ImagePlus, X, PenLine } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { useWalkthrough } from '@/context/WalkthroughContext'
 import { Coachmark, HighlightRing } from '@/components/onboarding/Coachmark'
@@ -42,6 +42,9 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
   const [uploadingShot, setUploadingShot] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [done, setDone] = useState(false)
+  // 'ai' = source → neural generation; 'blank' = build a post by hand in the editor.
+  const [mode, setMode] = useState<'ai' | 'blank'>('ai')
+  const [creatingBlank, setCreatingBlank] = useState(false)
   const shotRef = useRef<HTMLInputElement>(null)
 
   const hasInput = input.trim().length > 3 || !!imageUrl
@@ -119,12 +122,44 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
     }
   }
 
+  // Manual mode: create an empty draft on the server and open it in the block
+  // editor (PostDetailsScreen). No AI, no quota — just a blank post to build by hand.
+  const handleCreateBlank = async () => {
+    if (!activeChannel || creatingBlank) return
+    if (authStatus !== 'authenticated') { showToast(isRu ? 'Доступно только в Telegram' : 'Telegram only', 'error'); return }
+    const initData = getTelegramInitData()
+    if (!initData) { showToast(isRu ? 'Доступно только в Telegram' : 'Telegram only', 'error'); return }
+    setCreatingBlank(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/create-blank`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, channelId: state.activeChannelId, title: isRu ? 'Новый пост' : 'New post' }),
+      })
+      if (!res.ok) throw new Error(`create-blank failed: ${res.status}`)
+      const data = await res.json() as { post: GenerateApiPost }
+      const post: GeneratedPost = {
+        ...data.post,
+        createdAt:   new Date(data.post.createdAt),
+        scheduledAt: data.post.scheduledAt != null ? new Date(data.post.scheduledAt) : undefined,
+        publishedAt: data.post.publishedAt != null ? new Date(data.post.publishedAt) : undefined,
+      }
+      addPost(post)
+      onPostCreated(post.id)
+    } catch {
+      showToast(t('create.generationFailed'), 'error')
+    } finally {
+      setCreatingBlank(false)
+    }
+  }
+
   // AI assistant → Create handoff: prefill the input and auto-start generation.
   // Clear the prefill in the parent the moment it's consumed — otherwise a later
   // remount of this screen (e.g. navigating back to the Create tab) would re-run
   // the same handoff and create a duplicate post with its own cover.
   useEffect(() => {
     if (!prefill?.text) return
+    setMode('ai')
     setInput(prefill.text)
     handleGenerate(prefill.text)
     onPrefillConsumed?.()
@@ -146,41 +181,68 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
                 <h2 className="text-[15px] font-semibold text-white">{isRu ? 'Создать пост' : 'Create a post'}</h2>
               </div>
 
-              {/* Single AI input: text, link, or idea */}
-              <textarea
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                placeholder={isRu
-                  ? 'Ссылка, текст или идея. Напр.: «новость про X», вставь ссылку на статью, или опиши пост…'
-                  : 'A link, text, or idea. e.g. "news about X", paste an article link, or describe the post…'}
-                rows={5}
-                className="glass-input w-full px-3 py-3 text-sm leading-relaxed"
-                style={{ background: 'rgba(255,255,255,0.03)' }}
-              />
+              {/* Mode toggle: AI generation vs manual block editor */}
+              <div className="flex gap-1 p-1 rounded-[12px] bg-white/[0.04] border border-white/[0.06]">
+                {([['ai', Sparkles, isRu ? 'С помощью ИИ' : 'With AI'], ['blank', PenLine, isRu ? 'С нуля' : 'From scratch']] as const).map(([m, Icon, label]) => (
+                  <button key={m} onClick={() => setMode(m)}
+                    className={cn('flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[9px] text-[12.5px] font-semibold transition-colors',
+                      mode === m ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]')}>
+                    <Icon size={13} /> {label}
+                  </button>
+                ))}
+              </div>
 
-              {/* Screenshot attach */}
-              <input ref={shotRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) uploadShot(f); e.target.value = '' }} />
-              {imageUrl ? (
-                <div className="flex items-center gap-2.5 p-2 rounded-[12px] bg-white/[0.03] border border-white/[0.07]">
-                  <img src={imageUrl} alt="" className="w-12 h-12 rounded-[8px] object-cover" />
-                  <span className="flex-1 text-[12px] text-[#A1A1AA]">{isRu ? 'Скриншот прикреплён' : 'Screenshot attached'}</span>
-                  <button onClick={() => setImageUrl(null)} className="p-1.5 text-[#55555D] hover:text-red-400"><X size={14} /></button>
-                </div>
+              {mode === 'ai' ? (
+                <>
+                  {/* Single AI input: text, link, or idea */}
+                  <textarea
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    placeholder={isRu
+                      ? 'Ссылка, текст или идея. Напр.: «новость про X», вставь ссылку на статью, или опиши пост…'
+                      : 'A link, text, or idea. e.g. "news about X", paste an article link, or describe the post…'}
+                    rows={5}
+                    className="glass-input w-full px-3 py-3 text-sm leading-relaxed"
+                    style={{ background: 'rgba(255,255,255,0.03)' }}
+                  />
+
+                  {/* Screenshot attach */}
+                  <input ref={shotRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadShot(f); e.target.value = '' }} />
+                  {imageUrl ? (
+                    <div className="flex items-center gap-2.5 p-2 rounded-[12px] bg-white/[0.03] border border-white/[0.07]">
+                      <img src={imageUrl} alt="" className="w-12 h-12 rounded-[8px] object-cover" />
+                      <span className="flex-1 text-[12px] text-[#A1A1AA]">{isRu ? 'Скриншот прикреплён' : 'Screenshot attached'}</span>
+                      <button onClick={() => setImageUrl(null)} className="p-1.5 text-[#55555D] hover:text-red-400"><X size={14} /></button>
+                    </div>
+                  ) : (
+                    <button onClick={() => shotRef.current?.click()} disabled={uploadingShot}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-[12px] border border-dashed border-white/[0.12] text-[12.5px] text-[#A1A1AA] hover:border-[#FF6A00]/40 hover:text-[#FF6A00] transition-colors disabled:opacity-50">
+                      {uploadingShot ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
+                      {isRu ? 'Прикрепить скриншот' : 'Attach a screenshot'}
+                    </button>
+                  )}
+
+                  <Switch
+                    label={t('create.useBrandKit')}
+                    description={t('create.useBrandKitDesc')}
+                    value={useBrandKit}
+                    onChange={setUseBrandKit}
+                  />
+                </>
               ) : (
-                <button onClick={() => shotRef.current?.click()} disabled={uploadingShot}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-[12px] border border-dashed border-white/[0.12] text-[12.5px] text-[#A1A1AA] hover:border-[#FF6A00]/40 hover:text-[#FF6A00] transition-colors disabled:opacity-50">
-                  {uploadingShot ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
-                  {isRu ? 'Прикрепить скриншот' : 'Attach a screenshot'}
-                </button>
+                <div className="flex items-start gap-3 px-3.5 py-3 rounded-[14px] bg-white/[0.03] border border-white/[0.07]">
+                  <PenLine size={15} className="text-[#FF6A00] shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[12px] font-semibold text-white">{isRu ? 'Собрать пост вручную' : 'Build a post by hand'}</p>
+                    <p className="text-[11px] text-[#55555D] mt-0.5 leading-relaxed">
+                      {isRu
+                        ? 'Открой редактор: пиши текст блоками, форматируй, добавляй и генерируй картинки — без нейросети.'
+                        : 'Open the editor: write text in blocks, format it, add or generate images — no AI.'}
+                    </p>
+                  </div>
+                </div>
               )}
-
-              <Switch
-                label={t('create.useBrandKit')}
-                description={t('create.useBrandKitDesc')}
-                value={useBrandKit}
-                onChange={setUseBrandKit}
-              />
             </div>
 
             <div className="px-4 pb-4 space-y-2">
@@ -188,7 +250,7 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
                 <Coachmark stepLabel={t('onboarding.step3')} title={t('onboarding.createTitle')} text={t('onboarding.createText')} />
               )}
 
-              {createsRemaining !== null && (
+              {mode === 'ai' && createsRemaining !== null && (
                 <div className={cn('flex items-center justify-between px-3 py-2 rounded-[10px] text-[12px]',
                   createsRemaining === 0 ? 'bg-red-500/10 border border-red-500/20 text-red-400'
                   : createsRemaining <= 5 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
@@ -198,7 +260,7 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
                 </div>
               )}
 
-              {!hasQuota && (
+              {mode === 'ai' && !hasQuota && (
                 <div className="flex items-center gap-2 px-3 py-2.5 rounded-[10px] bg-red-500/10 border border-red-500/20">
                   <span className="text-[12px] text-red-400 leading-snug">
                     {t('create.limitReached')} <span className="font-semibold underline cursor-pointer">{t('create.upgradePlan')}</span>
@@ -207,7 +269,7 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
               )}
 
               {/* Progress + note while generating */}
-              {isGenerating && (
+              {mode === 'ai' && isGenerating && (
                 <div className="space-y-1.5">
                   <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                     <div className="h-full w-2/3 bg-[#FF6A00] rounded-full animate-pulse" />
@@ -218,20 +280,33 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
                 </div>
               )}
 
-              <HighlightRing active={wtStep === 'create'}>
+              {mode === 'ai' ? (
+                <HighlightRing active={wtStep === 'create'}>
+                  <motion.button
+                    onClick={() => handleGenerate()}
+                    disabled={!canGenerate}
+                    whileTap={{ scale: canGenerate ? 0.97 : 1 }}
+                    className={cn('w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[14px] text-sm font-semibold transition-all duration-200',
+                      canGenerate && !isGenerating && !done ? 'bg-[#FF6A00] text-white hover:bg-[#ff7a1a] orange-glow'
+                      : done ? 'bg-[rgba(255,106,0,0.20)] text-[#FF6A00] border border-[rgba(255,106,0,0.38)]'
+                      : 'bg-white/[0.04] text-[#44444C] border border-white/[0.06] cursor-not-allowed')}>
+                    {isGenerating ? <><Loader2 size={16} className="animate-spin" />{t('create.generating')}</>
+                      : done ? <><Check size={16} />{t('create.postsReady')}</>
+                      : <><Sparkles size={16} />{isRu ? 'Создать' : 'Create'}</>}
+                  </motion.button>
+                </HighlightRing>
+              ) : (
                 <motion.button
-                  onClick={() => handleGenerate()}
-                  disabled={!canGenerate}
-                  whileTap={{ scale: canGenerate ? 0.97 : 1 }}
+                  onClick={handleCreateBlank}
+                  disabled={!activeChannel || creatingBlank}
+                  whileTap={{ scale: !activeChannel || creatingBlank ? 1 : 0.97 }}
                   className={cn('w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[14px] text-sm font-semibold transition-all duration-200',
-                    canGenerate && !isGenerating && !done ? 'bg-[#FF6A00] text-white hover:bg-[#ff7a1a] orange-glow'
-                    : done ? 'bg-[rgba(255,106,0,0.20)] text-[#FF6A00] border border-[rgba(255,106,0,0.38)]'
+                    activeChannel && !creatingBlank ? 'bg-[#FF6A00] text-white hover:bg-[#ff7a1a] orange-glow'
                     : 'bg-white/[0.04] text-[#44444C] border border-white/[0.06] cursor-not-allowed')}>
-                  {isGenerating ? <><Loader2 size={16} className="animate-spin" />{t('create.generating')}</>
-                    : done ? <><Check size={16} />{t('create.postsReady')}</>
-                    : <><Sparkles size={16} />{isRu ? 'Создать' : 'Create'}</>}
+                  {creatingBlank ? <><Loader2 size={16} className="animate-spin" />{isRu ? 'Создаю…' : 'Creating…'}</>
+                    : <><PenLine size={16} />{isRu ? 'Открыть редактор' : 'Open editor'}</>}
                 </motion.button>
-              </HighlightRing>
+              )}
             </div>
           </GlassCard>
         </motion.div>

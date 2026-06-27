@@ -186,6 +186,7 @@ export const en = {
       text:          'Text',
       photo:         'Photo',
       forwardedPost: 'Forwarded post',
+      manual:        'Manual',
     },
     meta: {
       variant:  'variant',

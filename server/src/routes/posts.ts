@@ -277,6 +277,149 @@ router.post('/generate', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// ─── POST /api/posts/create-blank ─────────────────────────────────────────────
+//
+// Creates an EMPTY draft post for manual composition in the block editor — no AI
+// call, no cover generation, no Create quota consumed. The single variant carries
+// starter blocks (an empty heading + paragraph) so the formatted-post block editor
+// opens immediately. Channel link buttons (usage button|always) are attached so a
+// manually built post can still publish with the channel's buttons. Returns the
+// same mapped shape as /generate so the frontend can addPost() it directly.
+//
+// Request body: { initData, channelId, title? }
+// Response 200: { post: MappedGeneratedPost }
+
+router.post('/create-blank', async (req: Request, res: Response): Promise<void> => {
+  const { initData, channelId, title } = req.body as {
+    initData?:  unknown;
+    channelId?: unknown;
+    title?:     unknown;
+  };
+
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof channelId !== 'string' || !channelId.trim()) {
+    res.status(400).json({ error: 'channelId is required' }); return;
+  }
+
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  const telegramId = String(parsed.user.id);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  // Channel + ownership.
+  const channel = await prisma.channel.findUnique({
+    where:  { id: channelId },
+    select: { id: true, userId: true, handle: true, name: true, brandKit: { select: { visualKit: true, linkKit: true } } },
+  }).catch(() => null);
+  if (!channel) { res.status(404).json({ error: 'Channel not found.' }); return; }
+  if (channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This channel does not belong to your account.' }); return;
+  }
+
+  // Mirror the channel's cover settings (only coverAspectRatio actually matters
+  // for manual posts — generate-block-image reads it for AI illustration aspect).
+  const vk = (channel.brandKit?.visualKit && typeof channel.brandKit.visualKit === 'object')
+    ? channel.brandKit.visualKit as Record<string, unknown> : null;
+  const rawMode = typeof vk?.['coverMode'] === 'string' ? vk['coverMode'] as string : 'ai';
+  const coverMode: 'ai' | 'html' | 'ai_html' = rawMode === 'html' || rawMode === 'ai_html' ? rawMode : 'ai';
+  const rawAr = vk?.['aspectRatio'];
+  const coverAspectRatio: '1:1' | '16:9' | '4:5' | '9:16' =
+    rawAr === '16:9' || rawAr === '4:5' || rawAr === '9:16' ? rawAr : '1:1';
+
+  // Channel link buttons (usage button|always) → publishable inline keyboard.
+  const lk = (channel.brandKit?.linkKit && typeof channel.brandKit.linkKit === 'object')
+    ? channel.brandKit.linkKit as Record<string, unknown> : null;
+  const rawLinks = lk && Array.isArray(lk['links']) ? lk['links'] as unknown[] : [];
+  const buttonLinks = rawLinks.filter(l => {
+    if (!l || typeof l !== 'object') return false;
+    const usage = (l as Record<string, unknown>)['usage'];
+    return usage === 'button' || usage === 'always';
+  });
+
+  // Starter blocks: an empty heading + paragraph so hasBlocks is true and the
+  // block editor (not the legacy text accordion) is the surface in PostDetails.
+  const starterBlocks: PostBlock[] = [
+    { type: 'heading', text: '' },
+    { type: 'paragraph', runs: [{ t: '' }] },
+  ];
+
+  const finalTitle = typeof title === 'string' && title.trim() ? title.trim().slice(0, 80) : 'Новый пост';
+
+  let dbPost;
+  try {
+    dbPost = await prisma.$transaction(async (tx) => {
+      const created = await tx.generatedPost.create({
+        data: {
+          title:        finalTitle,
+          channelId:    channel.id,
+          sourceType:   'manual',
+          sourceSummary: '',
+          status:       'NEW',
+          coverMode,
+          coverAspectRatio,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          linkButtons:  buttonLinks as any,
+          variants: {
+            create: [{
+              label:        'Текст',
+              variantIndex: 0,
+              text:         '',
+              isSelected:   true,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              blocks:       starterBlocks as any,
+            }],
+          },
+        },
+        include: { variants: true },
+      });
+      const firstVariantId = created.variants[0]!.id;
+      await tx.generatedPost.update({ where: { id: created.id }, data: { selectedVariantId: firstVariantId } });
+      return { ...created, selectedVariantId: firstVariantId };
+    });
+  } catch (err) {
+    console.error('[posts/create-blank] Create failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({
+    post: {
+      id:               dbPost.id,
+      title:            dbPost.title,
+      sourceType:       'manual',
+      sourceUrl:        null,
+      sourceSummary:    '',
+      channelId:        dbPost.channelId,
+      channelUsername:  channel.handle ?? channel.name,
+      variants: dbPost.variants.map(v => ({
+        id:         v.id,
+        label:      v.label ?? 'Текст',
+        text:       v.text,
+        isSelected: v.id === dbPost.selectedVariantId,
+        bannerUrl:  null,
+        blocks:     starterBlocks,
+      })),
+      selectedVariantId: dbPost.selectedVariantId,
+      linkButtons:       buttonLinks,
+      status:            'new',
+      createdAt:         dbPost.createdAt.toISOString(),
+      scheduledAt:       null,
+      publishedAt:       null,
+      textRegensUsed:    0,
+      imageRegensUsed:   0,
+      coverMode,
+      coverAspectRatio,
+    },
+  });
+});
+
 // ─── POST /api/posts/list ─────────────────────────────────────────────────────
 //
 // Returns actionable GeneratedPosts for the authenticated user (all channels).

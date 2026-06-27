@@ -186,6 +186,7 @@ export const ru: Dict = {
       text:          'Текст',
       photo:         'Фото',
       forwardedPost: 'Пересланный пост',
+      manual:        'Вручную',
     },
     meta: {
       variant:  'вариант',

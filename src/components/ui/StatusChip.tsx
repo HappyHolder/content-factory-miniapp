@@ -48,6 +48,7 @@ export function SourceChip({ source, className }: SourceChipProps) {
     text:           'posts.source.text',
     photo:          'posts.source.photo',
     forwarded_post: 'posts.source.forwardedPost',
+    manual:         'posts.source.manual',
   } as Record<string, Parameters<typeof t>[0]>)[source]) ?? 'posts.source.prompt'
 
   return (
