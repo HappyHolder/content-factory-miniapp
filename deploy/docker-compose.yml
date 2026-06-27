@@ -52,8 +52,9 @@ services:
       REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN}
       IMAGE_MODEL: ${IMAGE_MODEL}
       COVER_ENGINE: ${COVER_ENGINE}
-      # Web search (optional)
+      # Web search (optional). Serper = real Google results (preferred); Tavily = fallback.
       TAVILY_API_KEY: ${TAVILY_API_KEY}
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
       # TON payments
       TON_RECEIVING_WALLET: ${TON_RECEIVING_WALLET}
       TONCENTER_API_KEY: ${TONCENTER_API_KEY}
