@@ -13,7 +13,7 @@
 
 import { prisma } from '../db';
 import { env } from '../env';
-import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate, selectHtmlTemplate, fillTemplateSlots } from './aiGenerator';
+import { generatePostVariants, generateImagePromptWithAI, classifyPostForTemplate, selectHtmlTemplate, fillTemplateSlots, classifyPostRubric, type RubricItem } from './aiGenerator';
 import { generateImageForPost, type GeneratedCover } from './imageGenerator';
 import { renderTemplateCover, extractBrand } from './templateRenderer';
 import { renderHtmlTemplate, renderHtmlString, measureContentZone } from './playwrightRenderer';
@@ -22,6 +22,31 @@ import { generateRichBlocks } from './richPostGenerator';
 import type { PostBlock } from './richPost';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Parses visualKit.rubrics into a clean, validated RubricItem list (or []). */
+function parseRubrics(vkObj: Record<string, unknown>): RubricItem[] {
+  const raw = vkObj['rubrics'];
+  if (!Array.isArray(raw)) return [];
+  const out: RubricItem[] = [];
+  for (const r of raw as unknown[]) {
+    if (!r || typeof r !== 'object') continue;
+    const o = r as Record<string, unknown>;
+    const name = typeof o['name'] === 'string' ? o['name'].trim() : '';
+    if (!name) continue;
+    const rawMode = o['mode'];
+    const mode: 'ai' | 'html' | 'ai_html' = rawMode === 'html' || rawMode === 'ai_html' ? rawMode : 'ai';
+    const templateUrl = typeof o['templateUrl'] === 'string' && o['templateUrl'] ? o['templateUrl'] : undefined;
+    out.push({
+      id:          typeof o['id'] === 'string' && o['id'] ? o['id'] : name,
+      name,
+      description: typeof o['description'] === 'string' ? o['description'] : undefined,
+      // A rubric without a template can only be 'ai' (html/hybrid need a template).
+      mode:        templateUrl ? mode : 'ai',
+      templateUrl,
+    });
+  }
+  return out;
+}
 
 /** Parses visualKit.htmlTemplates into a clean { name, url } list. */
 function parseHtmlTemplates(vkObj: Record<string, unknown>): { name: string; url: string }[] {
@@ -270,8 +295,30 @@ export async function createDraftPostForChannel(
   const vkObj = (visualKit && typeof visualKit === 'object')
     ? visualKit as Record<string, unknown>
     : null;
-  // Per-generation override (Create tab switch) wins over the channel setting.
+  // ── Rubric resolution (new path) ──────────────────────────────────────────
+  // When the channel defines rubrics, classify the post into one; its mode +
+  // template drive the cover, replacing the channel coverMode toggle and the
+  // keyword template guess. No rubrics → legacy path (unchanged). A per-generation
+  // coverModeOverride (Create switch) still wins over the rubric's mode.
+  const rubrics = (useBrandKit && vkObj) ? parseRubrics(vkObj) : [];
+  let rubricTemplate: { name: string; url: string } | null = null;
+  let rubricMode: 'ai' | 'html' | 'ai_html' | null = null;
+  if (rubrics.length > 0 && !coverModeOverride) {
+    try {
+      const chosen = await classifyPostRubric(title, sourceSummary, rubrics);
+      if (chosen) {
+        rubricMode = chosen.mode;
+        if (chosen.templateUrl) rubricTemplate = { name: chosen.name, url: chosen.templateUrl };
+        console.log(`[draftGenerator] Rubric "${chosen.name}" → mode=${chosen.mode}, template=${chosen.templateUrl ? 'yes' : 'no'}`);
+      }
+    } catch (err) {
+      console.warn('[draftGenerator] Rubric classify failed (legacy path):', (err as Error).message);
+    }
+  }
+
+  // Precedence: per-generation override (Create switch) → rubric mode → channel coverMode.
   const rawCoverMode = coverModeOverride
+    ?? rubricMode
     ?? (typeof vkObj?.['coverMode'] === 'string' ? vkObj['coverMode'] as string : 'ai');
   const normalizedCoverMode: 'ai' | 'html' | 'ai_html' =
     rawCoverMode === 'html' || rawCoverMode === 'ai_html' ? rawCoverMode : 'ai';
@@ -334,9 +381,9 @@ export async function createDraftPostForChannel(
       //    design language. Without it Sonnet converges on the same generic
       //    scrim+accent-bar look the sharp overlay already draws in AI mode.
       const htmlTemplates = parseHtmlTemplates(vkObj);
-      const chosen = htmlTemplates.length > 0
-        ? await selectHtmlTemplate(htmlTemplates, title, sourceSummary)
-        : null;
+      // Rubric path: use the rubric's own template. Legacy path: keyword-pick.
+      const chosen = rubricTemplate
+        ?? (htmlTemplates.length > 0 ? await selectHtmlTemplate(htmlTemplates, title, sourceSummary) : null);
       let referenceHtml: string | null = null;
       if (chosen) {
         try {
@@ -501,9 +548,9 @@ export async function createDraftPostForChannel(
       // Load named HTML templates (multi-template system)
       const htmlTemplates = parseHtmlTemplates(vkObj);
 
-      const chosen = htmlTemplates.length > 0
-        ? await selectHtmlTemplate(htmlTemplates, title, sourceSummary)
-        : null;
+      // Rubric path: use the rubric's own template. Legacy path: keyword-pick.
+      const chosen = rubricTemplate
+        ?? (htmlTemplates.length > 0 ? await selectHtmlTemplate(htmlTemplates, title, sourceSummary) : null);
 
       console.log(`[draftGenerator] HTML mode: ${htmlTemplates.length} template(s) in DB, chosen=${chosen?.url ?? 'none'}`);
 

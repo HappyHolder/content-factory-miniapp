@@ -1136,6 +1136,79 @@ export async function selectHtmlTemplate(
   }
 }
 
+// ─── Rubric classifier ────────────────────────────────────────────────────────
+
+export interface RubricItem {
+  id:           string;
+  name:         string;
+  description?: string;
+  mode:         'ai' | 'html' | 'ai_html';
+  templateUrl?: string;
+}
+
+/**
+ * Classifies a post into the single best-fitting channel rubric. The rubric then
+ * decides the cover recipe (mode + template). A small, bounded decision (pick 1
+ * of N) — DeepSeek is plenty; falls back to a keyword heuristic, then to a "misc"
+ * rubric / the first one. Never throws.
+ */
+export async function classifyPostRubric(
+  title:   string,
+  excerpt: string,
+  rubrics: RubricItem[],
+): Promise<RubricItem | null> {
+  if (rubrics.length === 0) return null;
+  if (rubrics.length === 1) return rubrics[0]!;
+
+  const miscOrFirst = (): RubricItem =>
+    rubrics.find(r => /разное|прочее|misc|other|general/i.test(r.name)) ?? rubrics[0]!;
+
+  // Heuristic fallback: a word from a rubric's name/description appears in the post.
+  function heuristic(): RubricItem {
+    const text = `${title} ${excerpt}`.toLowerCase();
+    for (const r of rubrics) {
+      const words = `${r.name} ${r.description ?? ''}`.toLowerCase().split(/\s+/);
+      if (words.some(w => w.length > 3 && text.includes(w))) return r;
+    }
+    return miscOrFirst();
+  }
+
+  if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return heuristic();
+
+  const list = rubrics
+    .map((r, i) => `${i}: "${r.name}"${r.description ? ` — ${r.description}` : ''}`)
+    .join('\n');
+  const systemPrompt =
+    'You assign a Telegram post to the SINGLE best-fitting channel rubric. ' +
+    'Respond with ONLY a JSON object: {"index": <number>}.\n\n' +
+    `Rubrics:\n${list}`;
+  const userPrompt = `Post title: ${title}\nExcerpt: ${excerpt.slice(0, 400)}`;
+
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
+      body: JSON.stringify({
+        model: env.DEEPSEEK_MODEL,
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        max_tokens: 20, temperature: 0.1,
+        response_format: { type: 'json_object' },
+      }),
+    });
+    if (!response.ok) return heuristic();
+    const data   = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const parsed = JSON.parse(data.choices?.[0]?.message?.content?.trim() ?? '{}') as { index?: unknown };
+    const idx    = typeof parsed.index === 'number' ? Math.round(parsed.index) : -1;
+    return (idx >= 0 && idx < rubrics.length) ? rubrics[idx]! : heuristic();
+  } catch {
+    return heuristic();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 /**

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { OptionPills } from '@/components/ui/OptionPills'
 import { useApp } from '@/context/AppContext'
-import type { VisualKit, HtmlTemplateItem, ReferenceItem, BrandColor, CoverAspectRatio, LogoUsage, CoverLanguage, CoverBgDetail, CoverBgStyle } from '@/types'
+import type { VisualKit, HtmlTemplateItem, Rubric, ReferenceItem, BrandColor, CoverAspectRatio, LogoUsage, CoverLanguage, CoverBgDetail, CoverBgStyle } from '@/types'
 import { cn } from '@/lib/utils'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
@@ -58,9 +58,27 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   // absent. An explicitly-saved array (even empty) is authoritative — otherwise
   // deleting all colors would be re-seeded from the legacy fields on every reopen.
   const [data, setData] = useState<VisualKit>(() => {
-    if (Array.isArray(initialData.brandColors)) return initialData
-    const derived = deriveInitialBrandColors(initialData, language === 'ru')
-    return derived.length > 0 ? { ...initialData, brandColors: derived } : initialData
+    let base = initialData
+    if (!Array.isArray(initialData.brandColors)) {
+      const derived = deriveInitialBrandColors(initialData, language === 'ru')
+      if (derived.length > 0) base = { ...base, brandColors: derived }
+    }
+    // Seed rubrics from legacy htmlTemplates when none exist yet, so an existing
+    // channel's templates show up as editable rubrics (mode from the old coverMode).
+    if (!Array.isArray(base.rubrics) && Array.isArray(base.htmlTemplates) && base.htmlTemplates.length > 0) {
+      const legacyMode = base.coverMode === 'html' || base.coverMode === 'ai_html' ? base.coverMode : 'html'
+      base = {
+        ...base,
+        rubrics: base.htmlTemplates.map((tpl, i) => ({
+          id:          `rub-legacy-${i}`,
+          name:        tpl.name || `Рубрика ${i + 1}`,
+          description: '',
+          mode:        tpl.url ? legacyMode : 'ai',
+          templateUrl: tpl.url || undefined,
+        })),
+      }
+    }
+    return base
   })
 
   const [refInput,   setRefInput]   = useState('')
@@ -70,9 +88,11 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
   const [isUploadingHtml, setIsUploadingHtml]     = useState(false)
   const [uploadingHtmlIdx, setUploadingHtmlIdx]   = useState<number | null>(null)
   const [isGeneratingStyle, setIsGeneratingStyle] = useState(false)
+  const [uploadingRubricIdx, setUploadingRubricIdx] = useState<number | null>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
   const refInputRef  = useRef<HTMLInputElement>(null)
   const htmlInputRef = useRef<HTMLInputElement>(null)
+  const rubricFileRef = useRef<HTMLInputElement>(null)
 
   // HTML templates helpers
   const htmlTemplates = (): HtmlTemplateItem[] => data.htmlTemplates ?? []
@@ -87,6 +107,43 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
 
   const set = <K extends keyof VisualKit>(key: K, val: VisualKit[K]) =>
     setData(prev => ({ ...prev, [key]: val }))
+
+  // ── Rubric helpers ─────────────────────────────────────────────────────────
+  const rubrics = (): Rubric[] => data.rubrics ?? []
+  const addRubric = () => set('rubrics', [...rubrics(), {
+    id: `rub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    name: '', description: '', mode: 'ai',
+  }])
+  const removeRubric = (i: number) => set('rubrics', rubrics().filter((_, idx) => idx !== i))
+  const updateRubric = (i: number, patch: Partial<Rubric>) =>
+    set('rubrics', rubrics().map((r, idx) => idx === i ? { ...r, ...patch } : r))
+
+  const uploadRubricTemplate = async (file: File, idx: number) => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast(t('channelStyle.covers.uploadFailed'), 'error'); return }
+    setUploadingRubricIdx(idx)
+    try {
+      const form = new FormData()
+      form.append('initData', initData)
+      form.append('channelId', channelId)
+      form.append('file', file)
+      const res = await fetch(`${API_BASE}/api/brandkits/upload-html-template`, { method: 'POST', body: form })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string }
+        showToast(err.error ?? t('channelStyle.covers.uploadFailed'), 'error')
+        return
+      }
+      const { url } = await res.json() as { url: string }
+      // Attaching a template enables html/hybrid; default to HTML (most predictable).
+      const prev = rubrics()[idx]
+      updateRubric(idx, { templateUrl: url, templateName: file.name, mode: prev && prev.mode !== 'ai' ? prev.mode : 'html' })
+      showToast(t('channelStyle.covers.uploadDone'))
+    } catch {
+      showToast(t('channelStyle.covers.uploadFailed'), 'error')
+    } finally {
+      setUploadingRubricIdx(null)
+    }
+  }
 
   // ── Brand color token helpers ─────────────────────────────────────────────
   const addColor = () =>
@@ -128,6 +185,12 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
     // color is re-seeded from these fields on reopen.
     saveData.primaryColor   = colors[0]?.hex && isValidHex(colors[0].hex) ? colors[0].hex : ''
     saveData.secondaryColor = colors[1]?.hex && isValidHex(colors[1].hex) ? colors[1].hex : ''
+    // Keep legacy htmlTemplates in sync with rubrics that carry a template, so any
+    // legacy reader (market previews, old code paths) still resolves a template.
+    const rubs = saveData.rubrics ?? []
+    saveData.htmlTemplates = rubs
+      .filter(r => r.templateUrl)
+      .map(r => ({ name: r.name, url: r.templateUrl! }))
     updateBrandKit(channelId, { visualKit: saveData })
   }
 
@@ -232,60 +295,14 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
     }
   }
 
-  const coverMode = data.coverMode ?? 'ai'
-
   return (
     <div className="space-y-5">
 
-      {/* Mode switcher */}
-      <div className="flex gap-1 p-1 rounded-[14px] bg-white/[0.04] border border-white/[0.06]">
-        {(['ai', 'html', 'ai_html'] as const).map(mode => {
-          const locked = mode !== 'ai' && !canUseHtml
-          const label = mode === 'ai'
-            ? '✦ AI'
-            : mode === 'html'
-              ? (locked ? '🔒 HTML' : '</> HTML')
-              : (locked ? '🔒 AI+HTML' : 'AI+HTML')
-          return (
-            <button
-              key={mode}
-              onClick={() => {
-                if (locked) {
-                  showToast(language === 'ru'
-                    ? 'Доступно на платных тарифах'
-                    : 'Available on paid plans', 'info')
-                  return
-                }
-                set('coverMode', mode)
-              }}
-              className={cn(
-                'flex-1 py-2 rounded-[10px] text-[11px] font-semibold transition-all',
-                coverMode === mode
-                  ? 'bg-[#FF6A00] text-white shadow-sm'
-                  : locked
-                  ? 'text-[#44444C]'
-                  : 'text-[#55555D] hover:text-[#A1A1AA]'
-              )}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </div>
+      {/* Channel-level cover identity (colors, logo, ratio, language) + AI image
+          style settings are always shown. The cover MODE is no longer a global
+          toggle — it lives per rubric below. */}
 
-      {/* AI+HTML — no own settings: it combines the AI and HTML modes. Just a note + Save. */}
-      {coverMode === 'ai_html' && (
-        <div className="p-4 rounded-[14px] bg-white/[0.03] border border-white/[0.06] space-y-2">
-          <p className="text-sm font-semibold text-white">{t('channelStyle.covers.hybridTitle')}</p>
-          <p className="text-[13px] text-[#A1A1AA] leading-relaxed">{t('channelStyle.covers.hybridDesc')}</p>
-          <p className="text-[12px] text-[#55555D]">{t('channelStyle.covers.hybridSave')}</p>
-        </div>
-      )}
-
-      {/* Everything below is hidden in AI+HTML (settings come from the AI / HTML modes). */}
-      {coverMode !== 'ai_html' && <>
-
-      {/* Color Tokens — visible in both modes (HTML mode needs --primary/--bg) */}
+      {/* Color Tokens — needed by HTML/hybrid covers (--primary/--bg) and AI mood */}
       <div>
         <div className="flex items-start justify-between gap-2 mb-1">
           <div>
@@ -478,8 +495,8 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         ]}
       />
 
-      {/* ── AI MODE ─────────────────────────────────────────────────────────── */}
-      {coverMode === 'ai' && <>
+      {/* ── AI image style (channel-level — used by AI / hybrid covers) ──────── */}
+      <>
 
       {/* Background detail — how busy the generated scene is (hybrid reuses it) */}
       <OptionPills<CoverBgDetail>
@@ -720,105 +737,104 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
         />
       </div>
 
-      </> /* end AI mode */}
+      </>
 
-      {/* ── HTML MODE ───────────────────────────────────────────────────────── */}
-      {coverMode === 'html' && <>
-
-      {/* Hidden file input — shared, triggered programmatically with index */}
-      <input
-        ref={htmlInputRef}
-        type="file"
-        accept=".html,text/html"
-        className="hidden"
-        onChange={e => {
-          const file = e.target.files?.[0]
-          const idx  = Number(htmlInputRef.current?.dataset['idx'] ?? 0)
-          if (file) uploadHtmlTemplate(file, idx)
-          e.target.value = ''
-        }}
-      />
-
+      {/* ── Rubrics — content type → cover recipe (mode + optional template) ─── */}
       <div>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-1">
           <div>
             <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider">
-              {language === 'ru' ? 'Шаблоны по рубрикам' : 'Templates by rubric'}
+              {language === 'ru' ? 'Рубрики' : 'Rubrics'}
             </p>
             <p className="text-[11px] text-[#55555D] mt-0.5">
               {language === 'ru'
-                ? 'AI выберет подходящий шаблон для каждого поста по названию рубрики'
-                : 'AI picks the best template for each post based on rubric name'}
+                ? 'AI относит пост к рубрике, а её режим решает, как собрать обложку'
+                : 'AI assigns each post to a rubric; its mode decides how the cover is built'}
             </p>
           </div>
-          <button
-            onClick={addHtmlTemplate}
-            className="text-[12px] font-semibold text-[#FF6A00] hover:text-[#ff8c3a] transition-colors shrink-0"
-          >
+          <button onClick={addRubric} className="text-[12px] font-semibold text-[#FF6A00] hover:text-[#ff8c3a] transition-colors shrink-0">
             + {language === 'ru' ? 'Добавить' : 'Add'}
           </button>
         </div>
 
-        {htmlTemplates().length === 0 ? (
-          <button
-            onClick={addHtmlTemplate}
-            className="w-full flex flex-col items-center gap-2 py-8 rounded-[14px] bg-white/[0.02] border border-white/[0.06] border-dashed hover:border-[#FF6A00]/30 transition-colors"
-          >
+        {/* shared hidden file input for rubric template upload */}
+        <input ref={rubricFileRef} type="file" accept=".html,text/html" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; const idx = Number(rubricFileRef.current?.dataset['idx'] ?? 0); if (f) uploadRubricTemplate(f, idx); e.target.value = '' }} />
+
+        {rubrics().length === 0 ? (
+          <button onClick={addRubric} className="w-full flex flex-col items-center gap-2 py-8 mt-2 rounded-[14px] bg-white/[0.02] border border-white/[0.06] border-dashed hover:border-[#FF6A00]/30 transition-colors">
             <FileCode size={24} className="text-[#44444C]" />
-            <p className="text-[12px] text-[#44444C]">
-              {language === 'ru' ? 'Нажми чтобы добавить первый шаблон' : 'Click to add your first template'}
-            </p>
+            <p className="text-[12px] text-[#44444C]">{language === 'ru' ? 'Добавь первую рубрику' : 'Add your first rubric'}</p>
           </button>
         ) : (
-          <div className="space-y-2">
-            {htmlTemplates().map((tpl, i) => {
-              const isUploading = isUploadingHtml && uploadingHtmlIdx === i
-              const hasFile     = !!tpl.url
+          <div className="space-y-2 mt-2">
+            {rubrics().map((r, i) => {
+              const hasTpl    = !!r.templateUrl
+              const uploading = uploadingRubricIdx === i
               return (
-                <div key={i} className="rounded-[14px] bg-white/[0.03] border border-white/[0.06] overflow-hidden">
-                  {/* Name row */}
-                  <div className="flex items-center gap-2 px-3 pt-3 pb-2">
-                    <FileCode size={14} className={cn('shrink-0', hasFile ? 'text-[#FF6A00]' : 'text-[#44444C]')} />
+                <div key={r.id} className="rounded-[14px] bg-white/[0.03] border border-white/[0.06] p-3 space-y-2">
+                  <div className="flex items-center gap-2">
                     <input
-                      value={tpl.name}
-                      onChange={e => updateHtmlTemplateName(i, e.target.value)}
-                      placeholder={language === 'ru' ? 'Название рубрики...' : 'Rubric name...'}
+                      value={r.name}
+                      onChange={e => updateRubric(i, { name: e.target.value })}
+                      placeholder={language === 'ru' ? 'Название рубрики' : 'Rubric name'}
                       className="flex-1 bg-transparent text-[13px] font-medium text-white placeholder:text-[#44444C] outline-none"
                     />
-                    <button onClick={() => removeHtmlTemplate(i)} className="text-[#44444C] hover:text-red-400 transition-colors shrink-0">
-                      <X size={13} />
-                    </button>
+                    <button onClick={() => removeRubric(i)} className="text-[#44444C] hover:text-red-400 transition-colors shrink-0"><X size={13} /></button>
                   </div>
-                  {/* File row */}
-                  <div className="flex items-center gap-2 px-3 pb-3">
-                    {hasFile ? (
+                  <textarea
+                    value={r.description ?? ''}
+                    onChange={e => updateRubric(i, { description: e.target.value })}
+                    placeholder={language === 'ru' ? 'Описание — помогает AI относить посты в эту рубрику' : 'Description — helps AI classify posts here'}
+                    rows={2}
+                    className="glass-input w-full px-2.5 py-1.5 text-[12px] resize-none"
+                  />
+                  {/* mode selector — html / hybrid need a template (and a paid plan) */}
+                  <div className="flex gap-1 p-0.5 rounded-[10px] bg-white/[0.04] border border-white/[0.06]">
+                    {([['ai', '✦ AI'], ['html', '</> HTML'], ['ai_html', 'AI+HTML']] as const).map(([m, label]) => {
+                      const enabled = m === 'ai' || (hasTpl && canUseHtml)
+                      return (
+                        <button
+                          key={m}
+                          onClick={() => {
+                            if (!enabled) {
+                              showToast(!canUseHtml
+                                ? (language === 'ru' ? 'Доступно на платных тарифах' : 'Available on paid plans')
+                                : (language === 'ru' ? 'Сначала загрузите шаблон' : 'Attach a template first'), 'info')
+                              return
+                            }
+                            updateRubric(i, { mode: m })
+                          }}
+                          className={cn('flex-1 py-1.5 rounded-[8px] text-[11px] font-semibold transition-all',
+                            r.mode === m ? 'bg-[#FF6A00] text-white' : enabled ? 'text-[#55555D] hover:text-[#A1A1AA]' : 'text-[#3A3A42]')}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {/* template attach / replace / remove */}
+                  <div className="flex items-center gap-2">
+                    {hasTpl ? (
                       <span className="flex-1 text-[11px] text-[#55555D] truncate font-mono">
-                        {tpl.url.split('/').pop()?.split('?')[0]}
+                        {r.templateName ?? r.templateUrl!.split('/').pop()?.split('?')[0]}
                       </span>
                     ) : (
-                      <span className="flex-1 text-[11px] text-[#44444C]">
-                        {language === 'ru' ? 'Файл не загружен' : 'No file uploaded'}
-                      </span>
+                      <span className="flex-1 text-[11px] text-[#44444C]">{language === 'ru' ? 'Без шаблона → только AI' : 'No template → AI only'}</span>
                     )}
                     <button
-                      onClick={() => {
-                        if (htmlInputRef.current) {
-                          htmlInputRef.current.dataset['idx'] = String(i)
-                          htmlInputRef.current.click()
-                        }
-                      }}
-                      disabled={isUploading || authStatus !== 'authenticated'}
+                      onClick={() => { if (rubricFileRef.current) { rubricFileRef.current.dataset['idx'] = String(i); rubricFileRef.current.click() } }}
+                      disabled={uploading || authStatus !== 'authenticated'}
                       className="flex items-center gap-1 text-[11px] font-medium text-[#FF6A00] hover:text-[#ff8c3a] disabled:opacity-40 transition-colors shrink-0"
                     >
-                      {isUploading
+                      {uploading
                         ? <><Loader2 size={10} className="animate-spin" />{language === 'ru' ? 'Загрузка...' : 'Uploading...'}</>
-                        : <><Upload size={10} />{hasFile ? (language === 'ru' ? 'Заменить' : 'Replace') : (language === 'ru' ? 'Загрузить .html' : 'Upload .html')}</>
+                        : <><Upload size={10} />{hasTpl ? (language === 'ru' ? 'Заменить' : 'Replace') : (language === 'ru' ? 'Загрузить .html' : 'Upload .html')}</>
                       }
                     </button>
-                    {hasFile && (
-                      <button onClick={() => window.open(tpl.url, '_blank')} className="text-[11px] text-[#55555D] hover:text-[#A1A1AA] transition-colors shrink-0">
-                        ↗
-                      </button>
+                    {hasTpl && (
+                      <button onClick={() => updateRubric(i, { templateUrl: undefined, templateName: undefined, mode: 'ai' })}
+                        className="text-[11px] text-[#55555D] hover:text-red-400 transition-colors shrink-0">{language === 'ru' ? 'Убрать' : 'Remove'}</button>
                     )}
                   </div>
                 </div>
@@ -839,10 +855,6 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           </div>
         </div>
       </div>
-
-      </> /* end HTML mode */}
-
-      </> /* end non-(AI+HTML) settings */}
 
       <Button variant="primary" size="md" onClick={handleSave} fullWidth>
         {t('channelStyle.save.covers')}

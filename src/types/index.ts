@@ -133,7 +133,12 @@ export interface VisualKit {
   visualCoverStyle?: string
   // Named HTML cover templates — one per channel rubric/content type.
   // AI picks the best match for each post; falls back to Satori if none fit.
+  // Legacy: superseded by `rubrics` (kept in sync for backward compatibility).
   htmlTemplates?: HtmlTemplateItem[]
+  // Content-type rubrics. When present, each post is classified into a rubric
+  // whose `mode` + template decide the cover — replacing the channel coverMode
+  // toggle. Absent → legacy coverMode + htmlTemplates path (unchanged).
+  rubrics?: Rubric[]
   // Cover generation mode:
   //   'ai'      — Flux neural image
   //   'html'    — user HTML templates / Sonnet structured cover
@@ -167,6 +172,21 @@ export interface HtmlTemplateItem {
   // real cover-generation time (AI fills slots then).
   demoSlots?: Record<string, string>
 }
+
+// A content-type rubric for a channel. The AI classifies each post into one,
+// and the rubric's `mode` + optional `template` decide how the cover is built —
+// replacing the channel-wide coverMode toggle. Without a template only 'ai' is
+// available; with a template the user picks 'html' or 'ai_html' too.
+export interface Rubric {
+  id:           string
+  name:         string
+  description?: string
+  mode:         CoverMode
+  templateUrl?: string   // the rubric's HTML cover template (html / ai_html modes)
+  templateName?: string  // original filename, for display only
+}
+
+export type CoverMode = 'ai' | 'html' | 'ai_html'
 
 // A purchasable cover-style PACK from the Styles market (mirrors the server
 // Style model's public shape, see server/src/lib/styles.ts serializeStyle).
