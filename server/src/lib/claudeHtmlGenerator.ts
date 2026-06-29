@@ -121,33 +121,30 @@ export function composeTemplateOverPhoto(
   options:    HybridTemplatePhotoOptions = {},
 ): string {
   const safeUrl = photoUrl.replace(/"/g, '\\"');
-  const zone = options.contentZone ?? 'full';
-  const localScrim: Record<string, string> = {
-    center: 'radial-gradient(ellipse at center, rgba(0,0,0,.76) 0%, rgba(0,0,0,.56) 44%, rgba(0,0,0,.62) 100%)',
-    bottom: 'linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
-    top:    'linear-gradient(to bottom, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
-    left:   'linear-gradient(to right, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
-    right:  'linear-gradient(to left, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
-    full:   options.backgroundKind === 'abstract'
-      ? 'linear-gradient(rgba(0,0,0,.42),rgba(0,0,0,.42))'
-      : 'linear-gradient(rgba(0,0,0,.58),rgba(0,0,0,.58))',
-  };
-
-  // The photo IS the background now, so suppress template-only decorative glows
-  // and add a zone-aware scrim. The original templates keep these effects for
-  // pure HTML mode; this patch only exists in AI+HTML hybrid rendering.
+  // The photo IS the background now. Keep it clean and full-quality: readability
+  // is handled by the template UI elements themselves, not by dimming the image.
   const photoBg =
     `<style id="cf-photo-bg">` +
-    `body{background:${localScrim[zone]},url("${safeUrl}") center/cover no-repeat !important;}` +
+    `body{background:url("${safeUrl}") center/cover no-repeat !important;}` +
     `body::before,body::after{background-image:none !important;}` +
     `.glow,.rings{display:none !important;}` +
+    `.topbar{background:rgba(5,7,10,.42) !important;border-color:rgba(255,255,255,.24) !important;box-shadow:0 14px 42px rgba(0,0,0,.18);backdrop-filter:blur(12px) saturate(125%);}` +
+    `.rubric-pill,.rubric,.badge{box-shadow:0 10px 28px rgba(0,0,0,.28);}` +
     `.hero{position:relative;isolation:isolate;}` +
-    `.hero::before{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(900px,88%);height:min(390px,62%);border-radius:38px;background:linear-gradient(180deg,rgba(0,0,0,.52),rgba(0,0,0,.36));box-shadow:0 28px 90px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.08);backdrop-filter:blur(14px) saturate(115%);z-index:0;}` +
-    `.hero>*{position:relative;z-index:1;}` +
-    `:where(.title,.lead,.headline,.subtitle,.project,.ticker,.quote,.row,.item,.step,.head){text-shadow:0 3px 22px rgba(0,0,0,.78),0 1px 2px rgba(0,0,0,.72);}` +
-    `:where(.lead,.sub,.subtitle,.muted){color:rgba(255,255,255,.90) !important;}` +
-    `:where(.stat .v,.stat .l,.metric,.label){text-shadow:0 2px 16px rgba(0,0,0,.86);}` +
-    `:where(.stat .l,.label){color:rgba(255,255,255,.78) !important;}` +
+    `.hero::before{display:none !important;}` +
+    `.title{background:none !important;border:0 !important;box-shadow:none !important;padding:0 !important;}` +
+    `.title .white,.title .accent{padding:.015em .07em .045em;border-radius:.12em;background:rgba(5,7,10,.26);-webkit-box-decoration-break:clone;box-decoration-break:clone;}` +
+    `.lead{display:inline;max-width:780px;background:rgba(5,7,10,.30);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:.10em .28em;-webkit-box-decoration-break:clone;box-decoration-break:clone;}` +
+    `.stats{gap:18px !important;margin-top:2px !important;}` +
+    `.stat{min-width:126px;padding:10px 18px;border-radius:18px;background:rgba(5,7,10,.34);border:1px solid rgba(255,255,255,.14);box-shadow:0 10px 30px rgba(0,0,0,.20);backdrop-filter:blur(8px) saturate(118%);}` +
+    `.lvl,.card,.pill,.step{background-color:rgba(5,7,10,.34) !important;border-color:rgba(255,255,255,.18) !important;backdrop-filter:blur(8px) saturate(118%);}` +
+    `:where(.tags .t,.tag,.chip){background:rgba(5,7,10,.34) !important;border-color:rgba(255,255,255,.24) !important;color:rgba(255,255,255,.94) !important;box-shadow:0 8px 22px rgba(0,0,0,.20);backdrop-filter:blur(8px) saturate(118%);}` +
+    `.handle{background:rgba(5,7,10,.26);border-radius:16px;padding:7px 14px;color:rgba(255,255,255,.82) !important;text-shadow:0 2px 12px rgba(0,0,0,.70);}` +
+    `:where(.title,.lead,.headline,.subtitle,.project,.ticker,.quote,.row,.item,.step,.head){text-shadow:0 4px 18px rgba(0,0,0,.88),0 1px 2px rgba(0,0,0,.80);}` +
+    `:where(.lead,.sub,.subtitle,.muted){color:rgba(255,255,255,.94) !important;}` +
+    `:where(.stat .v,.stat .l,.metric,.label){text-shadow:0 2px 14px rgba(0,0,0,.88);}` +
+    `:where(.stat .v){color:#fff !important;}` +
+    `:where(.stat .l,.label){color:rgba(255,255,255,.84) !important;}` +
     `</style>`;
   return insertIntoHead(injectBrandTokens(filledHtml, brand), photoBg);
 }

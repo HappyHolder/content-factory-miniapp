@@ -317,7 +317,7 @@ export async function generateImageForPost(
     right: 'the right side', center: 'the central area',
   };
   const zoneClause = (input.calmZone && input.calmZone !== 'full' && calmZonePhrase[input.calmZone])
-    ? `; keep ${calmZonePhrase[input.calmZone]} a touch calmer and lower-contrast (NOT empty, NOT black) so overlaid text stays legible`
+    ? `; keep ${calmZonePhrase[input.calmZone]} calm, low-contrast and free of bright focal subjects, glowing orbs, faces, devices, logos, hard edges, or high-detail objects directly behind the future HTML text; keep visual detail around that zone, not under it (NOT empty, NOT black)`
     : '';
   const compositionHint = input.backgroundOnly
     ? (input.backgroundKind === 'abstract'
