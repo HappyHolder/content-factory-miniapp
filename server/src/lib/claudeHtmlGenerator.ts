@@ -110,7 +110,7 @@ export function injectBrandTokens(html: string, brand: CoverBrandTokens): string
  * Hybrid deterministic path: lay the channel's OWN (already slot-filled) template
  * over a generated photo, instead of letting the model compose a generic card.
  * Applies the brand tokens and replaces the template's flat background with the
- * photo + a readability scrim. The photo lives in `body{background}` so it sits
+ * photo. The photo lives in `body{background}` so it sits
  * BELOW all template content (no z-index games), and uses !important so it wins
  * over the template's own background rule.
  */
@@ -121,24 +121,12 @@ export function composeTemplateOverPhoto(
   options:    HybridTemplatePhotoOptions = {},
 ): string {
   const safeUrl = photoUrl.replace(/"/g, '\\"');
-  const zone = options.contentZone ?? 'full';
-  const localScrim: Record<string, string> = {
-    center: 'radial-gradient(ellipse at center, rgba(0,0,0,.76) 0%, rgba(0,0,0,.56) 44%, rgba(0,0,0,.62) 100%)',
-    bottom: 'linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
-    top:    'linear-gradient(to bottom, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
-    left:   'linear-gradient(to right, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
-    right:  'linear-gradient(to left, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
-    full:   options.backgroundKind === 'abstract'
-      ? 'linear-gradient(rgba(0,0,0,.42),rgba(0,0,0,.42))'
-      : 'linear-gradient(rgba(0,0,0,.58),rgba(0,0,0,.58))',
-  };
 
-  // The photo IS the background now, so suppress template-only decorative glows
-  // and add a zone-aware scrim. The original templates keep these effects for
-  // pure HTML mode; this patch only exists in AI+HTML hybrid rendering.
+  // The photo IS the background now, so keep it clean and suppress only template-only decorative glows.
+  // Pure HTML mode keeps the original effects.
   const photoBg =
     `<style id="cf-photo-bg">` +
-    `body{background:${localScrim[zone]},url("${safeUrl}") center/cover no-repeat !important;}` +
+    `body{background:url("${safeUrl}") center/cover no-repeat !important;}` +
     `body::before,body::after{background-image:none !important;}` +
     `.glow,.rings{display:none !important;}` +
     `:where(.title,.lead,.headline,.subtitle,.project,.ticker,.quote,.row,.item,.step,.head){text-shadow:0 2px 18px rgba(0,0,0,.50);}` +

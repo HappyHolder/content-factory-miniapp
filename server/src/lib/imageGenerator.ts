@@ -324,7 +324,7 @@ export async function generateImageForPost(
         ? '. Composition: abstract low-detail background texture only, soft atmospheric material, blurred shapes, subtle noise, premium lighting, no literal room, no person, no object, no device, no focal subject; fill the whole frame calmly edge to edge'
         : input.calmZone
           ? `. Composition: ${detailFill}${zoneClause}`
-          : '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay')
+          : '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is calm, uncluttered negative space with natural atmosphere only, reserved for a text overlay')
     : '';
 
   // Logo is composited via sharp AFTER generation — never passed to the model
