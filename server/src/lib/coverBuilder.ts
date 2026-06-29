@@ -38,6 +38,15 @@ export function parseHtmlTemplates(vkObj: Record<string, unknown>): { name: stri
     : [];
 }
 
+type HybridBackgroundKind = 'photo' | 'abstract';
+
+function inferHybridBackgroundKind(referenceHtml: string | null, templateName?: string | null): HybridBackgroundKind {
+  const haystack = `${templateName ?? ''}\n${referenceHtml ?? ''}`.toLowerCase();
+  const isQuote = /quote_|author_|opinion|quote|04-/.test(haystack);
+  const isDenseUi = /class="[^"]*(card|cards|grid|list|row|recap)[^"]*"/.test(haystack) || /(^|[\\/\\s_-])(top|recap)([\\s_.-]|$)/.test(haystack);
+  return isQuote || isDenseUi ? 'abstract' : 'photo';
+}
+
 export interface BuildCoverInput {
   coverMode:    'ai' | 'html' | 'ai_html';
   useBrandKit:  boolean;
@@ -130,6 +139,7 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
           visualKit,
           artDirection: imagePrompt?.trim() || undefined,
           fullBleed: willRenderTemplateOverPhoto,
+          backgroundKind: referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo',
         });
       } catch (err) {
         console.warn('[coverBuilder] Hybrid: bg prompt generation failed:', (err as Error).message);
@@ -141,7 +151,7 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
       if (bgPrompt) {
         for (let attempt = 1; attempt <= 2 && !bgUrl; attempt++) {
           try {
-            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true, calmZone: templateCalmZone, model: imageModel });
+            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true, calmZone: templateCalmZone, backgroundKind: referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo', model: imageModel });
             bgUrl = bg?.bannerUrl ?? null;
             if (!bgUrl) console.warn(`[coverBuilder] Hybrid: Flux bg attempt ${attempt} returned no image`);
           } catch (err) {
@@ -156,7 +166,10 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
       //     colors/logo, scrim for readability) instead of letting the model
       //     compose a generic card. Guarantees originality per channel.
       if (bgUrl && filledTemplate) {
-        const composed = composeTemplateOverPhoto(filledTemplate, bgUrl, brand);
+        const composed = composeTemplateOverPhoto(filledTemplate, bgUrl, brand, {
+          contentZone: templateCalmZone,
+          backgroundKind: referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo',
+        });
         cover = await renderHtmlString(composed, aspectRatio);
         if (!cover) console.warn('[coverBuilder] Hybrid: template-over-photo render failed');
         else console.log('[coverBuilder] Hybrid: rendered channel template over photo (deterministic)');

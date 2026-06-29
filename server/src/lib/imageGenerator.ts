@@ -199,6 +199,7 @@ export interface GenerateImageInput {
    * used as the background layer for the AI+HTML hybrid cover.
    */
   backgroundOnly?: boolean;
+  backgroundKind?: 'photo' | 'abstract';
   /**
    * Where the template's text sits, so the photo keeps THAT zone a touch calmer
    * for legibility while the rest of the frame stays full of detail. Set only on
@@ -319,9 +320,11 @@ export async function generateImageForPost(
     ? `; keep ${calmZonePhrase[input.calmZone]} a touch calmer and lower-contrast (NOT empty, NOT black) so overlaid text stays legible`
     : '';
   const compositionHint = input.backgroundOnly
-    ? (input.calmZone
-        ? `. Composition: ${detailFill}${zoneClause}`
-        : '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay')
+    ? (input.backgroundKind === 'abstract'
+        ? '. Composition: abstract low-detail background texture only, soft atmospheric material, blurred shapes, subtle noise, premium lighting, no literal room, no person, no object, no device, no focal subject; fill the whole frame calmly edge to edge'
+        : input.calmZone
+          ? `. Composition: ${detailFill}${zoneClause}`
+          : '. Composition: main subject in the upper third of the frame, slightly above center; the lower half is dark, calm, uncluttered negative space (subtle gradient or atmosphere only) reserved for a text overlay')
     : '';
 
   // Logo is composited via sharp AFTER generation — never passed to the model

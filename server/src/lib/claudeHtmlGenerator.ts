@@ -80,6 +80,11 @@ export interface CoverBrandTokens {
   logoUrl?:     string | null;
 }
 
+export interface HybridTemplatePhotoOptions {
+  contentZone?: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
+  backgroundKind?: 'photo' | 'abstract';
+}
+
 /** Inserts a snippet at the end of <head> (or best-effort if no head). */
 function insertIntoHead(html: string, snippet: string): string {
   if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${snippet}</head>`);
@@ -113,21 +118,35 @@ export function composeTemplateOverPhoto(
   filledHtml: string,
   photoUrl:   string,
   brand:      CoverBrandTokens,
+  options:    HybridTemplatePhotoOptions = {},
 ): string {
   const safeUrl = photoUrl.replace(/"/g, '\\"');
-  // The photo IS the background now, so kill the template's own background
-  // decorations (grid/glow patterns drawn via body::before/::after as
-  // background-image) — they'd otherwise sit on top of the photo. Border/strip
-  // frame elements are real DOM and stay, so the channel's frame identity holds.
+  const zone = options.contentZone ?? 'full';
+  const localScrim: Record<string, string> = {
+    center: 'radial-gradient(ellipse at center, rgba(0,0,0,.76) 0%, rgba(0,0,0,.56) 44%, rgba(0,0,0,.62) 100%)',
+    bottom: 'linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
+    top:    'linear-gradient(to bottom, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
+    left:   'linear-gradient(to right, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
+    right:  'linear-gradient(to left, rgba(0,0,0,.82) 0%, rgba(0,0,0,.62) 42%, rgba(0,0,0,.42) 100%)',
+    full:   options.backgroundKind === 'abstract'
+      ? 'linear-gradient(rgba(0,0,0,.42),rgba(0,0,0,.42))'
+      : 'linear-gradient(rgba(0,0,0,.58),rgba(0,0,0,.58))',
+  };
+
+  // The photo IS the background now, so suppress template-only decorative glows
+  // and add a zone-aware scrim. The original templates keep these effects for
+  // pure HTML mode; this patch only exists in AI+HTML hybrid rendering.
   const photoBg =
     `<style id="cf-photo-bg">` +
-    `body{background:linear-gradient(rgba(0,0,0,.50),rgba(0,0,0,.50)),url("${safeUrl}") center/cover no-repeat !important;}` +
+    `body{background:${localScrim[zone]},url("${safeUrl}") center/cover no-repeat !important;}` +
     `body::before,body::after{background-image:none !important;}` +
+    `.glow,.rings{display:none !important;}` +
+    `:where(.title,.lead,.headline,.subtitle,.project,.ticker,.quote,.row,.item,.step,.head){text-shadow:0 2px 18px rgba(0,0,0,.50);}` +
+    `:where(.lead,.sub,.subtitle,.muted){color:rgba(255,255,255,.86) !important;}` +
     `</style>`;
   return insertIntoHead(injectBrandTokens(filledHtml, brand), photoBg);
 }
-
-// ─── Logo placement extraction ─────────────────────────────────────────────────
+// Logo placement extraction
 // In AI+HTML mode the overlay model would otherwise draw the logo wherever it
 // likes (different corner/size every run, temperature > 0). Instead we read the
 // logo's geometry from the channel's template CSS and inject the brand logo with

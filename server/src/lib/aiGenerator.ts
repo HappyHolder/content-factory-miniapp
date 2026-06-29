@@ -625,6 +625,7 @@ export interface GenerateImagePromptParams {
    * Default (false) keeps the lower third calmer for a bottom-stacked headline.
    */
   fullBleed?: boolean;
+  backgroundKind?: 'photo' | 'abstract';
 }
 
 /**
@@ -641,10 +642,16 @@ export async function generateImagePromptWithAI(
 ): Promise<string | null> {
   if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
 
-  const { title, excerpt, visualKit, artDirection, fullBleed } = params;
+  const { title, excerpt, visualKit, artDirection, fullBleed, backgroundKind } = params;
   const styleDesc = buildVisualStyleDescription(visualKit);
 
-  const compositionRule = fullBleed
+  const subjectRule = backgroundKind === 'abstract'
+    ? 'Create an abstract, low-detail background texture or soft material surface. Use blurred shapes, atmospheric light, subtle noise, glass, fabric, metal, or gradient depth. Do NOT depict a literal room, person, object, device, chart, logo, screenshot, or recognizable scene. '
+    : 'Depict a real scene or visual metaphor that conveys the topic (people, places, objects, devices, nature, technology). ';
+
+  const compositionRule = backgroundKind === 'abstract'
+    ? 'CRITICAL COMPOSITION: the image is only a background material for an HTML template. Keep it calm, low-contrast, non-literal, text-free, and free of focal objects. Fill the whole frame with a premium abstract texture. '
+    : fullBleed
     ? 'CRITICAL COMPOSITION: the scene must FILL the entire square frame with rich detail from the very top edge to the very bottom edge. ' +
       'The FOREGROUND and the bottom of the frame must be as visually detailed and interesting as the center — ' +
       'explicitly AVOID large flat empty floors, tabletops, counters, plain skies, blank walls, or dark voids in the lower half. ' +
@@ -655,7 +662,7 @@ export async function generateImagePromptWithAI(
     'You are a visual art director writing prompts for AI image generation models. ' +
     'Given a post topic and brand style, write a short visual description (40-70 words) ' +
     'for a square Telegram post cover image. ' +
-    'Depict a real scene or visual metaphor that conveys the topic (people, places, objects, devices, nature, technology). ' +
+    subjectRule +
     'NEVER depict text, numbers, letters, digits, UI copy, or written words — the image must be purely pictorial, ' +
     'because a headline is overlaid on top afterwards. ' +
     'If the topic is a metric or abstract idea (user growth, a milestone, an announcement), express it through a metaphor ' +
@@ -832,6 +839,7 @@ export async function fillTemplateSlots(
     '- A description/subtitle slot gets one short sentence.\n' +
     'Naming hints (common conventions, when present): *_VALUE = one metric/number/keyword, *_LABEL = its caption; ' +
     'TITLE/HEADLINE (or a TITLE split into _WHITE/_ACCENT parts) = the huge headline, keep it to 2-3 short words total; ' +
+    'QUOTE/QUOTE_WHITE/QUOTE_ACCENT = a real quote or quote-like thought from the post. Preserve the quote\'s meaning and as much exact wording as fits; do NOT compress it into a slogan. Split the quote so QUOTE_WHITE carries the main phrase and QUOTE_ACCENT carries only the final 2-5 key words. Target 55-120 characters total when the template has a large quote card. ' +
     'AUTHOR/HANDLE/SIGNATURE = the channel\'s project/brand name (from name/about), NOT the raw @handle; ' +
     'RUBRIC/SECTION/CATEGORY = the channel\'s section label; TAGS = the channel\'s hashtags.\n\n' +
     'General rules:\n' +
