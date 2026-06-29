@@ -141,13 +141,8 @@ export function composeTemplateOverPhoto(
     `body{background:${localScrim[zone]},url("${safeUrl}") center/cover no-repeat !important;}` +
     `body::before,body::after{background-image:none !important;}` +
     `.glow,.rings{display:none !important;}` +
-    `.hero{position:relative;isolation:isolate;}` +
-    `.hero::before{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(900px,88%);height:min(390px,62%);border-radius:38px;background:linear-gradient(180deg,rgba(0,0,0,.52),rgba(0,0,0,.36));box-shadow:0 28px 90px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.08);backdrop-filter:blur(14px) saturate(115%);z-index:0;}` +
-    `.hero>*{position:relative;z-index:1;}` +
-    `:where(.title,.lead,.headline,.subtitle,.project,.ticker,.quote,.row,.item,.step,.head){text-shadow:0 3px 22px rgba(0,0,0,.78),0 1px 2px rgba(0,0,0,.72);}` +
-    `:where(.lead,.sub,.subtitle,.muted){color:rgba(255,255,255,.90) !important;}` +
-    `:where(.stat .v,.stat .l,.metric,.label){text-shadow:0 2px 16px rgba(0,0,0,.86);}` +
-    `:where(.stat .l,.label){color:rgba(255,255,255,.78) !important;}` +
+    `:where(.title,.lead,.headline,.subtitle,.project,.ticker,.quote,.row,.item,.step,.head){text-shadow:0 2px 18px rgba(0,0,0,.50);}` +
+    `:where(.lead,.sub,.subtitle,.muted){color:rgba(255,255,255,.86) !important;}` +
     `</style>`;
   return insertIntoHead(injectBrandTokens(filledHtml, brand), photoBg);
 }
