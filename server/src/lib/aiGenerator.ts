@@ -645,11 +645,6 @@ export async function generateImagePromptWithAI(
 
   const { title, excerpt, visualKit, artDirection, fullBleed, backgroundKind, hybridPrompt } = params;
   const styleDesc = buildVisualStyleDescription(visualKit);
-  const topicText = `${title} ${excerpt}`.toLowerCase();
-  const regulatoryGuidance = /mica|licen[cs]|regulat|compliance|sanction|\beu\b|europe|лиценз|регулятор|санкц|европ|криптокомпан/.test(topicText)
-    ? 'For regulatory, licensing, compliance, sanctions, or EU policy stories, create a specific regulation/compliance metaphor: crypto companies passing through an institutional checkpoint, stacks of license dossiers, sealed approval stamps without readable text, official gates, courthouse/parliament silhouettes, or a funnel filtering many crypto firms into a small approved group. Avoid generic empty city streets, random skyscraper hero shots, or unrelated office towers unless they are clearly part of a regulation/compliance scene. '
-    : '';
-
   const subjectRule = backgroundKind === 'abstract'
     ? 'Create an abstract, low-detail background texture or soft material surface. Use blurred shapes, atmospheric light, subtle noise, glass, fabric, metal, or gradient depth. Do NOT depict a literal room, person, object, device, chart, logo, screenshot, or recognizable scene. '
     : 'Depict a real scene or visual metaphor that conveys the topic (people, places, objects, devices, nature, technology). ';
@@ -665,9 +660,9 @@ export async function generateImagePromptWithAI(
     'Given a post topic and brand style, write a short visual description (40-70 words) ' +
     'for a square Telegram post cover image. ' +
     subjectRule +
-    regulatoryGuidance +
     'NEVER depict text, numbers, letters, digits, UI copy, or written words — the image must be purely pictorial, ' +
     'because a headline is overlaid on top afterwards. ' +
+    'The image must be specifically about the post: identify the central event, actor, conflict, consequence, or process and choose a concrete visual metaphor for THAT. Avoid generic cityscapes, random skyscrapers, empty rooms, vague technology backgrounds, or decorative mood shots unless they directly express the story. ' +
     'If the topic is a metric or abstract idea (user growth, a milestone, an announcement), express it through a metaphor ' +
     '(a crowd of people, a network of glowing nodes, a rising cityscape, a growing structure) rather than showing the number itself. ' +
     compositionRule +
