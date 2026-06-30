@@ -626,6 +626,7 @@ export interface GenerateImagePromptParams {
    */
   fullBleed?: boolean;
   backgroundKind?: 'photo' | 'abstract';
+  hybridPrompt?: string;
 }
 
 /**
@@ -642,7 +643,7 @@ export async function generateImagePromptWithAI(
 ): Promise<string | null> {
   if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
 
-  const { title, excerpt, visualKit, artDirection, fullBleed, backgroundKind } = params;
+  const { title, excerpt, visualKit, artDirection, fullBleed, backgroundKind, hybridPrompt } = params;
   const styleDesc = buildVisualStyleDescription(visualKit);
 
   const subjectRule = backgroundKind === 'abstract'
@@ -681,6 +682,7 @@ export async function generateImagePromptWithAI(
     `Brief: ${excerpt.slice(0, 200)}\n` +
     (styleDesc ? `Brand style: ${styleDesc}\n` : '') +
     (artDirection ? `User art direction (a hint for subject/style/mood only): ${artDirection.slice(0, 400)}\n` : '') +
+    (hybridPrompt ? `HTML template fit guidance (composition only, keep the image text-free): ${hybridPrompt.slice(0, 600)}\n` : '') +
     'Image prompt:';
 
   const controller = new AbortController();
@@ -1152,13 +1154,13 @@ export interface RubricItem {
   description?: string;
   mode:         'ai' | 'html' | 'ai_html';
   templateUrl?: string;
+  hybridPrompt?: string;
 }
 
 /**
- * Classifies a post into the single best-fitting channel rubric. The rubric then
- * decides the cover recipe (mode + template). A small, bounded decision (pick 1
- * of N) — DeepSeek is plenty; falls back to a keyword heuristic, then to a "misc"
- * rubric / the first one. Never throws.
+ * Classifies a post into the single best-fitting channel rubric. Returns null
+ * when no rubric truly fits, so the caller can keep the channel's default cover
+ * flow instead of forcing every post into a rubric.
  */
 export async function classifyPostRubric(
   title:   string,
@@ -1166,19 +1168,17 @@ export async function classifyPostRubric(
   rubrics: RubricItem[],
 ): Promise<RubricItem | null> {
   if (rubrics.length === 0) return null;
-  if (rubrics.length === 1) return rubrics[0]!;
 
-  const miscOrFirst = (): RubricItem =>
-    rubrics.find(r => /разное|прочее|misc|other|general/i.test(r.name)) ?? rubrics[0]!;
+  const miscRubric = (): RubricItem | null =>
+    rubrics.find(r => /разное|прочее|misc|other|general/i.test(r.name)) ?? null;
 
-  // Heuristic fallback: a word from a rubric's name/description appears in the post.
-  function heuristic(): RubricItem {
+  function heuristic(): RubricItem | null {
     const text = `${title} ${excerpt}`.toLowerCase();
     for (const r of rubrics) {
       const words = `${r.name} ${r.description ?? ''}`.toLowerCase().split(/\s+/);
       if (words.some(w => w.length > 3 && text.includes(w))) return r;
     }
-    return miscOrFirst();
+    return miscRubric();
   }
 
   if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return heuristic();
@@ -1187,8 +1187,8 @@ export async function classifyPostRubric(
     .map((r, i) => `${i}: "${r.name}"${r.description ? ` — ${r.description}` : ''}`)
     .join('\n');
   const systemPrompt =
-    'You assign a Telegram post to the SINGLE best-fitting channel rubric. ' +
-    'Respond with ONLY a JSON object: {"index": <number>}.\n\n' +
+    'You assign a Telegram post to the SINGLE best-fitting channel rubric, or to no rubric if none truly fits. ' +
+    'Respond with ONLY a JSON object: {"index": <number|null>}. Use null when no rubric fits.\n\n' +
     `Rubrics:\n${list}`;
   const userPrompt = `Post title: ${title}\nExcerpt: ${excerpt.slice(0, 400)}`;
 
@@ -1208,6 +1208,7 @@ export async function classifyPostRubric(
     if (!response.ok) return heuristic();
     const data   = await response.json() as { choices?: { message?: { content?: string } }[] };
     const parsed = JSON.parse(data.choices?.[0]?.message?.content?.trim() ?? '{}') as { index?: unknown };
+    if (parsed.index === null) return null;
     const idx    = typeof parsed.index === 'number' ? Math.round(parsed.index) : -1;
     return (idx >= 0 && idx < rubrics.length) ? rubrics[idx]! : heuristic();
   } catch {
@@ -1216,7 +1217,6 @@ export async function classifyPostRubric(
     clearTimeout(timeoutId);
   }
 }
-
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 /**

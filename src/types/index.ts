@@ -167,6 +167,10 @@ export type CoverBgStyle =
 export interface HtmlTemplateItem {
   name: string       // rubric label shown in UI, used by AI for matching
   url:  string       // public URL of the stored .html file
+  rubricName?: string
+  rubricDescription?: string
+  rubricMode?: CoverMode
+  hybridPrompt?: string
   // Demo slot→value map used only to render the static market preview for this
   // template (e.g. { TITLE_WHITE: 'Bitcoin', TAG: 'crypto' }). Not used at
   // real cover-generation time (AI fills slots then).
@@ -184,6 +188,7 @@ export interface Rubric {
   mode:         CoverMode
   templateUrl?: string   // the rubric's HTML cover template (html / ai_html modes)
   templateName?: string  // original filename, for display only
+  hybridPrompt?: string  // ai_html-only: how the AI background should fit this template
 }
 
 export type CoverMode = 'ai' | 'html' | 'ai_html'

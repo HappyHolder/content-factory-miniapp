@@ -41,6 +41,7 @@ function parseRubrics(vkObj: Record<string, unknown>): RubricItem[] {
       // A rubric without a template can only be 'ai' (html/hybrid need a template).
       mode:        templateUrl ? mode : 'ai',
       templateUrl,
+      hybridPrompt: typeof o['hybridPrompt'] === 'string' && o['hybridPrompt'].trim() ? o['hybridPrompt'].trim() : undefined,
     });
   }
   return out;
@@ -292,12 +293,14 @@ export async function createDraftPostForChannel(
   let rubricMode: 'ai' | 'html' | 'ai_html' | null = null;
   let rubricId: string | null = null;
   let rubricName: string | null = null;
+  let rubricHybridPrompt: string | undefined;
   if (rubrics.length > 0 && !coverModeOverride) {
     try {
       const chosen = await classifyPostRubric(title, sourceSummary, rubrics);
       if (chosen) {
         rubricMode = chosen.mode;
         rubricId = chosen.id; rubricName = chosen.name;
+        rubricHybridPrompt = chosen.hybridPrompt;
         if (chosen.templateUrl) rubricTemplate = { name: chosen.name, url: chosen.templateUrl };
         console.log(`[draftGenerator] Rubric "${chosen.name}" → mode=${chosen.mode}, template=${chosen.templateUrl ? 'yes' : 'no'}`);
       }
@@ -361,7 +364,7 @@ export async function createDraftPostForChannel(
 
   // ── Cover generation (extracted to coverBuilder; reused by set-rubric) ─────
   cover = await buildCover({
-    coverMode, useBrandKit, visualKit, vkObj, rubricTemplate,
+    coverMode, useBrandKit, visualKit, vkObj, rubricTemplate, rubricHybridPrompt,
     title, sourceSummary, finalTitle, input,
     imagePrompt: imagePrompt?.trim() || undefined,
     coverLanguage, aspectRatio, imageModel, slotBrandCtx,

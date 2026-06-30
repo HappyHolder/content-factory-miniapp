@@ -54,6 +54,7 @@ export interface BuildCoverInput {
   vkObj:        Record<string, unknown> | null;
   /** The chosen rubric's template (rubric path). Null → legacy keyword pick. */
   rubricTemplate: { name: string; url: string } | null;
+  rubricHybridPrompt?: string;
   title:        string;
   sourceSummary: string;
   finalTitle:   string;
@@ -71,7 +72,7 @@ export interface BuildCoverInput {
  */
 export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover | null> {
   const {
-    coverMode, useBrandKit, visualKit, vkObj, rubricTemplate,
+    coverMode, useBrandKit, visualKit, vkObj, rubricTemplate, rubricHybridPrompt,
     title, sourceSummary, finalTitle, input, imagePrompt, coverLanguage,
     aspectRatio, imageModel, slotBrandCtx,
   } = args;
@@ -140,11 +141,12 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
           artDirection: imagePrompt?.trim() || undefined,
           fullBleed: willRenderTemplateOverPhoto,
           backgroundKind: referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo',
+          hybridPrompt: rubricHybridPrompt,
         });
       } catch (err) {
         console.warn('[coverBuilder] Hybrid: bg prompt generation failed:', (err as Error).message);
       }
-      if (!bgPrompt) bgPrompt = imagePrompt?.trim() || null;
+      if (!bgPrompt) bgPrompt = [imagePrompt?.trim(), rubricHybridPrompt].filter(Boolean).join('. ') || null;
 
       // 3. Clean, text-free Flux background. One retry — a transient Replicate
       //    failure here would otherwise degrade the cover to a no-photo Satori card.

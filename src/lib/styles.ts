@@ -61,13 +61,65 @@ export async function verifyStyleTon(styleId: string, senderWallet: string): Pro
  * Merges a style into a channel's VisualKit. Cover-related fields are REPLACED
  * by the style; the channel's own logo (logoUrl) and unrelated fields are kept.
  */
+function defaultRubricDescription(name: string): string {
+  const n = name.trim().toLowerCase()
+  if (/новост|news/.test(n)) return 'Новости, важные события, объявления, изменения рынка, запуск продуктов и заметные инфоповоды.'
+  if (/сигнал|signal/.test(n)) return 'Торговые идеи, сигналы, сетапы, уровни входа, цели, стопы и краткие рыночные рекомендации.'
+  if (/листинг|listing/.test(n)) return 'Листинги, новые монеты, добавление токенов на биржи, запуск торгов и объявления площадок.'
+  if (/мнени|opinion|quote|insight/.test(n)) return 'Авторское мнение, цитаты, позиция эксперта, субъективный взгляд или короткий тезис.'
+  if (/аналит|analysis/.test(n)) return 'Аналитика, разбор графиков, метрик, причин движения, сценариев и рыночного контекста.'
+  if (/дайджест|recap|digest/.test(n)) return 'Дайджесты, итоги дня или недели, подборки нескольких важных событий в одном посте.'
+  if (/гайд|guide|how/.test(n)) return 'Гайды, инструкции, обучающие материалы, пошаговые объяснения и разборы для читателя.'
+  if (/топ|top|rating|list/.test(n)) return 'Топы, рейтинги, списки проектов, монет, инструментов, событий или идей.'
+  if (/партн|partner|sponsor/.test(n)) return 'Партнерские материалы, интеграции, спонсорские объявления и совместные запуски.'
+  return ''
+}
+
+function defaultHybridPrompt(name: string): string {
+  const n = name.trim().toLowerCase()
+  if (/мнени|opinion|quote|insight/.test(n)) return 'Create a calm abstract background or premium texture without literal objects, so the quote card remains the main focus.'
+  if (/дайджест|recap|digest|топ|top|rating|list/.test(n)) return 'Create a low-detail abstract or atmospheric background with no strong focal object, leaving the template cards and list items visually dominant.'
+  return 'Create a clean text-free background that leaves visual breathing room for the template header, central headline area, bottom tags, and channel handle. Do not add text, logos, UI labels, or competing interface elements.'
+}
+function rubricIdFromTemplate(styleSlug: string, index: number, name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9а-яё]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+  return `style-${styleSlug || 'pack'}-${slug || index + 1}`
+}
+
 export function applyStyleToVisualKit(style: MarketStyle, current: VisualKit): VisualKit {
+  const htmlTemplates = style.templates
+    .filter(t => t.url)
+    .map(t => ({ name: t.name, url: t.url, demoSlots: t.demoSlots }))
+
+  const rubrics = style.templates
+    .filter(t => t.url)
+    .map((t, i) => {
+      const name = (t.rubricName || t.name || `Rubric ${i + 1}`).trim()
+      const mode = t.rubricMode === 'ai' || t.rubricMode === 'html' || t.rubricMode === 'ai_html'
+        ? t.rubricMode
+        : style.recommendedMode
+      return {
+        id: rubricIdFromTemplate(style.slug, i, name),
+        name,
+        description: t.rubricDescription || defaultRubricDescription(name),
+        mode,
+        templateUrl: t.url,
+        templateName: t.name || t.url.split('/').pop()?.split('?')[0],
+        hybridPrompt: t.hybridPrompt || defaultHybridPrompt(name),
+      }
+    })
+
   return {
     ...current,
     coverMode:        style.recommendedMode,
     brandColors:      style.palette,
     visualCoverStyle: style.visualCoverStyle || current.visualCoverStyle,
-    htmlTemplates:    style.templates.map(t => ({ name: t.name, url: t.url })),
+    htmlTemplates,
+    rubrics,
     coverBgStyle:     (style.bgStyle as CoverBgStyle | null) ?? current.coverBgStyle,
     coverBgDetail:    (style.bgDetail as CoverBgDetail | null) ?? current.coverBgDetail,
     visualFontPreset: (style.fontPreset as VisualKit['visualFontPreset']) ?? current.visualFontPreset,

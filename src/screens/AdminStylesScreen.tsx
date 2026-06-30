@@ -255,6 +255,28 @@ export function AdminStylesScreen({ onBack }: AdminStylesScreenProps) {
                   <input value={tpl.name} onChange={e => updTpl(i, { name: e.target.value })} placeholder={isRu ? 'Рубрика (news, signal…)' : 'Rubric (news, signal…)'} className="glass-input flex-1 px-2 py-1.5 text-[12px]" />
                   <button onClick={() => delTpl(i)} className="text-[#55555D] hover:text-red-400"><X size={14} /></button>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={tpl.rubricName ?? ""} onChange={e => updTpl(i, { rubricName: e.target.value })} placeholder={isRu ? "Название рубрики" : "Rubric name"} className="glass-input px-2 py-1.5 text-[12px]" />
+                  <select value={tpl.rubricMode ?? draft.recommendedMode ?? "html"} onChange={e => updTpl(i, { rubricMode: e.target.value as HtmlTemplateItem["rubricMode"] })} className="glass-input px-2 py-1.5 text-[12px]">
+                    <option value="ai">AI</option>
+                    <option value="html">HTML</option>
+                    <option value="ai_html">AI+HTML</option>
+                  </select>
+                </div>
+                <textarea
+                  value={tpl.rubricDescription ?? ""}
+                  onChange={e => updTpl(i, { rubricDescription: e.target.value })}
+                  placeholder={isRu ? "Описание рубрики: когда выбирать этот шаблон" : "Rubric description: when this template should be used"}
+                  rows={2}
+                  className="glass-input w-full px-2 py-1.5 text-[11px] resize-none"
+                />
+                <textarea
+                  value={tpl.hybridPrompt ?? ""}
+                  onChange={e => updTpl(i, { hybridPrompt: e.target.value })}
+                  placeholder={isRu ? "AI+HTML: как фону лечь под этот шаблон" : "AI+HTML: how the background should fit this template"}
+                  rows={2}
+                  className="glass-input w-full px-2 py-1.5 text-[11px] resize-none"
+                />
                 <div className="flex items-center gap-2">
                   <span className="flex-1 text-[11px] text-[#55555D] truncate font-mono">{tpl.url ? tpl.url.split('/').pop() : (isRu ? 'нет файла' : 'no file')}</span>
                   <button

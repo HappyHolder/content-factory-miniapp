@@ -63,21 +63,6 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
       const derived = deriveInitialBrandColors(initialData, language === 'ru')
       if (derived.length > 0) base = { ...base, brandColors: derived }
     }
-    // Seed rubrics from legacy htmlTemplates when none exist yet, so an existing
-    // channel's templates show up as editable rubrics (mode from the old coverMode).
-    if (!Array.isArray(base.rubrics) && Array.isArray(base.htmlTemplates) && base.htmlTemplates.length > 0) {
-      const legacyMode = base.coverMode === 'html' || base.coverMode === 'ai_html' ? base.coverMode : 'html'
-      base = {
-        ...base,
-        rubrics: base.htmlTemplates.map((tpl, i) => ({
-          id:          `rub-legacy-${i}`,
-          name:        tpl.name || `Рубрика ${i + 1}`,
-          description: '',
-          mode:        tpl.url ? legacyMode : 'ai',
-          templateUrl: tpl.url || undefined,
-        })),
-      }
-    }
     return base
   })
 
@@ -789,6 +774,15 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
                     rows={2}
                     className="glass-input w-full px-2.5 py-1.5 text-[12px] resize-none"
                   />
+                  {r.mode === 'ai_html' && (
+                    <textarea
+                      value={r.hybridPrompt ?? ''}
+                      onChange={e => updateRubric(i, { hybridPrompt: e.target.value })}
+                      placeholder={language === 'ru' ? 'AI+HTML: как фону лечь под этот шаблон' : 'AI+HTML: how the background should fit this template'}
+                      rows={2}
+                      className="glass-input w-full px-2.5 py-1.5 text-[12px] resize-none"
+                    />
+                  )}
                   {/* mode selector — html / hybrid need a template (and a paid plan) */}
                   <div className="flex gap-1 p-0.5 rounded-[10px] bg-white/[0.04] border border-white/[0.06]">
                     {([['ai', '✦ AI'], ['html', '</> HTML'], ['ai_html', 'AI+HTML']] as const).map(([m, label]) => {
