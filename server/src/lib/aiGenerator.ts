@@ -653,10 +653,7 @@ export async function generateImagePromptWithAI(
   const compositionRule = backgroundKind === 'abstract'
     ? 'CRITICAL COMPOSITION: the image is only a background material for an HTML template. Keep it calm, low-contrast, non-literal, text-free, and free of focal objects. Fill the whole frame with a premium abstract texture. '
     : fullBleed
-    ? 'CRITICAL COMPOSITION: the scene must FILL the entire square frame with rich detail from the very top edge to the very bottom edge. ' +
-      'The FOREGROUND and the bottom of the frame must be as visually detailed and interesting as the center — ' +
-      'explicitly AVOID large flat empty floors, tabletops, counters, plain skies, blank walls, or dark voids in the lower half. ' +
-      'Choose a viewpoint and scene where the subject and its environment occupy the whole frame edge to edge (e.g. a wide immersive interior, a dense scene, a reflective floor full of light, foreground elements leading into the scene). '
+    ? 'CRITICAL COMPOSITION: the image is a background layer for an HTML template. Fill the square edge to edge with a coherent scene, but keep the overlay zones readable: no text, no labels, no bright competing focal elements, no busy details directly behind the headline, tags, brand bar, or channel handle. Use light and contrast inside the scene, not a flat dark overlay. '
     : 'Keep the lower third of the image calmer and less busy so the overlaid headline stays readable. ';
 
   const systemPrompt =

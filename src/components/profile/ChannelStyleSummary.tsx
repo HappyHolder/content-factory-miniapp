@@ -38,7 +38,7 @@ const COVER_STYLE_KEY: Record<BannerTemplate, TranslationKey> = {
 }
 
 export function ChannelStyleSummary({ brandKit }: ChannelStyleSummaryProps) {
-  const { t } = useApp()
+  const { t, language } = useApp()
   const { channelAbout, voiceProfile, postRules, visualKit } = brandKit
 
   const hasTopic = !!channelAbout?.topic
@@ -55,7 +55,13 @@ export function ChannelStyleSummary({ brandKit }: ChannelStyleSummaryProps) {
     lengthStr,
   ].filter(Boolean) as string[])]
 
-  const coverStyleStr = t(COVER_STYLE_KEY[visualKit.bannerTemplate])
+  const rubricModes = Array.from(new Set((visualKit.rubrics ?? []).map(r => r.mode).filter(Boolean)))
+  const modeLabel = rubricModes.length === 1
+    ? rubricModes[0] === 'ai_html' ? 'AI+HTML' : rubricModes[0]?.toUpperCase()
+    : visualKit.coverMode === 'ai_html' ? 'AI+HTML' : visualKit.coverMode?.toUpperCase()
+  const coverStyleStr = visualKit.rubrics?.length
+    ? `${language === 'ru' ? 'Рубрики' : 'Rubrics'}: ${visualKit.rubrics.length}${modeLabel ? ` · ${modeLabel}` : ''}`
+    : t(COVER_STYLE_KEY[visualKit.bannerTemplate])
   const coverHint = [
     coverStyleStr,
     visualKit.aspectRatio,

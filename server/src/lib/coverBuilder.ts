@@ -40,6 +40,36 @@ export function parseHtmlTemplates(vkObj: Record<string, unknown>): { name: stri
 
 type HybridBackgroundKind = 'photo' | 'abstract';
 
+function visualKitWantsDarkHybrid(vk: Record<string, unknown> | null): boolean {
+  if (!vk) return false;
+  const text = [vk['visualCoverStyle'], vk['backgroundStyle'], vk['bannerTemplate']]
+    .filter((v): v is string => typeof v === 'string')
+    .join(' ')
+    .toLowerCase();
+  if (/dark|near-black|black|noir|night|темн|тёмн|glass|стекл/.test(text)) return true;
+
+  const colors = vk['brandColors'];
+  return Array.isArray(colors) && colors.some(c => {
+    const hex = (c as Record<string, unknown>)?.['hex'];
+    if (typeof hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(hex)) return false;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 < 45;
+  });
+}
+
+function buildEffectiveHybridPrompt(
+  prompt: string | undefined,
+  vk: Record<string, unknown> | null,
+  templateName?: string | null,
+): string {
+  const base = (prompt ?? '').trim() ||
+    `Create a clean text-free background for the ${templateName ?? 'selected'} HTML template. Keep the headline, brand bar, tags, and channel handle zones readable without drawing any text, logos, labels, or UI copy inside the image.`;
+
+  if (!visualKitWantsDarkHybrid(vk) || /dark|near-black|low-key|black|noir|night/i.test(base)) return base;
+  return base + ' Keep the generated background dark, low-key, premium, and consistent with the channel style; use controlled highlights and depth inside the scene, not a flat black overlay.';
+}
 function inferHybridBackgroundKind(referenceHtml: string | null, templateName?: string | null): HybridBackgroundKind {
   const haystack = `${templateName ?? ''}\n${referenceHtml ?? ''}`.toLowerCase();
   const isQuote = /quote_|author_|opinion|quote|04-/.test(haystack);
@@ -132,6 +162,7 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
       //    render people + burned-in gibberish). The user's image prompt is passed
       //    only as an art-direction hint; the raw text is a last-resort fallback if
       //    the distiller is unavailable.
+      const effectiveHybridPrompt = buildEffectiveHybridPrompt(rubricHybridPrompt, vkObj, chosen?.name);
       let bgPrompt: string | null = null;
       try {
         bgPrompt = await generateImagePromptWithAI({
@@ -141,12 +172,12 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
           artDirection: imagePrompt?.trim() || undefined,
           fullBleed: willRenderTemplateOverPhoto,
           backgroundKind: referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo',
-          hybridPrompt: rubricHybridPrompt,
+          hybridPrompt: effectiveHybridPrompt,
         });
       } catch (err) {
         console.warn('[coverBuilder] Hybrid: bg prompt generation failed:', (err as Error).message);
       }
-      if (!bgPrompt) bgPrompt = [imagePrompt?.trim(), rubricHybridPrompt].filter(Boolean).join('. ') || null;
+      if (!bgPrompt) bgPrompt = [imagePrompt?.trim(), effectiveHybridPrompt].filter(Boolean).join('. ') || null;
 
       // 3. Clean, text-free Flux background. One retry — a transient Replicate
       //    failure here would otherwise degrade the cover to a no-photo Satori card.

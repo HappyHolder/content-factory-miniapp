@@ -183,6 +183,28 @@ export function buildVisualKitPromptHints(visualKit: unknown): string {
   return tokens.length > 0 ? ', ' + tokens.join(', ') : '';
 }
 
+function buildVisualMoodSuffix(vk: Record<string, unknown> | null): string {
+  if (!vk) return '';
+  const style = [
+    vk['visualCoverStyle'],
+    vk['backgroundStyle'],
+    vk['bannerTemplate'],
+  ].filter((v): v is string => typeof v === 'string').join(' ').toLowerCase();
+
+  const darkByStyle = /dark|near-black|black|noir|night|темн|тёмн|glass|стекл/.test(style);
+  const rawColors = vk['brandColors'];
+  const darkByColor = Array.isArray(rawColors) && rawColors.some(c => {
+    const hex = (c as Record<string, unknown>)?.['hex'];
+    if (typeof hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(hex)) return false;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 < 45;
+  });
+
+  if (!darkByStyle && !darkByColor) return '';
+  return '. Brand mood: dark low-key near-black premium background, controlled highlights, clear contrast for the HTML overlay, no flat black overlay';
+}
 export interface GenerateImageInput {
   prompt:     string;
   visualKit?: unknown;
@@ -302,6 +324,7 @@ export async function generateImageForPost(
   const styleHint = [bgStylePhrase[styleKey], bgDetailPhrase[detailKey]]
     .filter(Boolean).join(', ');
   const styleSuffix = styleHint ? `. Style: ${styleHint}` : '';
+  const visualMoodSuffix = buildVisualMoodSuffix(vkObj);
 
   // Hybrid background composition. The "fill" wording is DETAIL-AWARE so it never
   // fights the detail setting — minimal must not be told to "fill with rich
@@ -328,7 +351,7 @@ export async function generateImageForPost(
     : '';
 
   // Logo is composited via sharp AFTER generation — never passed to the model
-  const prompt = `${userPrompt}${brandTokens}${styleSuffix}${compositionHint}${NEGATIVE_SUFFIX}`;
+  const prompt = `${userPrompt}${brandTokens}${styleSuffix}${visualMoodSuffix}${compositionHint}${NEGATIVE_SUFFIX}`;
 
   // Reference image: first uploaded reference from visualKit (or logo as fallback).
   // Passed as img2img input so the model inherits the brand's color palette and
