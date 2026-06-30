@@ -75,11 +75,15 @@ function defaultRubricDescription(name: string): string {
   return ''
 }
 
-function defaultHybridPrompt(name: string): string {
+function defaultHybridPrompt(name: string, visualStyle?: string): string {
   const n = name.trim().toLowerCase()
-  if (/мнени|opinion|quote|insight/.test(n)) return 'Create a calm abstract background or premium texture without literal objects, so the quote card remains the main focus.'
-  if (/дайджест|recap|digest|топ|top|rating|list/.test(n)) return 'Create a low-detail abstract or atmospheric background with no strong focal object, leaving the template cards and list items visually dominant.'
-  return 'Create a clean text-free background that leaves visual breathing room for the template header, central headline area, bottom tags, and channel handle. Do not add text, logos, UI labels, or competing interface elements.'
+  const style = (visualStyle ?? '').toLowerCase()
+  const darkRule = /dark|near-black|black|темн|тёмн|noir|night/.test(style)
+    ? ' Keep the generated background dark, low-key, premium, and consistent with the pack mood; use light and contrast inside the scene, not a flat black overlay.'
+    : ''
+  if (/мнени|opinion|quote|insight/.test(n)) return 'Create a calm abstract background or premium texture without literal objects, so the quote card remains the main focus.' + darkRule
+  if (/дайджест|recap|digest|топ|top|rating|list/.test(n)) return 'Create a low-detail abstract or atmospheric background with no strong focal object, leaving the template cards and list items visually dominant.' + darkRule
+  return 'Create a clean text-free background that leaves visual breathing room for the template header, central headline area, bottom tags, and channel handle. Do not add text, logos, UI labels, or competing interface elements.' + darkRule
 }
 function rubricIdFromTemplate(styleSlug: string, index: number, name: string): string {
   const slug = name
@@ -109,7 +113,7 @@ export function applyStyleToVisualKit(style: MarketStyle, current: VisualKit): V
         mode,
         templateUrl: t.url,
         templateName: t.name || t.url.split('/').pop()?.split('?')[0],
-        hybridPrompt: t.hybridPrompt || defaultHybridPrompt(name),
+        hybridPrompt: t.hybridPrompt || defaultHybridPrompt(name, style.visualCoverStyle),
       }
     })
 

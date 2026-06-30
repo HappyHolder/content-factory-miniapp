@@ -745,8 +745,37 @@ export interface SlotBrandContext {
   name?:   string | null;   // channel display name
   about?:  string;          // what the channel is about (short)
   voice?:  string;          // the channel's voice/style (short)
+  rubricName?: string;      // selected rubric/template label for RUBRIC/SECTION slots
 }
 
+function rubricSlotLabel(name: string | undefined, lang?: 'ru' | 'en'): string | null {
+  const n = (name ?? '').trim();
+  if (!n) return null;
+  const key = n.toLowerCase();
+  const en: Record<string, string> = {
+    'новости': 'NEWS', 'новость': 'NEWS', 'news': 'NEWS',
+    'сигнал': 'SIGNAL', 'signal': 'SIGNAL',
+    'листинг': 'LISTING', 'listing': 'LISTING',
+    'мнение': 'OPINION', 'opinion': 'OPINION',
+    'аналитика': 'ANALYSIS', 'analysis': 'ANALYSIS',
+    'дайджест': 'RECAP', 'recap': 'RECAP', 'digest': 'RECAP',
+    'гайд': 'GUIDE', 'guide': 'GUIDE',
+    'топ': 'TOP', 'top': 'TOP',
+    'партнёрство': 'PARTNER', 'партнерство': 'PARTNER', 'partner': 'PARTNER', 'partnership': 'PARTNER',
+  };
+  const ru: Record<string, string> = {
+    'новости': 'НОВОСТЬ', 'новость': 'НОВОСТЬ', 'news': 'НОВОСТЬ',
+    'сигнал': 'СИГНАЛ', 'signal': 'СИГНАЛ',
+    'листинг': 'ЛИСТИНГ', 'listing': 'ЛИСТИНГ',
+    'мнение': 'МНЕНИЕ', 'opinion': 'МНЕНИЕ',
+    'аналитика': 'АНАЛИТИКА', 'analysis': 'АНАЛИТИКА',
+    'дайджест': 'ДАЙДЖЕСТ', 'recap': 'ДАЙДЖЕСТ', 'digest': 'ДАЙДЖЕСТ',
+    'гайд': 'ГАЙД', 'guide': 'ГАЙД',
+    'топ': 'ТОП', 'top': 'ТОП',
+    'партнёрство': 'ПАРТНЕР', 'партнерство': 'ПАРТНЕР', 'partner': 'ПАРТНЕР', 'partnership': 'ПАРТНЕР',
+  };
+  return (lang === 'en' ? en[key] : ru[key]) ?? n.toUpperCase();
+}
 /** Slot-fill JSON completion via DeepSeek's OpenAI-compatible endpoint. */
 async function fillSlotsViaDeepseek(systemPrompt: string, userPrompt: string): Promise<string | null> {
   const controller = new AbortController();
@@ -898,7 +927,9 @@ export async function fillTemplateSlots(
     return null;
   }
 
+  const fixedRubricLabel = rubricSlotLabel(brand?.rubricName, post.coverLanguage);
   const filled = templateHtml.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+    if (fixedRubricLabel && /^(RUBRIC|SECTION|CATEGORY)$/i.test(key)) return escapeHtmlText(fixedRubricLabel);
     const v = values[key];
     return typeof v === 'string' ? escapeHtmlText(v)
          : typeof v === 'number' ? String(v)

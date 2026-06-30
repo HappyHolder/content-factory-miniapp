@@ -118,7 +118,7 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
           content:      input || finalTitle,
           artDirection: imagePrompt?.trim() || undefined,
           coverLanguage,
-        }, slotBrandCtx);
+        }, { ...slotBrandCtx, rubricName: chosen?.name });
         if (filledTemplate) {
           templateCalmZone =
             (await measureContentZone(injectBrandTokens(filledTemplate, brand), aspectRatio)) ?? 'full';
@@ -292,7 +292,7 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
               content:      input || finalTitle,
               artDirection: imagePrompt?.trim() || undefined,
               coverLanguage,
-            }, slotBrandCtx);
+            }, { ...slotBrandCtx, rubricName: chosen?.name });
             if (filled) {
               cover = await renderHtmlString(injectBrandTokens(filled, brand), aspectRatio);
             }
