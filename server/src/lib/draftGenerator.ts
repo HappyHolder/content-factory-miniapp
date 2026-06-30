@@ -294,6 +294,7 @@ export async function createDraftPostForChannel(
   let rubricId: string | null = null;
   let rubricName: string | null = null;
   let rubricHybridPrompt: string | undefined;
+  let rubricDescription: string | null = null;
   if (rubrics.length > 0 && !coverModeOverride) {
     try {
       const chosen = await classifyPostRubric(title, sourceSummary, rubrics);
@@ -301,6 +302,7 @@ export async function createDraftPostForChannel(
         rubricMode = chosen.mode;
         rubricId = chosen.id; rubricName = chosen.name;
         rubricHybridPrompt = chosen.hybridPrompt;
+        rubricDescription = chosen.description ?? null;
         if (chosen.templateUrl) rubricTemplate = { name: chosen.name, url: chosen.templateUrl };
         console.log(`[draftGenerator] Rubric "${chosen.name}" → mode=${chosen.mode}, template=${chosen.templateUrl ? 'yes' : 'no'}`);
       }
@@ -365,6 +367,7 @@ export async function createDraftPostForChannel(
   // ── Cover generation (extracted to coverBuilder; reused by set-rubric) ─────
   cover = await buildCover({
     coverMode, useBrandKit, visualKit, vkObj, rubricTemplate, rubricHybridPrompt,
+    rubricName, rubricDescription,
     title, sourceSummary, finalTitle, input,
     imagePrompt: imagePrompt?.trim() || undefined,
     coverLanguage, aspectRatio, imageModel, slotBrandCtx,

@@ -24,6 +24,11 @@ import { renderHtmlTemplate, renderHtmlString, measureContentZone } from './play
 import {
   generateHtmlCover, generateHtmlOverlay, buildFallbackOverlayHtml, composeTemplateOverPhoto, injectBrandTokens,
 } from './claudeHtmlGenerator';
+import {
+  assessGeneratedImageDescription, assessPromptQuality, buildCorrectiveImagePrompt, buildRubricPolicy, buildTemplateContract, createVisualBrief,
+  type RubricPolicy, type TemplateContract, type VisualBrief,
+} from './coverPromptBuilder';
+import { extractImageContentFromUrl } from './visionExtractor';
 
 /** Parses visualKit.htmlTemplates into a clean { name, url } list. */
 export function parseHtmlTemplates(vkObj: Record<string, unknown>): { name: string; url: string }[] {
@@ -85,6 +90,8 @@ export interface BuildCoverInput {
   /** The chosen rubric's template (rubric path). Null → legacy keyword pick. */
   rubricTemplate: { name: string; url: string } | null;
   rubricHybridPrompt?: string;
+  rubricName?: string | null;
+  rubricDescription?: string | null;
   title:        string;
   sourceSummary: string;
   finalTitle:   string;
@@ -102,12 +109,29 @@ export interface BuildCoverInput {
  */
 export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover | null> {
   const {
-    coverMode, useBrandKit, visualKit, vkObj, rubricTemplate, rubricHybridPrompt,
+    coverMode, useBrandKit, visualKit, vkObj, rubricTemplate, rubricHybridPrompt, rubricName, rubricDescription,
     title, sourceSummary, finalTitle, input, imagePrompt, coverLanguage,
     aspectRatio, imageModel, slotBrandCtx,
   } = args;
 
   let cover: GeneratedCover | null = null;
+  const fullPostText = (input || sourceSummary || finalTitle || title).trim();
+  const effectiveRubricName = rubricName ?? rubricTemplate?.name ?? null;
+  const rubricPolicy: RubricPolicy | null = buildRubricPolicy(effectiveRubricName, rubricDescription ?? null);
+  let visualBrief: VisualBrief | null = null;
+  if (useBrandKit) {
+    try {
+      visualBrief = await createVisualBrief({
+        title: finalTitle || title,
+        content: fullPostText,
+        rubricName: effectiveRubricName,
+        coverLanguage,
+      });
+      console.log(`[coverBuilder] VisualBrief: ${visualBrief.coreEvent.slice(0, 90)}`);
+    } catch (err) {
+      console.warn('[coverBuilder] VisualBrief failed (non-fatal):', (err as Error).message);
+    }
+  }
 
   // ── AI+HTML hybrid: Flux themed background + channel-styled overlay on top ──
   if (coverMode === 'ai_html' && useBrandKit && vkObj) {
@@ -142,6 +166,7 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
       const willRenderTemplateOverPhoto = !!referenceHtml && /\{\{\w+\}\}/.test(referenceHtml);
       let filledTemplate: string | null = null;
       let templateCalmZone: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full' | undefined;
+      let templateContract: TemplateContract | null = null;
       if (willRenderTemplateOverPhoto) {
         filledTemplate = await fillTemplateSlots(referenceHtml!, {
           title:        classification.headline || finalTitle,
@@ -162,31 +187,58 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
       //    render people + burned-in gibberish). The user's image prompt is passed
       //    only as an art-direction hint; the raw text is a last-resort fallback if
       //    the distiller is unavailable.
+      templateContract = buildTemplateContract({
+        templateName: chosen?.name,
+        backgroundKind: referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo',
+        textZone: templateCalmZone,
+        referenceHtml,
+      });
       const effectiveHybridPrompt = buildEffectiveHybridPrompt(rubricHybridPrompt, vkObj, chosen?.name);
       let bgPrompt: string | null = null;
       try {
         bgPrompt = await generateImagePromptWithAI({
           title,
-          excerpt: sourceSummary,
+          excerpt: fullPostText || sourceSummary,
           visualKit,
           artDirection: imagePrompt?.trim() || undefined,
           fullBleed: willRenderTemplateOverPhoto,
-          backgroundKind: referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo',
+          backgroundKind: templateContract.backgroundKind,
           hybridPrompt: effectiveHybridPrompt,
+          visualBrief,
+          rubricPolicy,
+          templateContract,
+          renderMode: 'ai_html',
         });
       } catch (err) {
         console.warn('[coverBuilder] Hybrid: bg prompt generation failed:', (err as Error).message);
       }
       if (!bgPrompt) bgPrompt = [imagePrompt?.trim(), effectiveHybridPrompt].filter(Boolean).join('. ') || null;
+      if (bgPrompt) {
+        const quality = assessPromptQuality(bgPrompt, visualBrief);
+        if (!quality.ok) {
+          console.warn(`[coverBuilder] Hybrid: prompt quality retry hint - ${quality.reason}`);
+          bgPrompt = buildCorrectiveImagePrompt({ prompt: bgPrompt, visualBrief, templateContract, reason: quality.reason ?? 'weak prompt relevance' });
+        }
+      }
 
       // 3. Clean, text-free Flux background. One retry — a transient Replicate
       //    failure here would otherwise degrade the cover to a no-photo Satori card.
       if (bgPrompt) {
         for (let attempt = 1; attempt <= 2 && !bgUrl; attempt++) {
           try {
-            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true, calmZone: templateCalmZone, backgroundKind: referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo', model: imageModel });
+            const bg = await generateImageForPost({ prompt: bgPrompt, visualKit, aspectRatio, backgroundOnly: true, calmZone: templateCalmZone, backgroundKind: templateContract?.backgroundKind ?? (referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo'), model: imageModel });
             bgUrl = bg?.bannerUrl ?? null;
-            if (!bgUrl) console.warn(`[coverBuilder] Hybrid: Flux bg attempt ${attempt} returned no image`);
+            if (!bgUrl) {
+              console.warn(`[coverBuilder] Hybrid: Flux bg attempt ${attempt} returned no image`);
+            } else if (attempt === 1 && visualBrief) {
+              const imageDescription = await extractImageContentFromUrl(bgUrl).catch(() => null);
+              const imageQuality = assessGeneratedImageDescription(imageDescription, visualBrief);
+              if (!imageQuality.ok) {
+                console.warn(`[coverBuilder] Hybrid: generated image quality retry - ${imageQuality.reason}`);
+                bgPrompt = buildCorrectiveImagePrompt({ prompt: bgPrompt, visualBrief, templateContract, reason: imageQuality.reason ?? 'weak image relevance' });
+                bgUrl = null;
+              }
+            }
           } catch (err) {
             console.warn(`[coverBuilder] Hybrid: Flux bg attempt ${attempt} failed:`, (err as Error).message);
           }
@@ -201,7 +253,7 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
       if (bgUrl && filledTemplate) {
         const composed = composeTemplateOverPhoto(filledTemplate, bgUrl, brand, {
           contentZone: templateCalmZone,
-          backgroundKind: referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo',
+          backgroundKind: templateContract?.backgroundKind ?? (referenceHtml ? inferHybridBackgroundKind(referenceHtml, chosen?.name) : 'photo'),
         });
         cover = await renderHtmlString(composed, aspectRatio);
         if (!cover) console.warn('[coverBuilder] Hybrid: template-over-photo render failed');
@@ -399,15 +451,25 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
       try {
         resolvedImagePrompt = await generateImagePromptWithAI({
           title,
-          excerpt: sourceSummary,
+          excerpt: fullPostText || sourceSummary,
           visualKit,
           artDirection: imagePrompt?.trim() || undefined,
+          visualBrief,
+          rubricPolicy,
+          renderMode: 'ai',
         });
       } catch (err) {
         console.warn('[coverBuilder] Auto image prompt generation failed:', (err as Error).message);
       }
     }
     if (!resolvedImagePrompt) resolvedImagePrompt = imagePrompt?.trim() || null;
+    if (resolvedImagePrompt) {
+      const quality = assessPromptQuality(resolvedImagePrompt, visualBrief);
+      if (!quality.ok) {
+        console.warn(`[coverBuilder] AI: prompt quality retry hint - ${quality.reason}`);
+        resolvedImagePrompt = buildCorrectiveImagePrompt({ prompt: resolvedImagePrompt, visualBrief, reason: quality.reason ?? 'weak prompt relevance' });
+      }
+    }
 
     if (resolvedImagePrompt) {
       // Sharp burns the post title onto the cover; when the channel pins a
@@ -429,6 +491,21 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
           headline: aiHeadline,
           model:    imageModel,
         });
+        if (cover?.coverBaseUrl && visualBrief) {
+          const imageDescription = await extractImageContentFromUrl(cover.coverBaseUrl).catch(() => null);
+          const imageQuality = assessGeneratedImageDescription(imageDescription, visualBrief);
+          if (!imageQuality.ok) {
+            console.warn(`[coverBuilder] AI: generated image quality retry - ${imageQuality.reason}`);
+            const retryPrompt = buildCorrectiveImagePrompt({ prompt: resolvedImagePrompt, visualBrief, reason: imageQuality.reason ?? 'weak image relevance' });
+            cover = await generateImageForPost({
+              prompt: retryPrompt,
+              visualKit,
+              aspectRatio,
+              headline: aiHeadline,
+              model: imageModel,
+            });
+          }
+        }
       } catch (err) {
         console.warn('[coverBuilder] Image generation failed (non-fatal):', (err as Error).message);
       }

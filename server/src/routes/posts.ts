@@ -2088,6 +2088,7 @@ router.post('/set-rubric', async (req: Request, res: Response): Promise<void> =>
   let chosenMode:     'ai' | 'html' | 'ai_html' = 'ai';
   let chosenTemplate: { name: string; url: string } | null = null;
   let chosenHybridPrompt: string | undefined;
+  let chosenDescription: string | null = null;
   let chosenId:       string | null = null;
   let chosenName:     string | null = 'Разное';
   if (rubricId && rubricId !== 'misc') {
@@ -2097,6 +2098,7 @@ router.post('/set-rubric', async (req: Request, res: Response): Promise<void> =>
     const m = r['mode'];
     chosenMode = (m === 'html' || m === 'ai_html') && tplUrl ? m : 'ai';
     chosenHybridPrompt = typeof r['hybridPrompt'] === 'string' && r['hybridPrompt'].trim() ? r['hybridPrompt'].trim() : undefined;
+    chosenDescription = typeof r['description'] === 'string' ? r['description'] as string : null;
     if (tplUrl) chosenTemplate = { name: typeof r['name'] === 'string' ? r['name'] as string : '', url: tplUrl };
     chosenName = typeof r['name'] === 'string' ? r['name'] as string : null;
     chosenId   = typeof r['id'] === 'string' && r['id'] ? r['id'] as string : chosenName;
@@ -2143,6 +2145,7 @@ router.post('/set-rubric', async (req: Request, res: Response): Promise<void> =>
     cover = await buildCover({
       coverMode, useBrandKit: true, visualKit: vk, vkObj,
       rubricTemplate: chosenTemplate, rubricHybridPrompt: chosenHybridPrompt,
+      rubricName: chosenName, rubricDescription: chosenDescription,
       title: post.title, sourceSummary: post.sourceSummary ?? post.title, finalTitle: post.title,
       input, imagePrompt: post.imagePrompt?.trim() || undefined,
       coverLanguage, aspectRatio, imageModel, slotBrandCtx,
