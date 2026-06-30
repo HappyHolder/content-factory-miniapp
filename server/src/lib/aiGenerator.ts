@@ -866,7 +866,7 @@ export async function fillTemplateSlots(
     '- A small/monospace/label/tag/category/badge slot gets a 1-3 word short label.\n' +
     '- A description/subtitle slot gets one short sentence.\n' +
     'Naming hints (common conventions, when present): *_VALUE = one metric/number/keyword, *_LABEL = its caption; ' +
-    'TITLE/HEADLINE (or a TITLE split into _WHITE/_ACCENT parts) = the huge headline, keep it to 2-3 short words total; ' +
+    'TITLE/HEADLINE (or a TITLE split into _WHITE/_ACCENT parts) = the huge headline, keep it to 2-5 short words total. If a title is split into WHITE/ACCENT, the two values MUST read left-to-right as one grammatical headline in natural word order; ACCENT is only the final key word/phrase, never a rearranged fragment; ' +
     'QUOTE/QUOTE_WHITE/QUOTE_ACCENT = a real quote or quote-like thought from the post. Preserve the quote\'s meaning and as much exact wording as fits; do NOT compress it into a slogan. Split the quote so QUOTE_WHITE carries the main phrase and QUOTE_ACCENT carries only the final 2-5 key words. Target 55-120 characters total when the template has a large quote card. ' +
     'AUTHOR/HANDLE/SIGNATURE = the channel\'s project/brand name (from name/about), NOT the raw @handle; ' +
     'RUBRIC/SECTION/CATEGORY = the channel\'s section label; TAGS = the channel\'s hashtags.\n\n' +

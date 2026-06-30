@@ -313,9 +313,13 @@ export async function measureContentZone(
           for (const c of Array.from(el.children)) if (!isInline(c)) return false;
           return true;
         };
-        // Collect visible text boxes with their font size.
+        const isChrome = (el: any): boolean => !!el.closest('.topbar,.brand,.rubric-pill,.bottom,.tags,.handle,.logo,nav,header,footer');
+        // Collect visible content text boxes with their font size. Ignore chrome
+        // (brand bar, rubric pill, tags, footer): it is not the main headline
+        // and must not steer the AI background composition.
         const boxes: { r: any; fs: number }[] = [];
         for (const el of Array.from(doc.body.querySelectorAll('*')) as any[]) {
+          if (isChrome(el)) continue;
           if (!isTextBox(el)) continue;
           const cs = win.getComputedStyle(el);
           if (cs.visibility === 'hidden' || cs.display === 'none') continue;

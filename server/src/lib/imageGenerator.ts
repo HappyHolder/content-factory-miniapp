@@ -339,8 +339,15 @@ export async function generateImageForPost(
     top: 'the top area', bottom: 'the lower area', left: 'the left side',
     right: 'the right side', center: 'the central area',
   };
+  const focalAvoidancePhrase: Record<string, string> = {
+    top: 'place the main focal subject away from the top text/header area',
+    bottom: 'place the main focal subject away from the lower text/tags area',
+    left: 'place the main focal subject away from the left text area',
+    right: 'place the main focal subject away from the right text area',
+    center: 'place the main focal subject off-center or in the background, never directly behind the central headline',
+  };
   const zoneClause = (input.calmZone && input.calmZone !== 'full' && calmZonePhrase[input.calmZone])
-    ? `; keep ${calmZonePhrase[input.calmZone]} a touch calmer and lower-contrast (NOT empty, NOT black) so overlaid text stays legible`
+    ? `; keep ${calmZonePhrase[input.calmZone]} a touch calmer and lower-contrast (NOT empty, NOT black) so overlaid text stays legible; ${focalAvoidancePhrase[input.calmZone]}`
     : '';
   const compositionHint = input.backgroundOnly
     ? (input.backgroundKind === 'abstract'
