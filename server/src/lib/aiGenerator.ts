@@ -10,7 +10,6 @@
 
 import { env } from '../env';
 import { replicateText } from './replicateText';
-import { buildImagePromptMessages, type CoverRenderMode, type TemplateContract, type RubricPolicy, type VisualBrief } from './coverPromptBuilder';
 
 type ModelTier = 'LOW' | 'HIGH';
 
@@ -628,10 +627,6 @@ export interface GenerateImagePromptParams {
   fullBleed?: boolean;
   backgroundKind?: 'photo' | 'abstract';
   hybridPrompt?: string;
-  visualBrief?: VisualBrief | null;
-  rubricPolicy?: RubricPolicy | null;
-  templateContract?: TemplateContract | null;
-  renderMode?: CoverRenderMode;
 }
 
 /**
@@ -648,24 +643,45 @@ export async function generateImagePromptWithAI(
 ): Promise<string | null> {
   if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
 
-  const {
-    title, excerpt, visualKit, artDirection, fullBleed, backgroundKind, hybridPrompt,
-    visualBrief, rubricPolicy, templateContract, renderMode,
-  } = params;
+  const { title, excerpt, visualKit, artDirection, fullBleed, backgroundKind, hybridPrompt } = params;
   const styleDesc = buildVisualStyleDescription(visualKit);
-  const { systemPrompt, userPrompt } = buildImagePromptMessages({
-    title,
-    excerpt,
-    visualBrief,
-    rubricPolicy,
-    templateContract,
-    channelStyle: styleDesc,
-    artDirection,
-    hybridPrompt,
-    renderMode: renderMode ?? 'ai',
-    backgroundKind,
-    fullBleed,
-  });
+  const subjectRule = backgroundKind === 'abstract'
+    ? 'Create an abstract, low-detail background texture or soft material surface. Use blurred shapes, atmospheric light, subtle noise, glass, fabric, metal, or gradient depth. Do NOT depict a literal room, person, object, device, chart, logo, screenshot, or recognizable scene. '
+    : 'Depict a real scene or visual metaphor that conveys the topic (people, places, objects, devices, nature, technology). ';
+
+  const compositionRule = backgroundKind === 'abstract'
+    ? 'CRITICAL COMPOSITION: the image is only a background material for an HTML template. Keep it calm, low-contrast, non-literal, text-free, and free of focal objects. Fill the whole frame with a premium abstract texture. '
+    : fullBleed
+    ? 'CRITICAL COMPOSITION: the image is a background layer for an HTML template. Fill the square edge to edge with a coherent scene, but keep the overlay zones readable: no text, no labels, no bright competing focal elements, no busy details directly behind the headline, tags, brand bar, or channel handle. Use light and contrast inside the scene, not a flat dark overlay. '
+    : 'Keep the lower third of the image calmer and less busy so the overlaid headline stays readable. ';
+
+  const systemPrompt =
+    'You are a visual art director writing prompts for AI image generation models. ' +
+    'Given a post topic and brand style, write a short visual description (40-70 words) ' +
+    'for a square Telegram post cover image. ' +
+    subjectRule +
+    'NEVER depict text, numbers, letters, digits, UI copy, or written words — the image must be purely pictorial, ' +
+    'because a headline is overlaid on top afterwards. ' +
+    'The image must be specifically about the post: identify the central event, actor, conflict, consequence, or process and choose a concrete visual metaphor for THAT. Avoid generic cityscapes, random skyscrapers, empty rooms, vague technology backgrounds, or decorative mood shots unless they directly express the story. ' +
+    'If the topic is a metric or abstract idea (user growth, a milestone, an announcement), express it through a metaphor ' +
+    '(a crowd of people, a network of glowing nodes, a rising cityscape, a growing structure) rather than showing the number itself. ' +
+    compositionRule +
+    'Use an atmospheric, on-brand background (colors, lighting, mood); avoid empty abstract gradients, nebulae, or galaxies ' +
+    'unless the brand style explicitly calls for them. ' +
+    'Do NOT include any instructions, rules, or "do not" phrases in the output. ' +
+    'If the user provides art direction, follow its subject, style and mood, but ' +
+    'never copy its sentences and never render any text from it — distil it into a ' +
+    'purely pictorial scene. ' +
+    'Write in English. Output ONLY the visual description, nothing else.';
+
+  const userPrompt =
+    `Post topic: ${title}\n` +
+    `Brief: ${excerpt.slice(0, 200)}\n` +
+    (styleDesc ? `Brand style: ${styleDesc}\n` : '') +
+    (artDirection ? `User art direction (a hint for subject/style/mood only): ${artDirection.slice(0, 400)}\n` : '') +
+    (hybridPrompt ? `HTML template fit guidance (composition only, keep the image text-free): ${hybridPrompt.slice(0, 600)}\n` : '') +
+    'Image prompt:';
+
   const controller = new AbortController();
   const timeoutId  = setTimeout(() => controller.abort(), 20_000);
 
