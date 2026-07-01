@@ -1008,7 +1008,7 @@ router.post('/generate-block-image', async (req: Request, res: Response): Promis
   let prompt = art ?? `abstract cover art, ${(post.title ?? '').slice(0, 80)}, dark premium background, modern aesthetic`;
   try {
     const aiPrompt = await generateImagePromptWithAI({
-      title: post.title, excerpt: post.sourceSummary ?? post.title, visualKit, artDirection: art,
+      title: post.title, excerpt: post.sourceSummary ?? post.title, visualKit, artDirection: art, bodyImage: true,
     });
     if (aiPrompt) prompt = aiPrompt;
   } catch { /* non-fatal — use fallback prompt */ }

@@ -627,6 +627,13 @@ export interface GenerateImagePromptParams {
   fullBleed?: boolean;
   backgroundKind?: 'photo' | 'abstract';
   hybridPrompt?: string;
+  /**
+   * Body illustration mode (gallery / in-post block image), NOT a cover. No
+   * headline is overlaid, so the cover composition rules (reserve calm zones,
+   * "must be about the post topic") don't apply. When artDirection is present it
+   * becomes the PRIMARY subject; the post topic/style only fill gaps or set mood.
+   */
+  bodyImage?: boolean;
 }
 
 /**
@@ -643,8 +650,38 @@ export async function generateImagePromptWithAI(
 ): Promise<string | null> {
   if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
 
-  const { title, excerpt, visualKit, artDirection, fullBleed, backgroundKind, hybridPrompt } = params;
+  const { title, excerpt, visualKit, artDirection, fullBleed, backgroundKind, hybridPrompt, bodyImage } = params;
   const styleDesc = buildVisualStyleDescription(visualKit);
+
+  // ── Body illustration (gallery / in-post block) ──────────────────────────
+  // No headline overlay → skip cover composition rules. A user art direction is
+  // the PRIMARY subject; the post topic/style only fill gaps or set the mood.
+  if (bodyImage) {
+    const artPrimary = !!artDirection?.trim();
+    const bodySystem =
+      'You are a visual art director writing prompts for AI image generation models. ' +
+      'Write a short visual description (40-70 words) for a standalone illustration shown inside a Telegram post body — no text is overlaid on it. ' +
+      (artPrimary
+        ? 'The user gave specific art direction: build the image PRIMARILY around exactly what they describe — their subject, objects, style and mood. Use the post topic and brand style ONLY to fill gaps or set a supporting mood when the direction is short; never let them replace the user\'s subject. '
+        : 'Depict a concrete scene or visual metaphor that conveys the post topic (people, places, objects, devices, nature, technology); avoid generic decorative mood shots. ') +
+      'Distil the art direction into a purely pictorial scene — never copy its sentences. ' +
+      'NEVER render text, numbers, letters, or written words in the image. ' +
+      'Fill the whole frame with a clear, appealing composition (no reserved empty zones). ' +
+      'Do NOT include any instructions, rules, or "do not" phrases in the output. ' +
+      'Write in English. Output ONLY the visual description, nothing else.';
+
+    const bodyUser = artPrimary
+      ? `PRIMARY subject — build the image around this: ${artDirection!.slice(0, 400)}\n` +
+        `Supporting context (post topic, for mood/gaps only): ${title}\n` +
+        (styleDesc ? `Brand style (mood only): ${styleDesc}\n` : '') +
+        'Image prompt:'
+      : `Post topic: ${title}\n` +
+        `Brief: ${excerpt.slice(0, 200)}\n` +
+        (styleDesc ? `Brand style: ${styleDesc}\n` : '') +
+        'Image prompt:';
+
+    return callImagePromptModel(bodySystem, bodyUser);
+  }
   const subjectRule = backgroundKind === 'abstract'
     ? 'Create an abstract, low-detail background texture or soft material surface. Use blurred shapes, atmospheric light, subtle noise, glass, fabric, metal, or gradient depth. Do NOT depict a literal room, person, object, device, chart, logo, screenshot, or recognizable scene. '
     : 'Depict a real scene or visual metaphor that conveys the topic (people, places, objects, devices, nature, technology). ';
@@ -682,6 +719,11 @@ export async function generateImagePromptWithAI(
     (hybridPrompt ? `HTML template fit guidance (composition only, keep the image text-free): ${hybridPrompt.slice(0, 600)}\n` : '') +
     'Image prompt:';
 
+  return callImagePromptModel(systemPrompt, userPrompt);
+}
+
+/** Runs the image-prompt system+user messages through DeepSeek; null on failure. */
+async function callImagePromptModel(systemPrompt: string, userPrompt: string): Promise<string | null> {
   const controller = new AbortController();
   const timeoutId  = setTimeout(() => controller.abort(), 20_000);
 
