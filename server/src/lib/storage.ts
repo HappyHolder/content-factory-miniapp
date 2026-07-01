@@ -55,6 +55,30 @@ export async function putObject(
 }
 
 /**
+ * Reads a previously stored object's bytes by its public URL (or storage-relative
+ * path). Returns null if the file is missing or resolves outside STORAGE_DIR.
+ * Applies the same path-traversal guards as deleteObject.
+ */
+export async function readObject(urlOrPath: string): Promise<Buffer | null> {
+  try {
+    if (!urlOrPath || typeof urlOrPath !== 'string') return null;
+    const marker = `${PUBLIC_PREFIX}/`;
+    const idx = urlOrPath.indexOf(marker);
+    const rel = (idx >= 0 ? urlOrPath.slice(idx + marker.length) : urlOrPath)
+      .split('?')[0]!
+      .replace(/^\/+/, '');
+    if (!rel || rel.includes('..')) return null;
+
+    const dest = path.resolve(env.STORAGE_DIR, rel);
+    const root = path.resolve(env.STORAGE_DIR);
+    if (dest !== root && !dest.startsWith(root + path.sep)) return null; // outside storage — refuse
+    return await fs.readFile(dest);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Deletes a previously stored object by its public URL (or storage-relative path).
  * Non-fatal and bounded: ignores URLs that aren't ours, rejects path traversal,
  * and never deletes outside STORAGE_DIR. Swallows all errors (best-effort cleanup).

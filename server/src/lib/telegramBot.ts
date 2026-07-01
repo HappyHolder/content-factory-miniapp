@@ -3,7 +3,7 @@
 
 import { env } from '../env';
 import { blocksToRichHtml, blocksToPlainText, documentBlocks, firstImage, type PostBlock } from './richPost';
-import { deleteObject } from './storage';
+import { deleteObject, readObject } from './storage';
 
 const TG_API = 'https://api.telegram.org';
 
@@ -345,26 +345,35 @@ async function sendChannelDocuments(
 }
 
 
-/** Sends a document attachment to a Telegram chat via sendDocument. */
+/**
+ * Sends a document attachment to a Telegram chat via sendDocument.
+ *
+ * The file bytes are read from local storage and uploaded as multipart form data
+ * (not passed as a URL). Sending by URL fails for uploaded HTML/SVG, which the
+ * edge server serves as `text/plain` with `Content-Disposition: attachment` to
+ * neutralize stored XSS — Telegram then rejects the fetch ("wrong type of the
+ * web page content"). Uploading the raw bytes sidesteps that entirely.
+ */
 export async function sendBotDocument(
   chatId: number | string,
   documentUrl: string,
   fileName: string,
   token: string,
 ): Promise<void> {
+  const bytes = await readObject(documentUrl);
+  if (!bytes) {
+    throw new TelegramApiError(`Document file not found in storage: ${documentUrl}`);
+  }
+
   const url = `${TG_API}/bot${token}/sendDocument`;
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  form.append('caption', fileName.slice(0, 1024));
+  form.append('document', new Blob([new Uint8Array(bytes)]), fileName);
+
   let res: Response;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        document: documentUrl,
-        disable_content_type_detection: false,
-        caption: fileName.slice(0, 1024),
-      }),
-    });
+    res = await fetch(url, { method: 'POST', body: form });
   } catch (err) {
     throw new TelegramApiError(`Network error calling sendDocument: ${(err as Error).message}`);
   }
