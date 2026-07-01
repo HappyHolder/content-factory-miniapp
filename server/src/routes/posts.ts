@@ -4,8 +4,8 @@ import { putObject, deleteObject } from '../lib/storage';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { sendChannelPost, sendRichChannelPost, TelegramApiError, buildInlineKeyboard } from '../lib/telegramBot';
-import type { PostBlock } from '../lib/richPost';
+import { sendChannelPost, sendRichChannelPost, TelegramApiError, buildInlineKeyboard, savePreparedPostMessage } from '../lib/telegramBot';
+import { blocksToRichHtml, type PostBlock } from '../lib/richPost';
 
 /** Returns the variant's structured blocks if present and non-empty, else null. */
 function variantBlocks(v: { blocks?: unknown }): PostBlock[] | null {
@@ -832,6 +832,60 @@ router.patch('/:postId/buttons', async (req: Request, res: Response): Promise<vo
   } catch (err) {
     console.error('[posts/buttons] update failed:', (err as Error).message);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── POST /api/posts/:postId/prepare-share ───────────────────────────────────
+// Fast Share: prepares the post as a shareable inline message so the user can
+// send it via Telegram's native share dialog — no channel connection / bot-admin
+// required. Carries the same rich content + buttons as a normal publish.
+// Body: { initData }   Response 200: { preparedMessageId, expirationDate }
+router.post('/:postId/prepare-share', async (req: Request, res: Response): Promise<void> => {
+  const { postId } = req.params as { postId: string };
+  const { initData } = req.body as { initData?: unknown };
+
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  const post = await prisma.generatedPost.findUnique({
+    where:  { id: postId },
+    select: {
+      title:             true,
+      selectedVariantId: true,
+      linkButtons:       true,
+      channel:  { select: { userId: true } },
+      variants: { select: { id: true, text: true, blocks: true } },
+    },
+  }).catch(() => null);
+  if (!post) { res.status(404).json({ error: 'Post not found.' }); return; }
+  if (post.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
+
+  const variant = post.variants.find(v => v.id === post.selectedVariantId) ?? post.variants[0];
+  const blocks = variant ? variantBlocks(variant) : null;
+  const html = blocks ? blocksToRichHtml(blocks) : undefined;
+  const text = variant?.text ?? undefined;
+  if (!html?.trim() && !text?.trim()) { res.status(400).json({ error: 'Nothing to share yet — add some content first.' }); return; }
+
+  try {
+    const prepared = await savePreparedPostMessage({
+      userId:      parsed.user.id,
+      title:       post.title,
+      html,
+      text,
+      replyMarkup: buildInlineKeyboard(post.linkButtons),
+      token:       env.TELEGRAM_BOT_TOKEN,
+    });
+    res.json({ preparedMessageId: prepared.id, expirationDate: prepared.expirationDate });
+  } catch (err) {
+    const msg = err instanceof TelegramApiError ? err.message : (err as Error).message;
+    console.error('[posts/prepare-share] failed:', msg);
+    res.status(502).json({ error: `Could not prepare the message: ${msg}` });
   }
 });
 

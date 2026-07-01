@@ -188,6 +188,62 @@ export function buildInlineKeyboard(linkButtons: unknown): TelegramInlineKeyboar
 }
 
 /**
+ * Saves a prepared inline message (Bot API `savePreparedInlineMessage`) so the
+ * user can send a post via the native Telegram share dialog — no channel
+ * connection or bot-admin rights required (the "Fast Share" onboarding flow).
+ *
+ * Carries the same content as a normal publish: rich HTML (block posts) or plain
+ * HTML text (legacy posts), plus the inline keyboard. Returns the prepared-message
+ * id (passed to the Mini App's WebApp.shareMessage) and its expiry (unix seconds).
+ */
+export async function savePreparedPostMessage(params: {
+  userId:       number | string;
+  title:        string;
+  html?:        string;
+  text?:        string;
+  replyMarkup?: TelegramInlineKeyboard;
+  token:        string;
+}): Promise<{ id: string; expirationDate: number }> {
+  const { userId, title, html, text, replyMarkup, token } = params;
+
+  const inputMessageContent = html && html.trim()
+    ? { rich_message: { html } }
+    : { message_text: (text && text.trim()) || title || ' ', parse_mode: 'HTML' };
+
+  const result: Record<string, unknown> = {
+    type:  'article',
+    id:    'post',
+    title: title || 'Post',
+    input_message_content: inputMessageContent,
+  };
+  if (replyMarkup) result['reply_markup'] = replyMarkup;
+
+  const url = `${TG_API}/bot${token}/savePreparedInlineMessage`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id:             userId,
+        result,
+        allow_user_chats:    true,
+        allow_group_chats:   true,
+        allow_channel_chats: true,
+      }),
+    });
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling savePreparedInlineMessage: ${(err as Error).message}`);
+  }
+
+  const body = (await res.json()) as TgApiResponse<{ id: string; expiration_date: number }>;
+  if (!body.ok || !body.result) {
+    throw new TelegramApiError(body.description ?? 'savePreparedInlineMessage returned not-ok', body.error_code);
+  }
+  return { id: body.result.id, expirationDate: body.result.expiration_date };
+}
+
+/**
  * Telegram Bot API LinkPreviewOptions (Bot API ≥ 7.0). Lets us attach a large
  * preview card (our OG page → cover image) to a plain text message and place it
  * above the text. `url` need not appear in the text itself.

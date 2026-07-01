@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type, Tag, ChevronDown } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type, Tag, ChevronDown, Share2 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import type { PostBlock } from '@/types'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -14,7 +14,7 @@ import { RichPostEditor } from '@/components/posts/RichPostEditor'
 import { LinkButtonsPreview } from '@/components/posts/LinkButtonsPreview'
 import { ScheduleSheet } from '@/components/posts/ScheduleSheet'
 import { brandKitService } from '@/services/brandKitService'
-import { getTelegramInitData } from '@/lib/telegram'
+import { getTelegramInitData, shareTelegramMessage } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -37,6 +37,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
+  const [isSharing, setIsSharing] = useState(false)
   const [isRegeneratingText, setIsRegeneratingText] = useState(false)
   const [isRegeneratingVisual, setIsRegeneratingVisual] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
@@ -120,6 +121,29 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
       showToast(t('postDetails.publishFailed'), 'error')
     } finally {
       setIsPublishing(false)
+    }
+  }
+
+  // Fast Share: prepare the post as a shareable inline message and open Telegram's
+  // native share dialog. Works without connecting a channel or making the bot admin.
+  const handleFastShare = async () => {
+    if (isSharing) return
+    const initData = getTelegramInitData()
+    if (!initData) { showToast(t('postDetails.publishFailed'), 'error'); return }
+    setIsSharing(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/${post.id}/prepare-share`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData }),
+      })
+      const data = await res.json().catch(() => ({})) as { preparedMessageId?: string; error?: string }
+      if (!res.ok || !data.preparedMessageId) { showToast(data.error ?? t('postDetails.fastShareFailed'), 'error'); return }
+      if (!shareTelegramMessage(data.preparedMessageId)) { showToast(t('postDetails.fastShareUnsupported'), 'error') }
+    } catch {
+      showToast(t('postDetails.fastShareFailed'), 'error')
+    } finally {
+      setIsSharing(false)
     }
   }
 
@@ -746,6 +770,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
                 <Calendar size={16} />
               </Button>
             </div>
+            {/* Fast Share — send without connecting a channel */}
+            <Button variant="secondary" size="lg" onClick={handleFastShare} disabled={isSharing} fullWidth>
+              {isSharing ? <Loader2 size={16} className="animate-spin" /> : <Share2 size={16} />} {t('postDetails.fastShare')}
+            </Button>
           </div>
         )}
 

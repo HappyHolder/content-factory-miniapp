@@ -5,8 +5,10 @@
 interface TelegramWebApp {
   initData: string
   initDataUnsafe?: { user?: { id?: number } }
+  version?: string
   ready?: () => void
   openInvoice?: (url: string, callback: (status: string) => void) => void
+  shareMessage?: (msgId: string, callback?: (sent: boolean) => void) => void
 }
 
 interface TelegramGlobal {
@@ -61,4 +63,21 @@ export function openTelegramInvoice(url: string, callback: (status: string) => v
   if (!wa?.openInvoice) return false
   wa.openInvoice(url, callback)
   return true
+}
+
+/**
+ * Opens Telegram's native share dialog for a prepared inline message (Fast Share).
+ * `preparedMessageId` comes from the backend's savePreparedInlineMessage call.
+ * Returns false (no-op) when the running Telegram client is too old to support
+ * shareMessage, so callers can show a fallback message.
+ */
+export function shareTelegramMessage(preparedMessageId: string, callback?: (sent: boolean) => void): boolean {
+  const wa = getWebApp()
+  if (typeof wa?.shareMessage !== 'function') return false
+  try {
+    wa.shareMessage(preparedMessageId, callback)
+    return true
+  } catch {
+    return false
+  }
 }
