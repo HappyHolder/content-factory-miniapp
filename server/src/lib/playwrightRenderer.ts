@@ -137,7 +137,13 @@ const EMOJI_FONT_INJECT =
   // Lowest-priority default: injected before the template's own styles, so a
   // template body font-family rule still wins. Unquoted family name on purpose —
   // quotes would break inside style="" attributes rewritten below.
-  '<style id="cf-emoji-font">body { font-family: sans-serif, Noto Color Emoji; }</style>';
+  '<style id="cf-emoji-font">body { font-family: sans-serif, Noto Color Emoji; }</style>' +
+  // tsx/esbuild (keepNames) wraps named arrows inside page.evaluate callbacks in
+  // a __name() helper that does not exist in the browser: every evaluate with a
+  // named inner function (autoFitText, collapseEmptyBlocks, measureContentZone)
+  // throws "__name is not defined" when the server runs via tsx. Define a no-op
+  // shim on every rendered page so the serialized callbacks resolve it.
+  '<script id="cf-esbuild-name-shim">globalThis.__name = globalThis.__name || function (t) { return t; };</script>';
 
 function injectEmojiFallback(html: string): string {
   // The family list is bare chars or complete quoted names — an unpaired quote
