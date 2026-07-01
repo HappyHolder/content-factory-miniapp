@@ -23,7 +23,7 @@ export async function renderCoverOverlayV2(params: {
   const { ctx, plan, template, referenceHtml, backgroundUrl, classification, contract } = params;
   const brand = extractBrand(ctx.visualKit);
 
-  if (plan.scenario === 'hybrid_template_background' || plan.scenario === 'rubric_template_pack') {
+  if (plan.scenario === 'hybrid_template_background' || (plan.scenario === 'rubric_template_pack' && plan.mode === 'ai_html')) {
     if (backgroundUrl && referenceHtml && /\{\{\w+\}\}/.test(referenceHtml)) {
       const filled = await fillTemplateSlots(referenceHtml, {
         title: classification.headline || ctx.finalTitle,
@@ -66,7 +66,7 @@ export async function renderCoverOverlayV2(params: {
     }
   }
 
-  if (plan.scenario === 'html_template' && template) {
+  if ((plan.scenario === 'html_template' || (plan.scenario === 'rubric_template_pack' && plan.mode === 'html')) && template) {
     if (referenceHtml && /\{\{\w+\}\}/.test(referenceHtml)) {
       const filled = await fillTemplateSlots(referenceHtml, {
         title: classification.headline || ctx.finalTitle,
