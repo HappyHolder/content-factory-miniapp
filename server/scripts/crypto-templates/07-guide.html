@@ -14,23 +14,27 @@
     background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 24%, transparent) 0%, transparent 62%); }
   .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
   .topbar { display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.14); border-radius:100px; padding:14px 22px; }
-  .brand { display:flex; align-items:center; gap:14px; font-size:30px; font-weight:500; } .brand .mark { color:var(--primary); font-size:32px; }
-  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:24px; letter-spacing:0.06em; text-transform:uppercase; padding:10px 22px; border-radius:100px; }
+  .brand { display:flex; align-items:center; gap:14px; font-size:32px; font-weight:700; } .brand .mark { color:var(--primary); font-size:32px; }
+  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:28px; letter-spacing:0.06em; text-transform:uppercase; padding:12px 26px; border-radius:100px; }
 
   .hero { flex:1; display:flex; flex-direction:column; justify-content:center; gap:36px; }
   /* Шаговые пилюли 1-2-3 (активная — оранжевая) */
   .steps { display:flex; align-items:center; gap:14px; }
-  .step { width:58px; height:58px; border-radius:50%; border:1px solid rgba(255,255,255,0.20); display:flex; align-items:center; justify-content:center; font-size:26px; color:#8A8A8E; }
+  .step { width:58px; height:58px; border-radius:50%; border:1px solid rgba(255,255,255,0.20); display:flex; align-items:center; justify-content:center; font-size:26px; color:#B4B4BA; }
   .step.on { background:var(--primary); color:#0B0B0C; border-color:var(--primary); font-weight:700; }
   .step-line { flex:1; height:1px; background:rgba(255,255,255,0.14); }
-  .steplabel { font-size:26px; color:#8A8A8E; text-transform:uppercase; letter-spacing:0.08em; }
-  .title { font-size:104px; font-weight:500; line-height:1.0; letter-spacing:-0.02em; max-width:940px; }
+  .steplabel { font-size:28px; color:#B4B4BA; text-transform:uppercase; letter-spacing:0.08em; }
+  .title { font-size:122px; font-weight:700; line-height:1.02; letter-spacing:-0.02em; max-width:940px; }
   .title .accent { color:var(--primary); }
-  .lead { font-size:32px; color:#9A9AA0; line-height:1.45; max-width:780px; }
+  .lead { font-size:40px; color:rgba(255,255,255,0.92); line-height:1.4; max-width:840px; }
 
   .bottom { display:flex; align-items:center; justify-content:space-between; }
-  .tags { display:flex; gap:12px; } .tags .t { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:9px 20px; font-size:22px; color:#C8C8CC; } .tags .t:empty { display:none; }
-  .handle { display:flex; align-items:center; gap:12px; font-size:24px; color:#8A8A8E; } .handle .logo { width:34px; height:34px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+  .tags { display:flex; gap:12px; } .tags .t { border:1px solid rgba(255,255,255,0.30); border-radius:100px; padding:10px 24px; font-size:28px; color:#E6E6EA; } .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:28px; color:#B9B9BF; } .handle .logo { width:38px; height:38px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+
+  /* Гибрид (фото-фон): шаговые пилюли получают подложку от фона канала */
+  .photo-mode .step { background:color-mix(in srgb, var(--bg) 55%, transparent); backdrop-filter:blur(10px); }
+  .photo-mode .step.on { background:var(--primary); }
 </style>
 </head>
 <body>

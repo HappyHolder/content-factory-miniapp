@@ -92,6 +92,13 @@ function insertIntoHead(html: string, snippet: string): string {
   return snippet + html;
 }
 
+/** Adds a class to <body> so templates can style their photo-mode adaptations. */
+function addBodyClass(html: string, cls: string): string {
+  if (/<body[^>]*class="/i.test(html)) return html.replace(/(<body[^>]*class=")/i, `$1${cls} `);
+  if (/<body/i.test(html)) return html.replace(/<body/i, `<body class="${cls}"`);
+  return html;
+}
+
 /**
  * Applies the channel's brand to a slot template by injecting its tokens
  * (--primary/--bg/--logo) into :root. Appended after the template's own :root so
@@ -122,17 +129,41 @@ export function composeTemplateOverPhoto(
 ): string {
   const safeUrl = photoUrl.replace(/"/g, '\\"');
 
+  // Scrim: a gradient veil between the photo and the template content, weighted
+  // toward where the template puts its text. Keeps the photo visible but gives
+  // text a dark bed to sit on — without it white/gray type drowns in bright photos.
+  const MID_VIGNETTE = 'radial-gradient(ellipse 90% 60% at 50% 55%,rgba(0,0,0,.28),transparent 72%)';
+  const edgeScrim = (deg: number) =>
+    `linear-gradient(${deg}deg,rgba(0,0,0,.50) 0%,rgba(0,0,0,.18) 16%,transparent 30%),` +
+    `linear-gradient(${deg}deg,transparent 38%,rgba(0,0,0,.55) 72%,rgba(0,0,0,.85) 100%),${MID_VIGNETTE}`;
+  const SCRIMS: Record<NonNullable<HybridTemplatePhotoOptions['contentZone']>, string> = {
+    bottom: edgeScrim(180),
+    top:    edgeScrim(0),
+    left:   edgeScrim(270),
+    right:  edgeScrim(90),
+    center: `radial-gradient(ellipse 85% 70% at 50% 50%,rgba(0,0,0,.50),rgba(0,0,0,.15) 78%)`,
+    full:   `linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45))`,
+  };
+  const scrim = SCRIMS[options.contentZone ?? 'bottom'];
+
   // The photo IS the background now, so keep it clean and suppress only template-only decorative glows.
   // Pure HTML mode keeps the original effects.
+  // `isolation:isolate` + z-index:-1 puts the scrim above the photo but below ALL
+  // template content, positioned or not — no z-index games with unknown templates.
+  // Everything opinionated is scoped to body.photo-mode; templates ship their own
+  // `.photo-mode .foo` rules for style-true adaptations (chips, panels, brackets).
   const photoBg =
     `<style id="cf-photo-bg">` +
-    `body{background:url("${safeUrl}") center/cover no-repeat !important;}` +
-    `body::before,body::after{background-image:none !important;}` +
+    `body{background:url("${safeUrl}") center/cover no-repeat !important;isolation:isolate;}` +
+    `body::before{background-image:none !important;}` +
+    `body::after{content:'' !important;position:absolute !important;inset:0 !important;z-index:-1 !important;pointer-events:none !important;background:${scrim} !important;}` +
     `.glow,.rings{display:none !important;}` +
-    `:where(.title,.lead,.headline,.subtitle,.project,.ticker,.quote,.row,.item,.step,.head){text-shadow:0 2px 18px rgba(0,0,0,.50);}` +
-    `:where(.lead,.sub,.subtitle,.muted){color:rgba(255,255,255,.86) !important;}` +
+    `body.photo-mode :where(.title,.lead,.headline,.subtitle,.project,.ticker,.head,.steplabel,.stat,.metric,.row,.item,.step):not(:where(.card,.card *)){text-shadow:0 2px 10px rgba(0,0,0,.55),0 6px 34px rgba(0,0,0,.45);}` +
+    `body.photo-mode :where(.lead,.sub,.subtitle,.muted,.steplabel,.val):not(:where(.card,.card *)){color:rgba(255,255,255,.92) !important;}` +
+    `body.photo-mode .tags .t{color:rgba(255,255,255,.92);border-color:rgba(255,255,255,.30);background:color-mix(in srgb,var(--bg) 42%,transparent);}` +
+    `body.photo-mode .handle{color:rgba(255,255,255,.85);}` +
     `</style>`;
-  return insertIntoHead(injectBrandTokens(filledHtml, brand), photoBg);
+  return insertIntoHead(injectBrandTokens(addBodyClass(filledHtml, 'photo-mode'), brand), photoBg);
 }
 // Logo placement extraction
 // In AI+HTML mode the overlay model would otherwise draw the logo wherever it

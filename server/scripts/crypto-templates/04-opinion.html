@@ -15,26 +15,28 @@
 
   .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; gap:40px; }
   .topbar { display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.14); border-radius:100px; padding:14px 22px; }
-  .brand { display:flex; align-items:center; gap:14px; font-size:30px; font-weight:500; }
+  .brand { display:flex; align-items:center; gap:14px; font-size:32px; font-weight:700; }
   .brand .mark { color:var(--primary); font-size:32px; }
-  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:24px; letter-spacing:0.06em; text-transform:uppercase; padding:10px 22px; border-radius:100px; }
+  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:28px; letter-spacing:0.06em; text-transform:uppercase; padding:12px 26px; border-radius:100px; }
 
   /* Светлая карточка-герой с цитатой */
-  .card { flex:1; background:#ECEAE3; color:#16161A; border-radius:32px; padding:64px; display:flex; flex-direction:column; justify-content:center; }
-  .qmark { color:var(--primary); font-size:160px; line-height:0.5; height:80px; font-weight:700; }
-  .quote { font-size:66px; font-weight:500; line-height:1.12; letter-spacing:-0.01em; }
+  .card { flex:1; min-height:0; overflow:hidden; background:#ECEAE3; color:#16161A; border-radius:32px; border-left:14px solid var(--primary); padding:64px 72px; display:flex; flex-direction:column; justify-content:center; }
+  /* line-height ≥ 1.2 (не 0.5+height) — усечённый бокс создаёт постоянный
+     layout overflow, и autoFitText рендерера ужимает всё до минимума */
+  .qmark { color:var(--primary); font-size:170px; line-height:1.2; font-weight:700; margin:-46px 0 -84px -10px; }
+  .quote { font-size:76px; overflow:hidden; font-weight:700; line-height:1.1; letter-spacing:-0.01em; }
   .quote .accent { color:var(--primary); }
   .author { display:flex; align-items:center; gap:18px; margin-top:44px; }
   .avatar { width:68px; height:68px; border-radius:50%; background:#16161A; background-image:var(--logo); background-size:cover; background-position:center; }
-  .author .name { font-size:30px; font-weight:500; }
-  .author .role { font-size:24px; color:#6A6A6E; }
+  .author .name { font-size:34px; font-weight:700; }
+  .author .role { font-size:28px; color:#5F5F66; }
 
   .bottom { display:flex; align-items:center; justify-content:space-between; }
   .tags { display:flex; gap:12px; }
-  .tags .t { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:9px 20px; font-size:22px; color:#C8C8CC; }
+  .tags .t { border:1px solid rgba(255,255,255,0.30); border-radius:100px; padding:10px 24px; font-size:28px; color:#E6E6EA; }
   .tags .t:empty { display:none; }
-  .handle { display:flex; align-items:center; gap:12px; font-size:24px; color:#8A8A8E; }
-  .handle .logo { width:34px; height:34px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:28px; color:#B9B9BF; }
+  .handle .logo { width:38px; height:38px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
 </style>
 </head>
 <body>

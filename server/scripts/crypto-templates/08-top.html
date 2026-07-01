@@ -14,22 +14,25 @@
     background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 22%, transparent) 0%, transparent 62%); }
   .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
   .topbar { display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.14); border-radius:100px; padding:14px 22px; }
-  .brand { display:flex; align-items:center; gap:14px; font-size:30px; font-weight:500; } .brand .mark { color:var(--primary); font-size:32px; }
-  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:24px; letter-spacing:0.06em; text-transform:uppercase; padding:10px 22px; border-radius:100px; }
+  .brand { display:flex; align-items:center; gap:14px; font-size:32px; font-weight:700; } .brand .mark { color:var(--primary); font-size:32px; }
+  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:28px; letter-spacing:0.06em; text-transform:uppercase; padding:12px 26px; border-radius:100px; }
 
-  .head { margin-top:50px; font-size:54px; font-weight:500; } .head .accent { color:var(--primary); }
+  .head { margin-top:50px; font-size:72px; font-weight:700; } .head .accent { color:var(--primary); }
   .list { flex:1; display:flex; flex-direction:column; justify-content:center; gap:20px; counter-reset:rank; }
   .row { display:flex; align-items:center; gap:26px; counter-increment:rank; border-bottom:1px solid rgba(255,255,255,0.07); padding-bottom:20px; }
   .row:last-child { border-bottom:none; }
   .row:has(.nm:empty) { display:none; }
   .num { width:58px; height:58px; flex-shrink:0; border-radius:50%; background:var(--primary); color:#0B0B0C; font-weight:700; font-size:30px; display:flex; align-items:center; justify-content:center; }
   .num::before { content: counter(rank); }
-  .nm { flex:1; font-size:52px; font-weight:500; }
-  .val { font-size:34px; color:#8A8A8E; }
+  .nm { flex:1; font-size:58px; font-weight:700; }
+  .val { font-size:40px; font-weight:500; color:#C9C9CF; }
 
   .bottom { display:flex; align-items:center; justify-content:space-between; padding-top:10px; }
-  .tags { display:flex; gap:12px; } .tags .t { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:9px 20px; font-size:22px; color:#C8C8CC; } .tags .t:empty { display:none; }
-  .handle { display:flex; align-items:center; gap:12px; font-size:24px; color:#8A8A8E; } .handle .logo { width:34px; height:34px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+  .tags { display:flex; gap:12px; } .tags .t { border:1px solid rgba(255,255,255,0.30); border-radius:100px; padding:10px 24px; font-size:28px; color:#E6E6EA; } .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:28px; color:#B9B9BF; } .handle .logo { width:38px; height:38px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+
+  /* Гибрид (фото-фон): весь список — одна полупрозрачная панель от фона канала */
+  .photo-mode .list { background:color-mix(in srgb, var(--bg) 62%, transparent); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.14); border-radius:32px; padding:34px 40px; margin:26px 0; }
 </style>
 </head>
 <body>

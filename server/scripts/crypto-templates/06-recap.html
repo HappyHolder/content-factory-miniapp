@@ -14,20 +14,23 @@
     background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 22%, transparent) 0%, transparent 62%); }
   .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
   .topbar { display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.14); border-radius:100px; padding:14px 22px; }
-  .brand { display:flex; align-items:center; gap:14px; font-size:30px; font-weight:500; } .brand .mark { color:var(--primary); font-size:32px; }
-  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:24px; letter-spacing:0.06em; text-transform:uppercase; padding:10px 22px; border-radius:100px; }
+  .brand { display:flex; align-items:center; gap:14px; font-size:32px; font-weight:700; } .brand .mark { color:var(--primary); font-size:32px; }
+  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:28px; letter-spacing:0.06em; text-transform:uppercase; padding:12px 26px; border-radius:100px; }
 
-  .head { margin-top:54px; font-size:46px; font-weight:500; } .head .accent { color:var(--primary); }
+  .head { margin-top:54px; font-size:66px; font-weight:700; } .head .accent { color:var(--primary); }
   .grid { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:18px; align-content:center; margin:30px 0; }
   .mv { background:#16161A; border:1px solid rgba(255,255,255,0.08); border-radius:24px; padding:30px 32px; display:flex; align-items:center; justify-content:space-between; }
-  .mv .tk { font-size:48px; font-weight:500; }
-  .mv .pc { font-size:44px; font-weight:500; }
+  .mv .tk { font-size:56px; font-weight:700; }
+  .mv .pc { font-size:52px; font-weight:700; }
   .mv .pc.up { color:var(--primary); }
-  .mv .pc.down { color:#8A8A8E; }
+  .mv .pc.down { color:#A2A2AA; }
 
   .bottom { display:flex; align-items:center; justify-content:space-between; }
-  .tags { display:flex; gap:12px; } .tags .t { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:9px 20px; font-size:22px; color:#C8C8CC; } .tags .t:empty { display:none; }
-  .handle { display:flex; align-items:center; gap:12px; font-size:24px; color:#8A8A8E; } .handle .logo { width:34px; height:34px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+  .tags { display:flex; gap:12px; } .tags .t { border:1px solid rgba(255,255,255,0.30); border-radius:100px; padding:10px 24px; font-size:28px; color:#E6E6EA; } .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:28px; color:#B9B9BF; } .handle .logo { width:38px; height:38px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+
+  /* Гибрид (фото-фон): плитки тикеров — полупрозрачные от фона канала */
+  .photo-mode .mv { background:color-mix(in srgb, var(--bg) 68%, transparent); backdrop-filter:blur(16px); border-color:rgba(255,255,255,0.16); }
 </style>
 </head>
 <body>

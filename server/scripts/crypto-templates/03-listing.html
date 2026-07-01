@@ -15,11 +15,11 @@
 
   .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
   .topbar { display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.14); border-radius:100px; padding:14px 22px; }
-  .brand { display:flex; align-items:center; gap:14px; font-size:30px; font-weight:500; }
+  .brand { display:flex; align-items:center; gap:14px; font-size:32px; font-weight:700; }
   .brand .mark { color:var(--primary); font-size:32px; }
   .topright { display:flex; align-items:center; gap:12px; }
-  .date-pill { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:10px 20px; font-size:22px; color:#C8C8CC; }
-  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:24px; letter-spacing:0.06em; text-transform:uppercase; padding:10px 22px; border-radius:100px; }
+  .date-pill { border:1px solid rgba(255,255,255,0.28); border-radius:100px; padding:10px 22px; font-size:26px; color:#E0E0E4; }
+  .rubric-pill { background:var(--primary); color:#0B0B0C; font-weight:700; font-size:28px; letter-spacing:0.06em; text-transform:uppercase; padding:12px 26px; border-radius:100px; }
 
   .hero { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:28px; }
   .planet { width:300px; height:300px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative;
@@ -28,17 +28,20 @@
   .planet .pmark { width:96px; height:96px; border-radius:50%; background-image:var(--logo); background-size:contain; background-repeat:no-repeat; background-position:center; }
   .planet .pmark.empty { background:none; color:var(--primary); font-size:96px; display:flex; align-items:center; justify-content:center; }
   .new-badge { position:absolute; top:14px; right:14px; background:var(--primary); color:#0B0B0C; font-weight:700; font-size:20px; letter-spacing:0.08em; padding:7px 16px; border-radius:100px; }
-  .project { font-size:104px; font-weight:500; line-height:1; letter-spacing:-0.02em; }
-  .subtitle { font-size:30px; color:#9A9AA0; }
+  .project { font-size:122px; font-weight:700; line-height:1; letter-spacing:-0.02em; }
+  .subtitle { font-size:38px; color:rgba(255,255,255,0.92); }
   .subtitle b { color:#fff; font-weight:500; }
   .arrow { width:74px; height:74px; border-radius:50%; border:1px solid rgba(255,255,255,0.22); display:flex; align-items:center; justify-content:center; font-size:34px; color:#fff; }
 
   .bottom { display:flex; align-items:center; justify-content:space-between; }
   .tags { display:flex; gap:12px; }
-  .tags .t { border:1px solid rgba(255,255,255,0.16); border-radius:100px; padding:9px 20px; font-size:22px; color:#C8C8CC; }
+  .tags .t { border:1px solid rgba(255,255,255,0.30); border-radius:100px; padding:10px 24px; font-size:28px; color:#E6E6EA; }
   .tags .t:empty { display:none; }
-  .handle { display:flex; align-items:center; gap:12px; font-size:24px; color:#8A8A8E; }
-  .handle .logo { width:34px; height:34px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:28px; color:#B9B9BF; }
+  .handle .logo { width:38px; height:38px; border-radius:50%; background-image:var(--logo); background-size:cover; background-position:center; }
+
+  /* Гибрид (фото-фон): планета получает полупрозрачную подложку от фона канала */
+  .photo-mode .planet { background:radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--primary) 34%, transparent), color-mix(in srgb, var(--bg) 82%, transparent) 70%); backdrop-filter:blur(10px); }
 </style>
 </head>
 <body>

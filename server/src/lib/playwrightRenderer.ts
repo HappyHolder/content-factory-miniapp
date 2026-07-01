@@ -209,11 +209,21 @@ async function autoFitText(page: Browser): Promise<void> {
         if (!size || size < 12) continue;
         const min = Math.max(8, size * 0.3);
         let guard = 0;
-        while (
-          guard++ < 40 &&
-          size > min &&
-          (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
-        ) {
+        // Height tolerance must absorb the font's ink overshoot: a glyph content
+        // area (~1.15em for most sans, Space Grotesk ≈1.14em) taller than the
+        // line box makes EVERY text box with a tight line-height report a
+        // permanent scrollHeight excess, and a 1px tolerance shrink-loops such
+        // text to the minimum. Estimate that overshoot and only treat anything
+        // beyond it (a genuinely clipped line) as vertical overflow.
+        const overflows = () => {
+          const cs = win.getComputedStyle(el);
+          const fs = parseFloat(cs.fontSize) || size;
+          const lh = parseFloat(cs.lineHeight) || fs * 1.2;
+          const inkSlack = Math.max(0, fs * 1.15 - lh);
+          return el.scrollWidth > el.clientWidth + 2 ||
+                 el.scrollHeight > el.clientHeight + inkSlack + 6;
+        };
+        while (guard++ < 40 && size > min && overflows()) {
           size *= 0.94;
           el.style.fontSize = `${size}px`;
         }
