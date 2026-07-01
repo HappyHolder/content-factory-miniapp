@@ -86,6 +86,9 @@ export interface VoiceProfile {
 }
 
 
+export type ButtonKind = 'url' | 'copy'
+export type ButtonStyle = 'primary' | 'success' | 'danger'
+
 export interface LinkItem {
   id: string
   label: string
@@ -93,6 +96,12 @@ export interface LinkItem {
   anchorText: string
   buttonLabel: string
   usage: LinkUsage
+  // Inline-keyboard extras (post buttons). Absent = plain URL button, no style,
+  // own row — keeps older stored buttons working unchanged.
+  kind?: ButtonKind
+  copyText?: string       // used when kind === 'copy'
+  style?: ButtonStyle     // primary | success | danger (recolor); absent = default
+  sameRow?: boolean       // true = join the previous button's row (grid)
 }
 
 export interface LinkKit {

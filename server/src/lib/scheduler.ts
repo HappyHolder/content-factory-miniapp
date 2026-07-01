@@ -18,23 +18,8 @@
 
 import { prisma } from '../db';
 import { env } from '../env';
-import { sendChannelPost, sendRichChannelPost, TelegramInlineKeyboard } from './telegramBot';
+import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard } from './telegramBot';
 import type { PostBlock } from './richPost';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Normalises a link URL for a Telegram inline keyboard button.
- * Mirrors the identical helper in routes/posts.ts.
- */
-function normalizeTelegramUrl(raw: unknown): string | null {
-  if (!raw || typeof raw !== 'string') return null;
-  const u = raw.trim();
-  if (!u) return null;
-  if (u.startsWith('https://') || u.startsWith('http://')) return u;
-  if (u.startsWith('@')) return `https://t.me/${u.slice(1)}`;
-  return null;
-}
 
 // ─── In-flight guard ─────────────────────────────────────────────────────────
 // Prevents two concurrent sweeps (e.g. a slow sweep + the next setInterval tick)
@@ -114,20 +99,7 @@ async function publishDuePosts(): Promise<void> {
     }
 
     // Build optional inline keyboard from stored link buttons
-    let replyMarkup: TelegramInlineKeyboard | undefined;
-    if (Array.isArray(post.linkButtons) && post.linkButtons.length > 0) {
-      const rows = (post.linkButtons as Record<string, unknown>[])
-        .map(btn => {
-          const url = normalizeTelegramUrl(btn['url']);
-          if (!url) return null;
-          const text = String(btn['buttonLabel'] || btn['label'] || url).trim() || url;
-          return [{ text, url }];
-        })
-        .filter((row): row is { text: string; url: string }[] => row !== null);
-      if (rows.length > 0) {
-        replyMarkup = { inline_keyboard: rows };
-      }
-    }
+    const replyMarkup = buildInlineKeyboard(post.linkButtons);
 
     // Send to Telegram — short post → native photo+caption; long post → full
     // text message with the cover as a large preview card (sendChannelPost).

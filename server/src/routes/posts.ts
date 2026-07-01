@@ -4,7 +4,7 @@ import { putObject, deleteObject } from '../lib/storage';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { sendChannelPost, sendRichChannelPost, TelegramApiError, TelegramInlineKeyboard } from '../lib/telegramBot';
+import { sendChannelPost, sendRichChannelPost, TelegramApiError, buildInlineKeyboard } from '../lib/telegramBot';
 import type { PostBlock } from '../lib/richPost';
 
 /** Returns the variant's structured blocks if present and non-empty, else null. */
@@ -77,23 +77,6 @@ function mapStatus(s: string): 'new' | 'scheduled' | 'published' {
   if (s === 'SCHEDULED') return 'scheduled';
   if (s === 'PUBLISHED') return 'published';
   return 'new';   // NEW, FAILED, ARCHIVED all surface as 'new' in the Mini App
-}
-
-/**
- * Normalises a link URL for use in a Telegram inline keyboard button.
- * Telegram requires http:// or https:// URLs.
- *   "@handle"          → "https://t.me/handle"
- *   "https://…"        → unchanged
- *   "http://…"         → unchanged
- *   anything else      → null (button skipped)
- */
-function normalizeTelegramUrl(raw: unknown): string | null {
-  if (!raw || typeof raw !== 'string') return null;
-  const u = raw.trim();
-  if (!u) return null;
-  if (u.startsWith('https://') || u.startsWith('http://')) return u;
-  if (u.startsWith('@')) return `https://t.me/${u.slice(1)}`;
-  return null;
 }
 
 // ─── POST /api/posts/generate ─────────────────────────────────────────────────
@@ -683,22 +666,9 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   }
 
   // ── 9. Build optional inline keyboard from stored link buttons ───────────
-  // linkButtons was populated from BrandKit at draft-creation time and stored
-  // as Json in GeneratedPost. Each button with a valid URL becomes one row.
-  let replyMarkup: TelegramInlineKeyboard | undefined;
-  if (Array.isArray(post.linkButtons) && post.linkButtons.length > 0) {
-    const rows = (post.linkButtons as Record<string, unknown>[])
-      .map(btn => {
-        const url = normalizeTelegramUrl(btn['url']);
-        if (!url) return null;
-        const text = String(btn['buttonLabel'] || btn['label'] || url).trim() || url;
-        return [{ text, url }];
-      })
-      .filter((row): row is { text: string; url: string }[] => row !== null);
-    if (rows.length > 0) {
-      replyMarkup = { inline_keyboard: rows };
-    }
-  }
+  // linkButtons was populated from BrandKit at draft-creation time (and edited
+  // in the composer) and stored as Json in GeneratedPost.
+  const replyMarkup = buildInlineKeyboard(post.linkButtons);
 
   // ── 10. Send to Telegram channel ─────────────────────────────────────────
   // DB is only updated AFTER a successful Telegram delivery so status never
@@ -835,17 +805,25 @@ router.patch('/:postId/buttons', async (req: Request, res: Response): Promise<vo
   if (post.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
 
   // Sanitize into the LinkItem shape publish understands. Drop entries without
-  // both a label and a URL. URL validity is re-checked at publish (normalizeTelegramUrl).
+  // both a label and a target. A URL button needs a URL; a copy button needs
+  // copyText. style is whitelisted; sameRow groups the button into a grid row.
+  // The keyboard is re-validated at publish (buildInlineKeyboard).
+  const VALID_STYLES = new Set(['primary', 'success', 'danger']);
   const clean = (buttons as unknown[])
     .filter(b => b && typeof b === 'object')
     .map((b, i) => {
       const o = b as Record<string, unknown>;
-      const label = typeof o['label'] === 'string' ? o['label'].trim().slice(0, 64) : '';
-      const url   = typeof o['url']   === 'string' ? o['url'].trim().slice(0, 500) : '';
-      const id    = typeof o['id'] === 'string' && o['id'] ? o['id'] : `btn-${Date.now()}-${i}`;
-      return { id, label, url, anchorText: '', buttonLabel: label, usage: 'button' };
+      const label    = typeof o['label']    === 'string' ? o['label'].trim().slice(0, 64)     : '';
+      const url      = typeof o['url']       === 'string' ? o['url'].trim().slice(0, 500)      : '';
+      const copyText = typeof o['copyText']  === 'string' ? o['copyText'].trim().slice(0, 256) : '';
+      const kind     = o['kind'] === 'copy' ? 'copy' : 'url';
+      const styleRaw = typeof o['style'] === 'string' ? o['style'] : '';
+      const style    = VALID_STYLES.has(styleRaw) ? styleRaw : undefined;
+      const sameRow  = o['sameRow'] === true;
+      const id       = typeof o['id'] === 'string' && o['id'] ? o['id'] : `btn-${Date.now()}-${i}`;
+      return { id, label, url, copyText, kind, style, sameRow, anchorText: '', buttonLabel: label, usage: 'button' };
     })
-    .filter(b => b.label && b.url);
+    .filter(b => b.label && (b.kind === 'copy' ? b.copyText : b.url));
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

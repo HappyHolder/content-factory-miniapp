@@ -102,11 +102,24 @@ export async function getFilePath(fileId: string, token: string): Promise<string
 // ─── Inline keyboard ─────────────────────────────────────────────────────────
 
 /**
- * Telegram Bot API inline_keyboard reply_markup.
- * Each row is an array of buttons; we put one button per row for channel posts.
+ * A single inline-keyboard button. A button is either a URL button or a
+ * copy-to-clipboard button (`copy_text`). `style` recolors it — Bot API 10.1
+ * accepts only `primary` | `success` | `danger` (verified live; `web_app`
+ * buttons are rejected in channel posts, so they're intentionally absent here).
+ */
+export interface TelegramInlineButton {
+  text: string;
+  url?: string;
+  copy_text?: { text: string };
+  style?: 'primary' | 'success' | 'danger';
+}
+
+/**
+ * Telegram Bot API inline_keyboard reply_markup. Each inner array is a row, so
+ * multiple buttons per row form a grid.
  */
 export interface TelegramInlineKeyboard {
-  inline_keyboard: { text: string; url: string }[][];
+  inline_keyboard: TelegramInlineButton[][];
 }
 
 /**
@@ -118,6 +131,61 @@ export interface TelegramWebAppKeyboard {
 }
 
 export type AnyInlineKeyboard = TelegramInlineKeyboard | TelegramWebAppKeyboard;
+
+const VALID_BUTTON_STYLES = new Set(['primary', 'success', 'danger']);
+
+/**
+ * Normalizes a stored button target into a Telegram-valid URL:
+ *   "@handle" → "https://t.me/handle"; "http(s)://…" → unchanged; else null.
+ */
+function normalizeButtonUrl(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const u = raw.trim();
+  if (!u) return null;
+  if (u.startsWith('https://') || u.startsWith('http://')) return u;
+  if (u.startsWith('@')) return `https://t.me/${u.slice(1)}`;
+  return null;
+}
+
+/**
+ * Builds an inline-keyboard reply_markup from the post's stored linkButtons
+ * (LinkItem-shaped JSON). Supports URL and copy-to-clipboard (`kind: 'copy'`)
+ * buttons, per-button `style`, and row grouping (`sameRow: true` joins the
+ * previous row into a grid). Invalid/empty buttons are skipped; returns
+ * undefined when nothing valid remains.
+ */
+export function buildInlineKeyboard(linkButtons: unknown): TelegramInlineKeyboard | undefined {
+  if (!Array.isArray(linkButtons) || linkButtons.length === 0) return undefined;
+
+  const rows: TelegramInlineButton[][] = [];
+  for (const raw of linkButtons as Record<string, unknown>[]) {
+    if (!raw || typeof raw !== 'object') continue;
+
+    const labelText = String(raw['buttonLabel'] || raw['label'] || '').trim();
+    let button: TelegramInlineButton | null = null;
+
+    if (raw['kind'] === 'copy') {
+      const copyText = typeof raw['copyText'] === 'string' ? raw['copyText'].trim() : '';
+      if (!copyText) continue;
+      button = { text: labelText || copyText, copy_text: { text: copyText.slice(0, 256) } };
+    } else {
+      const url = normalizeButtonUrl(raw['url']);
+      if (!url) continue;
+      button = { text: labelText || url, url };
+    }
+
+    const styleRaw = typeof raw['style'] === 'string' ? raw['style'] : '';
+    if (VALID_BUTTON_STYLES.has(styleRaw)) button.style = styleRaw as TelegramInlineButton['style'];
+
+    if (raw['sameRow'] === true && rows.length > 0) {
+      rows[rows.length - 1]!.push(button);
+    } else {
+      rows.push([button]);
+    }
+  }
+
+  return rows.length > 0 ? { inline_keyboard: rows } : undefined;
+}
 
 /**
  * Telegram Bot API LinkPreviewOptions (Bot API ≥ 7.0). Lets us attach a large

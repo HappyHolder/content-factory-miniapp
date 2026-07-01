@@ -1,12 +1,35 @@
 import { useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { RichPostPreview, runsToText, textToRuns } from '@/components/posts/RichPostPreview'
-import type { PostBlock, LinkItem } from '@/types'
+import type { PostBlock, LinkItem, ButtonStyle } from '@/types'
 import { cn } from '@/lib/utils'
+
+// Inline-button styles Telegram accepts ('' = default). `chip` colors the picker
+// when active; `preview` colors the button chip in preview mode.
+const BTN_STYLES = [
+  { v: '',        label: 'Обычная', chip: 'bg-white/20 text-white',      preview: 'bg-white/[0.08] border-white/[0.14] text-[#5AA9FF]' },
+  { v: 'primary', label: 'Синяя',   chip: 'bg-[#2E7CF6] text-white',     preview: 'bg-[#2E7CF6]/15 border-[#2E7CF6]/45 text-[#7FB0FF]' },
+  { v: 'success', label: 'Зелёная', chip: 'bg-[#22A06B] text-white',     preview: 'bg-[#22A06B]/15 border-[#22A06B]/45 text-[#4FD394]' },
+  { v: 'danger',  label: 'Красная', chip: 'bg-[#E5484D] text-white',     preview: 'bg-[#E5484D]/15 border-[#E5484D]/45 text-[#FF7A7E]' },
+] as const
+
+const btnStyleMeta = (s?: ButtonStyle) => BTN_STYLES.find(m => m.v === (s ?? '')) ?? BTN_STYLES[0]
+const btnHasTarget = (b: LinkItem) => (b.kind === 'copy' ? (b.copyText ?? '').trim() : b.url.trim())
+
+// Groups valid buttons into keyboard rows, honoring `sameRow` (grid layout).
+function groupButtonRows(buttons: LinkItem[]): LinkItem[][] {
+  const rows: LinkItem[][] = []
+  for (const b of buttons) {
+    if (!b.label.trim() || !btnHasTarget(b)) continue
+    if (b.sameRow && rows.length > 0) rows[rows.length - 1].push(b)
+    else rows.push([b])
+  }
+  return rows
+}
 
 interface RichPostEditorProps {
   postId:        string
@@ -15,7 +38,7 @@ interface RichPostEditorProps {
   channelName?:  string
   channelHandle?: string
   avatarUrl?:    string | null
-  /** Manual posts: let the user add their own inline-keyboard buttons here. */
+  /** Show the inline-keyboard button editor (all block posts). */
   enableButtons?: boolean
 }
 
@@ -60,11 +83,12 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
     setButtons([...buttons, {
       id: `btn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       label: '', url: '', anchorText: '', buttonLabel: '', usage: 'button',
+      kind: 'url', copyText: '', sameRow: false,
     }])
     setButtonsDirty(true)
   }
-  const patchButton = (i: number, field: 'label' | 'url', v: string) => {
-    setButtons(buttons.map((b, idx) => idx === i ? { ...b, [field]: v } : b)); setButtonsDirty(true)
+  const patchButton = (i: number, patch: Partial<LinkItem>) => {
+    setButtons(buttons.map((b, idx) => idx === i ? { ...b, ...patch } : b)); setButtonsDirty(true)
   }
   const removeButton = (i: number) => { setButtons(buttons.filter((_, idx) => idx !== i)); setButtonsDirty(true) }
   const [addOpen, setAddOpen] = useState(false)
@@ -249,12 +273,13 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
           showToast(err.error ?? 'Не удалось сохранить', 'error'); return
         }
       }
-      // Buttons (post-level). Only valid (label + url) entries are persisted.
+      // Buttons (post-level). A URL button needs a label + url; a copy button
+      // needs a label + copyText. The server re-validates and stores them.
       let savedButtons: LinkItem[] | null = null
       if (buttonsDirty) {
         const clean = buttons
-          .map(b => ({ ...b, label: b.label.trim(), url: b.url.trim(), buttonLabel: b.label.trim() }))
-          .filter(b => b.label && b.url)
+          .map(b => ({ ...b, label: b.label.trim(), url: b.url.trim(), copyText: (b.copyText ?? '').trim(), buttonLabel: b.label.trim() }))
+          .filter(b => b.label && (b.kind === 'copy' ? b.copyText : b.url))
         const res = await fetch(`${API_BASE}/api/posts/${postId}/buttons`, {
           method:  'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -434,31 +459,75 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
           </div>
           {buttons.length === 0 && (
             <p className="text-[11px] text-[#55555D] leading-relaxed">
-              Кнопки-ссылки под постом (инлайн-клавиатура). Текст + ссылка. Напр.: «Подробнее» → https://…
+              Кнопки под постом (инлайн-клавиатура): ссылка или «копировать текст», с цветом и раскладкой в ряды.
             </p>
           )}
-          {buttons.map((b, i) => (
-            <div key={b.id} className="space-y-1">
-              <div className="flex gap-1.5">
-                <input value={b.label} onChange={e => patchButton(i, 'label', e.target.value)}
-                  placeholder="Текст кнопки" className="glass-input flex-1 min-w-0 px-2.5 py-1.5 text-[12px]" />
-                <button onClick={() => removeButton(i)} className="p-1.5 text-[#55555D] hover:text-red-400"><Trash2 size={13} /></button>
+          {buttons.map((b, i) => {
+            const kind = b.kind ?? 'url'
+            return (
+              <div key={b.id} className="space-y-1.5 rounded-[10px] bg-white/[0.02] border border-white/[0.06] p-2">
+                <div className="flex gap-1.5">
+                  <input value={b.label} onChange={e => patchButton(i, { label: e.target.value })}
+                    placeholder="Текст кнопки" className="glass-input flex-1 min-w-0 px-2.5 py-1.5 text-[12px]" />
+                  <button onClick={() => removeButton(i)} className="p-1.5 text-[#55555D] hover:text-red-400"><Trash2 size={13} /></button>
+                </div>
+                {/* type: link vs copy */}
+                <div className="flex gap-1">
+                  {([['url', 'Ссылка'], ['copy', 'Копировать']] as const).map(([k, lbl]) => (
+                    <button key={k} onClick={() => patchButton(i, { kind: k })}
+                      className={cn('px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors',
+                        kind === k ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00] border-[rgba(255,106,0,0.38)]' : 'bg-white/5 text-[#A1A1AA] border-white/[0.06]')}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+                {/* target */}
+                {kind === 'copy' ? (
+                  <input value={b.copyText ?? ''} onChange={e => patchButton(i, { copyText: e.target.value })}
+                    placeholder="Текст для копирования (напр. адрес кошелька)" className="glass-input w-full px-2.5 py-1.5 text-[12px]" />
+                ) : (
+                  <input value={b.url} onChange={e => patchButton(i, { url: e.target.value })}
+                    placeholder="https://… или @канал" className="glass-input w-full px-2.5 py-1.5 text-[12px]" />
+                )}
+                {/* style */}
+                <div className="flex flex-wrap gap-1">
+                  {BTN_STYLES.map(s => (
+                    <button key={s.v || 'default'} onClick={() => patchButton(i, { style: (s.v || undefined) as ButtonStyle | undefined })}
+                      className={cn('px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors',
+                        (b.style ?? '') === s.v ? `${s.chip} border-transparent` : 'bg-white/5 text-[#A1A1AA] border-white/[0.06]')}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                {/* layout */}
+                {i > 0 && (
+                  <label className="flex items-center gap-2 text-[11px] text-[#A1A1AA]">
+                    <input type="checkbox" checked={b.sameRow === true} onChange={e => patchButton(i, { sameRow: e.target.checked })} />
+                    В один ряд с предыдущей
+                  </label>
+                )}
               </div>
-              <input value={b.url} onChange={e => patchButton(i, 'url', e.target.value)}
-                placeholder="https://… или @канал" className="glass-input w-full px-2.5 py-1.5 text-[12px]" />
-            </div>
-          ))}
+            )
+          })}
           <button onClick={addButton}
             className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] border border-dashed border-white/[0.12] text-[12px] text-[#A1A1AA] hover:border-[#FF6A00]/40 hover:text-[#FF6A00] transition-colors">
             <Plus size={13} /> Добавить кнопку
           </button>
         </div>
       )}
-      {enableButtons && mode === 'preview' && buttons.some(b => b.label.trim() && b.url.trim()) && (
+      {enableButtons && mode === 'preview' && groupButtonRows(buttons).length > 0 && (
         <div className="flex flex-col gap-1.5">
-          {buttons.filter(b => b.label.trim() && b.url.trim()).map(b => (
-            <div key={b.id} className="w-full text-center py-2 rounded-[10px] bg-white/[0.06] border border-white/[0.1] text-[13px] font-medium text-[#5AA9FF]">
-              {b.label}
+          {groupButtonRows(buttons).map((row, ri) => (
+            <div key={ri} className="flex gap-1.5">
+              {row.map(b => {
+                const meta = btnStyleMeta(b.style)
+                return (
+                  <div key={b.id} className={cn('flex-1 min-w-0 text-center py-2 rounded-[10px] border text-[13px] font-medium flex items-center justify-center gap-1.5', meta.preview)}>
+                    {b.kind === 'copy' && <Copy size={12} className="shrink-0" />}
+                    <span className="truncate">{b.label}</span>
+                  </div>
+                )
+              })}
             </div>
           ))}
         </div>
