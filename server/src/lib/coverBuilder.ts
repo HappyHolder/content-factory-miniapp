@@ -85,6 +85,7 @@ export interface BuildCoverInput {
   /** The chosen rubric's template (rubric path). Null → legacy keyword pick. */
   rubricTemplate: { name: string; url: string } | null;
   rubricHybridPrompt?: string;
+  rubricSelected?: boolean;
   title:        string;
   sourceSummary: string;
   finalTitle:   string;

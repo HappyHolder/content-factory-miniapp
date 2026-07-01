@@ -15,7 +15,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { generatePostVariants, classifyPostRubric, type RubricItem } from './aiGenerator';
 import { type GeneratedCover } from './imageGenerator';
-import { buildCover } from './coverBuilder';
+import { buildCoverRouted } from './coverEngineRouter';
 import { generateRichBlocks } from './richPostGenerator';
 import type { PostBlock } from './richPost';
 
@@ -38,8 +38,7 @@ function parseRubrics(vkObj: Record<string, unknown>): RubricItem[] {
       id:          typeof o['id'] === 'string' && o['id'] ? o['id'] : name,
       name,
       description: typeof o['description'] === 'string' ? o['description'] : undefined,
-      // A rubric without a template can only be 'ai' (html/hybrid need a template).
-      mode:        templateUrl ? mode : 'ai',
+      mode,
       templateUrl,
       hybridPrompt: typeof o['hybridPrompt'] === 'string' && o['hybridPrompt'].trim() ? o['hybridPrompt'].trim() : undefined,
     });
@@ -363,8 +362,8 @@ export async function createDraftPostForChannel(
   });
 
   // ── Cover generation (extracted to coverBuilder; reused by set-rubric) ─────
-  cover = await buildCover({
-    coverMode, useBrandKit, visualKit, vkObj, rubricTemplate, rubricHybridPrompt,
+  cover = await buildCoverRouted({
+    coverMode, useBrandKit, visualKit, vkObj, rubricTemplate, rubricHybridPrompt, rubricSelected: rubricMode !== null,
     title, sourceSummary, finalTitle, input,
     imagePrompt: imagePrompt?.trim() || undefined,
     coverLanguage, aspectRatio, imageModel, slotBrandCtx,

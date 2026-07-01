@@ -783,18 +783,16 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
                       className="glass-input w-full px-2.5 py-1.5 text-[12px] resize-none"
                     />
                   )}
-                  {/* mode selector — html / hybrid need a template (and a paid plan) */}
+                  {/* mode selector — paid modes may work with or without an uploaded template */}
                   <div className="flex gap-1 p-0.5 rounded-[10px] bg-white/[0.04] border border-white/[0.06]">
                     {([['ai', '✦ AI'], ['html', '</> HTML'], ['ai_html', 'AI+HTML']] as const).map(([m, label]) => {
-                      const enabled = m === 'ai' || (hasTpl && canUseHtml)
+                      const enabled = m === 'ai' || canUseHtml
                       return (
                         <button
                           key={m}
                           onClick={() => {
                             if (!enabled) {
-                              showToast(!canUseHtml
-                                ? (language === 'ru' ? 'Доступно на платных тарифах' : 'Available on paid plans')
-                                : (language === 'ru' ? 'Сначала загрузите шаблон' : 'Attach a template first'), 'info')
+                              showToast(language === 'ru' ? 'Доступно на платных тарифах' : 'Available on paid plans', 'info')
                               return
                             }
                             updateRubric(i, { mode: m })
@@ -814,7 +812,7 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
                         {r.templateName ?? r.templateUrl!.split('/').pop()?.split('?')[0]}
                       </span>
                     ) : (
-                      <span className="flex-1 text-[11px] text-[#44444C]">{language === 'ru' ? 'Без шаблона → только AI' : 'No template → AI only'}</span>
+                      <span className="flex-1 text-[11px] text-[#44444C]">{language === 'ru' ? 'Без шаблона' : 'No template'}</span>
                     )}
                     <button
                       onClick={() => { if (rubricFileRef.current) { rubricFileRef.current.dataset['idx'] = String(i); rubricFileRef.current.click() } }}
@@ -827,7 +825,7 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
                       }
                     </button>
                     {hasTpl && (
-                      <button onClick={() => updateRubric(i, { templateUrl: undefined, templateName: undefined, mode: 'ai' })}
+                      <button onClick={() => updateRubric(i, { templateUrl: undefined, templateName: undefined })}
                         className="text-[11px] text-[#55555D] hover:text-red-400 transition-colors shrink-0">{language === 'ru' ? 'Убрать' : 'Remove'}</button>
                     )}
                   </div>

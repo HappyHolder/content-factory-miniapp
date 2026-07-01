@@ -26,7 +26,7 @@ function collectMediaUrls(variants: { bannerUrl?: string | null; blocks?: unknow
   return [...urls];
 }
 import { createDraftPostForChannel } from '../lib/draftGenerator';
-import { buildCover } from '../lib/coverBuilder';
+import { buildCoverRouted } from '../lib/coverEngineRouter';
 import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContentFromUrl } from '../lib/visionExtractor';
 import { generateImageForPost, buildVisualKitPromptHints, renderCoverFromBase } from '../lib/imageGenerator';
@@ -2095,7 +2095,7 @@ router.post('/set-rubric', async (req: Request, res: Response): Promise<void> =>
     if (!r) { res.status(404).json({ error: 'Rubric not found.' }); return; }
     const tplUrl = typeof r['templateUrl'] === 'string' && r['templateUrl'] ? r['templateUrl'] as string : undefined;
     const m = r['mode'];
-    chosenMode = (m === 'html' || m === 'ai_html') && tplUrl ? m : 'ai';
+    chosenMode = (m === 'html' || m === 'ai_html') ? m : 'ai';
     chosenHybridPrompt = typeof r['hybridPrompt'] === 'string' && r['hybridPrompt'].trim() ? r['hybridPrompt'].trim() : undefined;
     if (tplUrl) chosenTemplate = { name: typeof r['name'] === 'string' ? r['name'] as string : '', url: tplUrl };
     chosenName = typeof r['name'] === 'string' ? r['name'] as string : null;
@@ -2138,11 +2138,11 @@ router.post('/set-rubric', async (req: Request, res: Response): Promise<void> =>
   const selected = post.variants.find(v => v.id === post.selectedVariantId) ?? post.variants[0];
   const input    = selected?.text ?? '';
 
-  let cover: Awaited<ReturnType<typeof buildCover>> = null;
+  let cover: Awaited<ReturnType<typeof buildCoverRouted>> = null;
   try {
-    cover = await buildCover({
+    cover = await buildCoverRouted({
       coverMode, useBrandKit: true, visualKit: vk, vkObj,
-      rubricTemplate: chosenTemplate, rubricHybridPrompt: chosenHybridPrompt,
+      rubricTemplate: chosenTemplate, rubricHybridPrompt: chosenHybridPrompt, rubricSelected: chosenId !== null,
       title: post.title, sourceSummary: post.sourceSummary ?? post.title, finalTitle: post.title,
       input, imagePrompt: post.imagePrompt?.trim() || undefined,
       coverLanguage, aspectRatio, imageModel, slotBrandCtx,
