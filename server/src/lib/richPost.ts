@@ -41,6 +41,7 @@ export type PostBlock =
   | { type: 'table';     headers: string[]; rows: string[][] }
   | { type: 'image';     url: string }
   | { type: 'video';     url: string; poster?: string }
+  | { type: 'document';  url: string; name: string; mime?: string; size?: number }
   | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
   | { type: 'divider' };
 
@@ -117,6 +118,8 @@ function renderBlock(b: PostBlock): string {
       return isHttpUrl(b.url)
         ? `<video src="${escapeAttr(b.url)}"${b.poster && isHttpUrl(b.poster) ? ` poster="${escapeAttr(b.poster)}"` : ''}></video>`
         : '';
+    case 'document':
+      return '';
     case 'gallery': {
       const tag = b.layout === 'collage' ? 'tg-collage' : 'tg-slideshow';
       const imgs = b.urls.filter(isHttpUrl).map(renderImg).join('');
@@ -159,7 +162,7 @@ export function blocksToPlainText(blocks: PostBlock[]): string {
         if (b.headers.length) parts.push(b.headers.join(' · '));
         parts.push(b.rows.map(r => r.join(' · ')).join('\n'));
         break;
-      // image / gallery / divider produce no text
+      // image / video / document / gallery / divider produce no text
     }
   }
   return parts.filter(s => s.trim()).join('\n\n');
@@ -175,4 +178,11 @@ export function firstImage(blocks: PostBlock[]): string | null {
     }
   }
   return null;
+}
+
+/** Returns document attachments that should be sent after the main post. */
+export function documentBlocks(blocks: PostBlock[]): { url: string; name: string }[] {
+  return blocks
+    .filter((b): b is Extract<PostBlock, { type: 'document' }> => b.type === 'document' && isHttpUrl(b.url) && !!b.name?.trim())
+    .map(b => ({ url: b.url, name: b.name.trim() }));
 }

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2 } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -21,7 +21,7 @@ interface RichPostEditorProps {
 
 const BLOCK_LABEL: Record<PostBlock['type'], string> = {
   heading: 'Заголовок', paragraph: 'Абзац', list: 'Список', quote: 'Цитата',
-  table: 'Таблица', image: 'Картинка', video: 'Видео', gallery: 'Галерея', divider: 'Разделитель',
+  table: 'Таблица', image: 'Картинка', video: 'Видео', document: 'Файл', gallery: 'Галерея', divider: 'Разделитель',
 }
 
 function makeBlock(type: PostBlock['type']): PostBlock {
@@ -32,6 +32,7 @@ function makeBlock(type: PostBlock['type']): PostBlock {
     case 'quote':     return { type: 'quote', runs: [{ t: '' }], expandable: false }
     case 'table':     return { type: 'table', headers: ['', ''], rows: [['', '']] }
     case 'gallery':   return { type: 'gallery', layout: 'slideshow', urls: [] }
+    case 'document':  return { type: 'document', url: '', name: 'Файл' }
     case 'divider':   return { type: 'divider' }
     default:          return { type: 'paragraph', runs: [{ t: '' }] }
   }
@@ -69,9 +70,11 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLInputElement>(null)
+  const documentRef = useRef<HTMLInputElement>(null)
 
   const pickImage = (target: UploadTarget) => { setUploadTarget(target); fileRef.current?.click() }
   const pickVideo = (target: 'new' | number) => { setUploadTarget(target); videoRef.current?.click() }
+  const pickDocument = (target: 'new' | number) => { setUploadTarget(target); documentRef.current?.click() }
 
   const handleFile = async (file: File) => {
     const initData = getTelegramInitData()
@@ -125,6 +128,31 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
     }
   }
 
+
+  const handleDocumentFile = async (file: File) => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    if (file.size > 20 * 1024 * 1024) { showToast('Файл до 20 МБ', 'error'); return }
+    const target = uploadTarget
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('initData', initData)
+      form.append('document', file)
+      const res = await fetch(`${API_BASE}/api/posts/upload-block-document`, { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({})) as { url?: string; name?: string; mime?: string; size?: number; error?: string }
+      if (!res.ok || !data.url) { showToast(data.error ?? 'Не удалось загрузить файл', 'error'); return }
+      const block: PostBlock = { type: 'document', url: data.url, name: data.name ?? file.name, mime: data.mime ?? file.type, size: data.size ?? file.size }
+      if (target === 'new') mutate([...blocks, block])
+      else if (typeof target === 'number') patch(target, block)
+      setAddOpen(false)
+    } catch {
+      showToast('Ошибка загрузки файла', 'error')
+    } finally {
+      setUploading(false)
+      setUploadTarget(null)
+    }
+  }
   const [genLoading, setGenLoading] = useState(false)
   const [genOpen, setGenOpen] = useState(false)   // new-image prompt panel
   const [genPrompt, setGenPrompt] = useState('')
@@ -270,6 +298,12 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
         onChange={e => { const f = e.target.files?.[0]; if (f) handleVideoFile(f); e.target.value = '' }}
       />
 
+      <input
+        ref={documentRef}
+        type="file"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleDocumentFile(f); e.target.value = '' }}
+      />
       {/* mode toggle */}
       <div className="flex gap-1 p-1 rounded-[12px] bg-white/[0.04] border border-white/[0.06]">
         {([['preview', Eye, 'Превью'], ['edit', Pencil, 'Редактор']] as const).map(([m, Icon, label]) => (
@@ -316,7 +350,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                 <BlockEditor
                   b={b}
                   onChange={next => patch(i, next)}
-                  onReplace={() => (b.type === 'video' ? pickVideo(i) : pickImage(i))}
+                  onReplace={() => (b.type === 'video' ? pickVideo(i) : b.type === 'document' ? pickDocument(i) : pickImage(i))}
                   onAddGalleryPhoto={() => pickImage({ gallery: i })}
                   onGenerateGalleryPhoto={(p: string) => generateGalleryPhoto(i, p)}
                   galleryGenLoading={galleryGenIdx === i}
@@ -351,6 +385,11 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                   className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50 flex items-center gap-1">
                   {uploading && uploadTarget === 'new' ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
                   Видео
+                </button>
+                <button onClick={() => pickDocument('new')} disabled={uploading}
+                  className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50 flex items-center gap-1">
+                  {uploading && uploadTarget === 'new' ? <Loader2 size={11} className="animate-spin" /> : <FileText size={11} />}
+                  Файл
                 </button>
                 <button onClick={() => { setGenOpen(o => !o); setAddOpen(true) }}
                   className="px-3 py-1.5 rounded-full bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] flex items-center gap-1">
@@ -590,6 +629,22 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
       return (
         <div className="space-y-1.5">
           <video src={b.url} controls playsInline className="w-full rounded-[10px] max-h-44 bg-black" />
+          <button onClick={onReplace} disabled={uploading}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
+            {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Заменить
+          </button>
+        </div>
+      )
+    case 'document':
+      return (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3 py-2">
+            <div className="w-9 h-9 rounded-[10px] bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center font-bold text-[11px] shrink-0">FILE</div>
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-white truncate">{b.name}</p>
+              <p className="text-[11px] text-[#66666E]">{typeof b.size === 'number' ? `${(b.size / 1024 / 1024).toFixed(2)} МБ` : 'Документ'}</p>
+            </div>
+          </div>
           <button onClick={onReplace} disabled={uploading}
             className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
             {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Заменить

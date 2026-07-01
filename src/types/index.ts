@@ -276,6 +276,7 @@ export type PostBlock =
   | { type: 'table';     headers: string[]; rows: string[][] }
   | { type: 'image';     url: string; prompt?: string } // prompt set = AI-generated (regeneratable)
   | { type: 'video';     url: string; poster?: string }
+  | { type: 'document';  url: string; name: string; mime?: string; size?: number }
   | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
   | { type: 'divider' }
 

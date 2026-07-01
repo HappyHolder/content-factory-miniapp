@@ -2,7 +2,8 @@
 // All functions throw TelegramApiError on a non-ok response.
 
 import { env } from '../env';
-import { blocksToRichHtml, blocksToPlainText, firstImage, type PostBlock } from './richPost';
+import { blocksToRichHtml, blocksToPlainText, documentBlocks, firstImage, type PostBlock } from './richPost';
+import { deleteObject } from './storage';
 
 const TG_API = 'https://api.telegram.org';
 
@@ -293,6 +294,13 @@ export async function sendRichChannelPost(params: {
 }): Promise<void> {
   const { chatId, blocks, token, title, siteName, replyMarkup } = params;
   const html = blocksToRichHtml(blocks);
+  const docs = documentBlocks(blocks);
+
+  // Docs-only post: no text to send, just the attachments.
+  if (!html.trim() && docs.length > 0) {
+    await sendChannelDocuments(chatId, docs, token);
+    return;
+  }
 
   try {
     await sendRichMessage(chatId, html, token, replyMarkup);
@@ -308,8 +316,64 @@ export async function sendRichChannelPost(params: {
       replyMarkup,
     });
   }
+
+  await sendChannelDocuments(chatId, docs, token);
 }
 
+/**
+ * Sends the post's document attachments after the main message.
+ *
+ * Best-effort by design: a failed attachment is logged and skipped, never
+ * thrown. The main post has already been delivered at this point, so throwing
+ * would make the scheduler treat the whole post as unpublished and re-send it
+ * on the next sweep — duplicating it in the channel. Once Telegram has fetched
+ * a file, the local copy is deleted (we don't keep uploaded files around).
+ */
+async function sendChannelDocuments(
+  chatId: number | string,
+  docs: { url: string; name: string }[],
+  token: string,
+): Promise<void> {
+  for (const doc of docs) {
+    try {
+      await sendBotDocument(chatId, doc.url, doc.name, token);
+      await deleteObject(doc.url); // Telegram has it now — drop our copy.
+    } catch (err) {
+      console.error(`[telegramBot] sendDocument failed for "${doc.name}":`, (err as Error).message);
+    }
+  }
+}
+
+
+/** Sends a document attachment to a Telegram chat via sendDocument. */
+export async function sendBotDocument(
+  chatId: number | string,
+  documentUrl: string,
+  fileName: string,
+  token: string,
+): Promise<void> {
+  const url = `${TG_API}/bot${token}/sendDocument`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        document: documentUrl,
+        disable_content_type_detection: false,
+        caption: fileName.slice(0, 1024),
+      }),
+    });
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling sendDocument: ${(err as Error).message}`);
+  }
+
+  const body = (await res.json()) as TgApiResponse<unknown>;
+  if (!body.ok) {
+    throw new TelegramApiError(body.description ?? 'sendDocument returned not-ok', body.error_code);
+  }
+}
 /**
  * Sends a photo to a Telegram chat via sendPhoto, with an optional caption
  * (truncated to the 1 024-char Telegram limit) and optional inline keyboard.

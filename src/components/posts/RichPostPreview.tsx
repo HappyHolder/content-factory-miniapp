@@ -119,6 +119,16 @@ function Block({ b }: { b: PostBlock }) {
       return <img src={b.url} alt="" className="w-full rounded-[12px] object-cover bg-black" />
     case 'video':
       return <video src={b.url} poster={b.poster} controls playsInline className="w-full rounded-[12px] bg-black" />
+    case 'document':
+      return (
+        <div className="flex items-center gap-2 rounded-[12px] bg-white/[0.04] border border-white/[0.08] px-3 py-2">
+          <div className="w-9 h-9 rounded-[10px] bg-[#FF6A00]/15 text-[#FF6A00] flex items-center justify-center font-bold text-[11px] shrink-0">FILE</div>
+          <div className="min-w-0">
+            <p className="text-[13.5px] font-semibold text-white truncate">{b.name}</p>
+            <p className="text-[11px] text-[#66666E]">{typeof b.size === 'number' ? `${(b.size / 1024 / 1024).toFixed(2)} МБ` : 'Документ'}</p>
+          </div>
+        </div>
+      )
     case 'gallery':
       return b.layout === 'collage' ? (
         <div className="grid grid-cols-2 gap-1">

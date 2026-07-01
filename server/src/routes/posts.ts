@@ -20,6 +20,7 @@ function collectMediaUrls(variants: { bannerUrl?: string | null; blocks?: unknow
     for (const b of variantBlocks(v) ?? []) {
       if (b.type === 'image' && b.url) urls.add(b.url);
       else if (b.type === 'video') { if (b.url) urls.add(b.url); if (b.poster) urls.add(b.poster); }
+      else if (b.type === 'document' && b.url) urls.add(b.url);
       else if (b.type === 'gallery') for (const u of b.urls) if (u) urls.add(u);
     }
   }
@@ -55,6 +56,18 @@ const uploadVideoMiddleware = multer({
   },
 });
 
+
+// Generic document uploads for Telegram sendDocument. URL-based Bot API sends are
+// conservative at 20 MB, so we cap here too.
+const uploadDocumentMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const name = file.originalname.toLowerCase();
+    const blocked = /\.(exe|msi|bat|cmd|sh|ps1|scr|com|js|jar)$/i.test(name);
+    blocked ? cb(new Error('Unsupported document type')) : cb(null, true);
+  },
+});
 const router = Router();
 
 // ─── Local helpers ────────────────────────────────────────────────────────────
@@ -899,6 +912,33 @@ router.post('/upload-block-video', uploadVideoMiddleware.single('video'), async 
   }
 });
 
+
+// ─── POST /api/posts/upload-block-document ───────────────────────────────────
+// Uploads a generic file to attach to a formatted post as a Telegram document.
+// Request: multipart { initData, document }   Response 200: { url, name, mime, size }
+router.post('/upload-block-document', uploadDocumentMiddleware.single('document'), async (req: Request, res: Response): Promise<void> => {
+  const initData = req.body['initData'] as unknown;
+  const file = req.file;
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (!file) { res.status(400).json({ error: 'document is required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  try {
+    const safeOriginal = file.originalname.replace(/[\\/\0<>:"|?*]+/g, '_').slice(0, 120) || 'document';
+    const ext = (safeOriginal.split('.').pop() || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 12) || 'bin';
+    const obj = await putObject(`posts/blocks/${dbUser.id}-${Date.now()}.${ext}`, file.buffer, { contentType: file.mimetype || 'application/octet-stream' });
+    res.json({ url: obj.url, name: safeOriginal, mime: file.mimetype, size: file.size });
+  } catch (err) {
+    console.error('[posts/upload-block-document] upload failed:', (err as Error).message);
+    res.status(500).json({ error: 'Upload failed. Try again.' });
+  }
+});
 // ─── POST /api/posts/generate-block-image ────────────────────────────────────
 // Generates an AI illustration for a post block (clean scene, no burned-in title)
 // and returns its URL. Optional `prompt` lets the user art-direct it; otherwise

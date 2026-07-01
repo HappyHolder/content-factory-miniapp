@@ -99,8 +99,11 @@ async function publishDuePosts(): Promise<void> {
     const selectedVariant =
       post.variants.find(v => v.id === post.selectedVariantId) ?? post.variants[0];
 
-    if (!selectedVariant?.text?.trim()) {
-      console.error(`[scheduler] Post ${post.id}: no variant text — skipping`);
+    const blocks = Array.isArray(selectedVariant?.blocks) && selectedVariant.blocks.length > 0
+      ? (selectedVariant.blocks as PostBlock[])
+      : null;
+    if (!selectedVariant?.text?.trim() && !blocks) {
+      console.error(`[scheduler] Post ${post.id}: no publishable content — skipping`);
       continue;
     }
 
@@ -129,9 +132,6 @@ async function publishDuePosts(): Promise<void> {
     // Send to Telegram — short post → native photo+caption; long post → full
     // text message with the cover as a large preview card (sendChannelPost).
     try {
-      const blocks = Array.isArray(selectedVariant.blocks) && selectedVariant.blocks.length > 0
-        ? (selectedVariant.blocks as PostBlock[])
-        : null;
       if (blocks) {
         await sendRichChannelPost({
           chatId:      `@${post.channel.handle}`,
