@@ -503,7 +503,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
             channelName={channel?.title}
             channelHandle={post.channelUsername}
             avatarUrl={channel?.avatarUrl}
-            enableButtons={isManual}
+            enableButtons
           />
         )}
 
@@ -698,9 +698,9 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
           </div>
           )}
 
-          {/* Link buttons — channel buttons section. Hidden for manual posts,
-              which manage their own buttons inside the block editor. */}
-          {!isManual && (
+          {/* Link buttons — legacy plain posts only. Block posts (manual, AI, bot)
+              manage buttons inside the composer's button editor above. */}
+          {!isBlockPost && (
           <div>
             {sectionLabel(
               'buttons',

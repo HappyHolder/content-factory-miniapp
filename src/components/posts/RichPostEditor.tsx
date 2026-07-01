@@ -45,10 +45,15 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
 
-  // Manual-post inline-keyboard buttons (post-level, persisted separately from
-  // blocks). Initialised from the post's current linkButtons.
+  // Inline-keyboard buttons (post-level, persisted separately from blocks).
+  // Initialised from the post's current linkButtons. For AI/bot posts these are
+  // the channel-inherited buttons, whose display text lives in `buttonLabel`
+  // (their `label` is the channel's internal name) — seed the editable `label`
+  // field from `buttonLabel` so the shown text matches the real button and isn't
+  // clobbered on save.
   const [buttons, setButtons] = useState<LinkItem[]>(
-    () => (state.posts.find(p => p.id === postId)?.linkButtons ?? []).map(b => ({ ...b })),
+    () => (state.posts.find(p => p.id === postId)?.linkButtons ?? [])
+      .map(b => ({ ...b, label: (b.buttonLabel || b.label || '').trim() })),
   )
   const [buttonsDirty, setButtonsDirty] = useState(false)
   const addButton = () => {
@@ -418,7 +423,9 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
         </div>
       )}
 
-      {/* Manual posts: inline-keyboard buttons — editor in edit mode, chips in preview */}
+      {/* Inline-keyboard buttons (all block posts) — editor in edit mode, chips in preview.
+          Seeded from post.linkButtons: for AI/bot posts that's the channel's inherited
+          buttons, which the user can now add to, edit, or remove per post. */}
       {enableButtons && mode === 'edit' && (
         <div className="rounded-[12px] bg-white/[0.03] border border-white/[0.07] p-2.5 space-y-2">
           <div className="flex items-center gap-1.5">
