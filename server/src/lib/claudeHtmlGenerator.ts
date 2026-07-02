@@ -110,7 +110,8 @@ export function injectBrandTokens(html: string, brand: CoverBrandTokens): string
   const logoVal = brand.logoUrl ? `url("${brand.logoUrl.replace(/"/g, '\\"')}")` : 'none';
   const style =
     `<style id="cf-brand-vars">:root{--primary:${brand.primaryColor};--accent:${brand.primaryColor};--bg:${brand.bgColor};--logo:${logoVal};}</style>`;
-  return insertIntoHead(html, style);
+  const withClass = brand.logoUrl ? addBodyClass(html, 'has-logo') : html;
+  return insertIntoHead(withClass, style);
 }
 
 /**

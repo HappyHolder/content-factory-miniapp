@@ -49,6 +49,10 @@
 
   /* Гибрид: карточка непрозрачная — только чипы */
   .photo-mode .brand, .photo-mode .tags .t, .photo-mode .rubric-pill { background:color-mix(in srgb, var(--bg) 52%, transparent); backdrop-filter:blur(10px); }
+
+  /* Есть логотип канала: показываем его в шапке вместо оранжевой точки */
+  .has-logo .brand .dot { width:36px; height:36px; background:transparent; box-shadow:none;
+    background-image:var(--logo); background-size:contain; background-repeat:no-repeat; background-position:center; }
 </style>
 </head>
 <body>

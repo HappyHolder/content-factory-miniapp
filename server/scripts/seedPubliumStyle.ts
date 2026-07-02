@@ -87,6 +87,12 @@ const VISUAL_COVER_STYLE =
 async function main() {
   console.log('[seed:publium] uploading templates from', TEMPLATES_DIR);
 
+  // 0. Upload the Publium logo so previews render with the real brand mark
+  //    (transparent PNG). Applied channels use their own logo at render time.
+  const logoBuf = await fs.readFile(path.resolve(process.cwd(), 'scripts/assets/publium-logo.png'));
+  const logoObj = await putObject('styles/publium/logo.png', logoBuf, { contentType: 'image/png' });
+  console.log('[seed:publium] logo →', logoObj.url);
+
   // 1. Upload each HTML template → public URL.
   const templates: { name: string; url: string; demoSlots: Record<string, string> }[] = [];
   for (const tpl of TEMPLATES) {
@@ -128,7 +134,7 @@ async function main() {
   for (const tpl of templates) {
     const url = await renderHtmlPreview({
       htmlTemplateUrl: tpl.url,
-      brand:           { primaryColor: '#FF6A00', bgColor: '#070708', logoUrl: null },
+      brand:           { primaryColor: '#FF6A00', bgColor: '#070708', logoUrl: logoObj.url },
       slots:           tpl.demoSlots,
       aspectRatio:     '1:1',
     });

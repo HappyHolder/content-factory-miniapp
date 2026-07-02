@@ -165,15 +165,27 @@ function injectEmojiFallback(html: string): string {
 
 function buildCssVars(brand: TemplateBrand): string {
   const logoUrl = brand.logoUrl ?? '';
+  // Emit `none` (not url("")) when absent so `background-image: var(--logo)`
+  // resolves cleanly and templates can gate logo-only chrome on it.
+  const logoVal = logoUrl ? `url("${logoUrl.replace(/"/g, '\\"')}")` : 'none';
   return `
 <style id="cf-brand-vars">
 :root {
   --primary: ${brand.primaryColor};
   --accent:  ${brand.primaryColor};
   --bg:      ${brand.bgColor};
-  --logo:    url("${logoUrl.replace(/"/g, '\\"')}");
+  --logo:    ${logoVal};
 }
 </style>`;
+}
+
+/** Adds `has-logo` to <body> when the channel has a logo, so templates can show
+ *  the brand logo in place of a placeholder mark (and hide it otherwise). */
+function addHasLogoClass(html: string, brand: TemplateBrand): string {
+  if (!brand.logoUrl) return html;
+  if (/<body[^>]*\sclass=["']/i.test(html)) return html.replace(/(<body[^>]*\sclass=["'])/i, '$1has-logo ');
+  if (/<body/i.test(html)) return html.replace(/<body/i, '<body class="has-logo"');
+  return html;
 }
 
 // ─── Auto-fit text (shrink-to-box) ──────────────────────────────────────────
@@ -504,9 +516,14 @@ export async function renderHtmlTemplate(
   };
 
   // Inject CSS vars right after <head> (or at the very top if no <head>)
+  // Inject brand vars at the END of <head> — AFTER the template's own <style>
+  // so its :root defaults (fallbacks incl. --logo:none) are overridden, not the
+  // other way around. Matches claudeHtmlGenerator.insertIntoHead.
   const cssVars  = buildCssVars(brand);
-  let finalHtml  = replaceSlots(html, slots);
-  if (/<head[\s>]/i.test(finalHtml)) {
+  let finalHtml  = addHasLogoClass(replaceSlots(html, slots), brand);
+  if (/<\/head>/i.test(finalHtml)) {
+    finalHtml = finalHtml.replace(/<\/head>/i, `${cssVars}\n</head>`);
+  } else if (/<head[\s>]/i.test(finalHtml)) {
     finalHtml = finalHtml.replace(/(<head[^>]*>)/i, `$1\n${cssVars}`);
   } else {
     finalHtml = cssVars + finalHtml;
@@ -578,11 +595,15 @@ export async function renderHtmlPreview(input: PreviewRenderInput): Promise<stri
 
   // Slot map always carries {{logo}} from the brand so logo-bearing templates work.
   const slots: Record<string, string> = { logo: input.brand.logoUrl ?? '', ...input.slots };
+  // Inject brand vars at the END of <head> so template :root defaults are
+  // overridden (see note in the main render path above).
   const cssVars = buildCssVars(input.brand);
-  let finalHtml = replaceSlots(html, slots);
-  finalHtml = /<head[\s>]/i.test(finalHtml)
-    ? finalHtml.replace(/(<head[^>]*>)/i, `$1\n${cssVars}`)
-    : cssVars + finalHtml;
+  let finalHtml = addHasLogoClass(replaceSlots(html, slots), input.brand);
+  finalHtml = /<\/head>/i.test(finalHtml)
+    ? finalHtml.replace(/<\/head>/i, `${cssVars}\n</head>`)
+    : /<head[\s>]/i.test(finalHtml)
+      ? finalHtml.replace(/(<head[^>]*>)/i, `$1\n${cssVars}`)
+      : cssVars + finalHtml;
 
   const { W, H } = getDimensions(input.aspectRatio);
 

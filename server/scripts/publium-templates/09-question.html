@@ -60,6 +60,10 @@
   .photo-mode .opt { background:color-mix(in srgb, var(--bg) 55%, transparent); backdrop-filter:blur(12px); }
   .photo-mode .brand, .photo-mode .tags .t { background:color-mix(in srgb, var(--bg) 52%, transparent); backdrop-filter:blur(10px); }
   .photo-mode .tex { opacity:0.3; }
+
+  /* Есть логотип канала: показываем его в шапке вместо оранжевой точки */
+  .has-logo .brand .dot { width:36px; height:36px; background:transparent; box-shadow:none;
+    background-image:var(--logo); background-size:contain; background-repeat:no-repeat; background-position:center; }
 </style>
 </head>
 <body>
