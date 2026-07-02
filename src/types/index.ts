@@ -229,6 +229,8 @@ export interface MarketStyle {
   sortOrder:        number
   // Admin-only fields (present on /api/admin/styles/list responses).
   published?:       boolean
+  // Set by /api/styles/list for admins on unpublished (internal) styles.
+  hidden?:          boolean
 }
 
 export interface Signature {

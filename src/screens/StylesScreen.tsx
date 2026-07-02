@@ -73,6 +73,11 @@ export function StylesScreen() {
                     ? <img src={preview} alt={name} className="w-full h-full object-cover" />
                     : <LayoutTemplate size={24} className="text-[#3A3A42]" />}
                 </div>
+                {style.hidden && (
+                  <span className="absolute top-2 right-2 rounded-full bg-black/70 border border-white/20 px-2 py-0.5 text-[10px] font-semibold text-white/85">
+                    скрыт
+                  </span>
+                )}
                 {/* Info */}
                 <div className="p-2.5">
                   <p className="text-[13px] font-semibold text-white truncate">{name}</p>
