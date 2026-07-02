@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#D4FF00; --bg:#0A0A0B; --logo:none; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1080px; height:1080px; background:var(--bg); color:#F2F2F0; position:relative; overflow:hidden;
+    font-family:'JetBrains Mono', monospace; display:flex; flex-direction:column; padding:64px 64px 84px; }
+  .scan { position:absolute; inset:0; z-index:1; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 4px); }
+  .hazard { position:absolute; left:0; right:0; bottom:0; height:18px; z-index:3;
+    background:repeating-linear-gradient(45deg, var(--primary) 0 26px, transparent 26px 52px); }
+
+  .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
+  .topbar { display:flex; align-items:stretch; justify-content:space-between; gap:16px; }
+  .brand { display:flex; align-items:center; gap:16px; border:2px solid rgba(242,242,240,0.9); padding:14px 26px;
+    font-family:'Unbounded'; font-weight:700; font-size:30px; text-transform:uppercase; letter-spacing:0.02em; }
+  .brand .mark { width:22px; height:22px; background:var(--primary); flex-shrink:0; }
+  .rubric-badge { background:var(--primary); color:#0A0A0B; font-weight:700; font-size:26px; letter-spacing:0.08em;
+    text-transform:uppercase; padding:14px 26px; display:flex; align-items:center; gap:12px; }
+  .rubric-badge::after { content:'↗'; font-weight:700; }
+
+  .hero { flex:1; display:flex; flex-direction:column; justify-content:center; gap:40px; }
+  .meta-row { display:flex; align-items:center; gap:20px; font-size:26px; color:#B8B8B4; letter-spacing:0.06em; }
+  .meta-row .num { color:var(--primary); font-weight:700; }
+  .meta-row .line { flex:1; height:1.5px; background:rgba(242,242,240,0.18); }
+  .title { font-family:'Unbounded'; font-weight:800; font-size:84px; line-height:1.08; text-transform:uppercase;
+    letter-spacing:-0.01em; max-width:952px; }
+  .title .accent { color:var(--primary); }
+
+  /* Бенчмарк-панель в духе SYSTEM STATUS */
+  .bench { border:1.5px solid rgba(242,242,240,0.25); padding:38px 42px; display:flex; flex-direction:column; gap:30px;
+    position:relative; }
+  .bench::before, .bench::after { content:''; position:absolute; width:22px; height:22px; border:3px solid var(--primary); }
+  .bench::before { top:-3px; left:-3px; border-right:none; border-bottom:none; }
+  .bench::after { bottom:-3px; right:-3px; border-left:none; border-top:none; }
+  .brow { display:flex; align-items:center; gap:26px; }
+  .brow .lb { width:300px; font-size:27px; color:#B8B8B4; text-transform:uppercase; letter-spacing:0.06em; flex-shrink:0; }
+  .brow .bar { flex:1; height:20px; border:1.5px solid rgba(242,242,240,0.30); position:relative; }
+  .brow .bar .fill { position:absolute; inset:2px auto 2px 2px; background:var(--primary); }
+  .brow .val { width:150px; text-align:right; font-size:30px; font-weight:700; color:#F2F2F0; flex-shrink:0; }
+  .brow:has(.lb:empty) { display:none; }
+
+  .bottom { display:flex; align-items:center; justify-content:space-between; }
+  .tags { display:flex; gap:14px; }
+  .tags .t { border:1.5px solid rgba(242,242,240,0.35); padding:10px 22px; font-size:26px; color:#E8E8E4; }
+  .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:26px; color:#C9C9C4; }
+  .handle::before { content:'//'; color:var(--primary); font-weight:700; }
+
+  /* Гибрид (фото-фон): панель бенчмарков — от токенов канала */
+  .photo-mode .bench { background:color-mix(in srgb, var(--bg) 68%, transparent); backdrop-filter:blur(16px); }
+  .photo-mode .tags .t { background:color-mix(in srgb, var(--bg) 50%, transparent); }
+  .photo-mode .scan { opacity:0.5; }
+</style>
+</head>
+<body>
+  <div class="scan"></div>
+  <div class="hazard"></div>
+  <div class="layer">
+    <div class="topbar">
+      <div class="brand"><span class="mark"></span>{{BRAND}}</div>
+      <div class="rubric-badge">{{RUBRIC}}</div>
+    </div>
+    <div class="hero">
+      <div class="meta-row"><span class="num">/03</span><span>BENCHMARK</span><span class="line"></span><span>TEST_LAB</span></div>
+      <div class="title"><span class="white">{{TITLE_WHITE}} </span><span class="accent">{{TITLE_ACCENT}}</span></div>
+      <div class="bench">
+        <div class="brow"><span class="lb">{{METRIC1_LABEL}}</span><span class="bar"><span class="fill" style="width:{{METRIC1_PCT}}%"></span></span><span class="val">{{METRIC1_VAL}}</span></div>
+        <div class="brow"><span class="lb">{{METRIC2_LABEL}}</span><span class="bar"><span class="fill" style="width:{{METRIC2_PCT}}%"></span></span><span class="val">{{METRIC2_VAL}}</span></div>
+        <div class="brow"><span class="lb">{{METRIC3_LABEL}}</span><span class="bar"><span class="fill" style="width:{{METRIC3_PCT}}%"></span></span><span class="val">{{METRIC3_VAL}}</span></div>
+      </div>
+    </div>
+    <div class="bottom">
+      <div class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></div>
+      <div class="handle">{{HANDLE}}</div>
+    </div>
+  </div>
+</body>
+</html>
