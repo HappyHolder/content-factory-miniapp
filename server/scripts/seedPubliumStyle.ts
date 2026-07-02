@@ -109,8 +109,11 @@ async function main() {
     visualCoverStyle: VISUAL_COVER_STYLE,
     bgStyle: null, bgDetail: null, fontPreset: null, logoUsage: 'when_relevant',
     templates,
-    published: true,
-    sortOrder: 2,
+    // Внутренний пак для канала самого Publium — в маркете НЕ публикуется.
+    // Виден только в админ-панели; чтобы применить к каналу: временно включить
+    // published в админке → применить из маркета → выключить обратно.
+    published: false,
+    sortOrder: 99,
   };
 
   const style = await prisma.style.upsert({
