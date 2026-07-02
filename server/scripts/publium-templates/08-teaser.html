@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#FF6A00; --bg:#070708; --logo:none; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1080px; height:1080px; background:var(--bg); color:#FFFFFF; position:relative; overflow:hidden;
+    font-family:'Onest', system-ui, sans-serif; display:flex; flex-direction:column; padding:72px; }
+  /* Муди-тизер: размытое пятно света за шторкой + виньетка */
+  .blob { position:absolute; top:46%; left:50%; transform:translate(-50%,-50%); width:560px; height:560px; z-index:0;
+    border-radius:50%; filter:blur(70px);
+    background:radial-gradient(circle at 42% 38%, color-mix(in srgb, var(--primary) 55%, transparent), color-mix(in srgb, var(--primary) 18%, transparent) 58%, transparent 75%); }
+  .vign { position:absolute; inset:0; z-index:1; pointer-events:none;
+    background:radial-gradient(ellipse 88% 78% at 50% 46%, transparent 52%, rgba(0,0,0,0.55) 100%); }
+
+  .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:14px; background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.09); border-radius:100px; padding:14px 28px;
+    font-size:30px; font-weight:700; }
+  .brand .dot { width:20px; height:20px; border-radius:50%; background:var(--primary);
+    box-shadow:0 0 22px color-mix(in srgb, var(--primary) 60%, transparent); }
+  .rubric-pill { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.14); color:#FFFFFF;
+    font-weight:800; font-size:26px; letter-spacing:0.04em; text-transform:uppercase; padding:14px 28px; border-radius:100px; }
+
+  .hero { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; gap:30px; }
+  .soon { font-family:'JetBrains Mono', monospace; font-weight:700; font-size:30px; letter-spacing:0.34em;
+    text-transform:uppercase; color:var(--primary); }
+  .title { font-weight:800; font-size:104px; line-height:1.07; letter-spacing:-0.02em; max-width:900px; }
+  .title .accent { color:var(--primary); }
+  .hint { font-size:34px; line-height:1.45; color:#C9C9CF; max-width:760px; }
+  .hint:empty { display:none; }
+  .when { margin-top:10px; display:inline-flex; align-items:center; gap:14px; background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.12); border-radius:100px; padding:16px 36px;
+    font-size:30px; font-weight:700; color:#FFFFFF; }
+  .when::before { content:''; width:14px; height:14px; border-radius:50%; background:var(--primary);
+    box-shadow:0 0 18px var(--primary); }
+  .when:has(span:empty) { display:none; }
+
+  .bottom { display:flex; align-items:center; justify-content:space-between; }
+  .tags { display:flex; gap:12px; }
+  .tags .t { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.09);
+    border-radius:100px; padding:11px 24px; font-size:26px; color:#D9D9DE; }
+  .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:27px; color:#A1A1AA; }
+  .handle .logo { width:36px; height:36px; border-radius:50%; background:#111114; background-image:var(--logo);
+    background-size:cover; background-position:center; }
+
+  /* Гибрид (фото-фон): блоб и виньетку глушим — фото + скрим сами дают муди */
+  .photo-mode .blob { display:none; }
+  .photo-mode .when { background:color-mix(in srgb, var(--bg) 58%, transparent); backdrop-filter:blur(12px); }
+  .photo-mode .brand, .photo-mode .tags .t, .photo-mode .rubric-pill { background:color-mix(in srgb, var(--bg) 52%, transparent); backdrop-filter:blur(10px); }
+</style>
+</head>
+<body>
+  <div class="blob"></div>
+  <div class="vign"></div>
+  <div class="layer">
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span>{{BRAND}}</div>
+      <div class="rubric-pill">{{RUBRIC}}</div>
+    </div>
+    <div class="hero">
+      <div class="soon">{{LABEL}}</div>
+      <div class="title"><span class="white">{{TITLE_WHITE}} </span><span class="accent">{{TITLE_ACCENT}}</span></div>
+      <div class="hint">{{HINT}}</div>
+      <div class="when"><span>{{DATE}}</span></div>
+    </div>
+    <div class="bottom">
+      <div class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></div>
+      <div class="handle"><span class="logo"></span>{{HANDLE}}</div>
+    </div>
+  </div>
+</body>
+</html>

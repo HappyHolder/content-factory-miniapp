@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#FF6A00; --bg:#070708; --logo:none; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1080px; height:1080px; background:var(--bg); color:#FFFFFF; position:relative; overflow:hidden;
+    font-family:'Onest', system-ui, sans-serif; display:flex; flex-direction:column; padding:72px; }
+  /* Текстура: едва заметные волны */
+  .tex { position:absolute; inset:0; z-index:1; pointer-events:none; opacity:0.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='90' viewBox='0 0 260 90'%3E%3Cpath d='M0 45 Q 65 5 130 45 T 260 45' fill='none' stroke='rgba(255,255,255,0.06)' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-size:260px 90px; }
+  .glowspot { position:absolute; top:-240px; right:-180px; width:700px; height:660px; z-index:0;
+    background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 17%, transparent) 0%, transparent 62%); }
+
+  .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:14px; background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.09); border-radius:100px; padding:14px 28px;
+    font-size:30px; font-weight:700; }
+  .brand .dot { width:20px; height:20px; border-radius:50%; background:var(--primary);
+    box-shadow:0 0 22px color-mix(in srgb, var(--primary) 60%, transparent); }
+  .rubric-pill { background:var(--primary); color:#FFFFFF; font-weight:800; font-size:26px;
+    letter-spacing:0.04em; text-transform:uppercase; padding:14px 28px; border-radius:100px;
+    box-shadow:0 0 44px color-mix(in srgb, var(--primary) 40%, transparent); }
+
+  /* Редакционная композиция: номер совета сверху слева, всё по левому краю */
+  .hero { flex:1; display:flex; flex-direction:column; justify-content:center; gap:34px; }
+  .tipnum { display:inline-flex; align-items:baseline; gap:16px; }
+  .tipnum .n { font-family:'JetBrains Mono', monospace; font-weight:700; font-size:74px; color:var(--primary); line-height:1.15; }
+  .tipnum .nl { font-size:28px; color:#A1A1AA; letter-spacing:0.14em; text-transform:uppercase; }
+  .title { font-weight:800; font-size:88px; line-height:1.1; letter-spacing:-0.02em; max-width:900px; }
+  .title .accent { color:var(--primary); }
+  .lead { font-size:35px; line-height:1.45; color:#C9C9CF; max-width:820px;
+    border-left:4px solid var(--primary); padding-left:28px; }
+
+  .bottom { display:flex; align-items:center; justify-content:space-between; }
+  .tags { display:flex; gap:12px; }
+  .tags .t { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.09);
+    border-radius:100px; padding:11px 24px; font-size:26px; color:#D9D9DE; }
+  .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:27px; color:#A1A1AA; }
+  .handle .logo { width:36px; height:36px; border-radius:50%; background:#111114; background-image:var(--logo);
+    background-size:cover; background-position:center; }
+
+  /* Гибрид (фото-фон) */
+  .photo-mode .lead { background:color-mix(in srgb, var(--bg) 55%, transparent); backdrop-filter:blur(12px);
+    border-radius:0 22px 22px 0; padding:22px 28px; }
+  .photo-mode .brand, .photo-mode .tags .t { background:color-mix(in srgb, var(--bg) 52%, transparent); backdrop-filter:blur(10px); }
+  .photo-mode .tex { opacity:0.25; }
+</style>
+</head>
+<body>
+  <div class="glowspot"></div>
+  <div class="tex"></div>
+  <div class="layer">
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span>{{BRAND}}</div>
+      <div class="rubric-pill">{{RUBRIC}}</div>
+    </div>
+    <div class="hero">
+      <div class="tipnum"><span class="n">{{TIPNUM}}</span><span class="nl">совет</span></div>
+      <div class="title"><span class="white">{{TITLE_WHITE}} </span><span class="accent">{{TITLE_ACCENT}}</span></div>
+      <div class="lead">{{LEAD}}</div>
+    </div>
+    <div class="bottom">
+      <div class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></div>
+      <div class="handle"><span class="logo"></span>{{HANDLE}}</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#FF6A00; --bg:#070708; --logo:none; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1080px; height:1080px; background:var(--bg); color:#FFFFFF; position:relative; overflow:hidden;
+    font-family:'Onest', system-ui, sans-serif; display:flex; flex-direction:column; padding:72px; }
+  /* Текстура: тонкие концентрические кольца — эхо логотипа */
+  .rings { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:980px; height:980px; z-index:0; }
+  .rings i { position:absolute; inset:0; border-radius:50%; border:1.5px solid rgba(255,255,255,0.05); }
+  .rings i:nth-child(2) { inset:110px; border-color:rgba(255,255,255,0.06); }
+  .rings i:nth-child(3) { inset:220px; border-color:color-mix(in srgb, var(--primary) 16%, transparent); }
+  .glowspot { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:820px; height:640px; z-index:0;
+    background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--primary) 22%, transparent) 0%, transparent 60%); }
+
+  .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:14px; background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.09); border-radius:100px; padding:14px 28px;
+    font-size:30px; font-weight:700; }
+  .brand .dot { width:20px; height:20px; border-radius:50%; background:var(--primary);
+    box-shadow:0 0 22px color-mix(in srgb, var(--primary) 60%, transparent); }
+  .rubric-pill { background:var(--primary); color:#FFFFFF; font-weight:800; font-size:26px;
+    letter-spacing:0.04em; text-transform:uppercase; padding:14px 28px; border-radius:100px;
+    box-shadow:0 0 44px color-mix(in srgb, var(--primary) 40%, transparent); }
+
+  .hero { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; gap:24px; }
+  .value { font-weight:800; font-size:230px; line-height:1.05; letter-spacing:-0.03em; color:var(--primary);
+    text-shadow:0 0 90px color-mix(in srgb, var(--primary) 45%, transparent); }
+  .vlabel { font-weight:700; font-size:52px; line-height:1.15; letter-spacing:-0.01em; max-width:860px; }
+  .comment { font-size:32px; line-height:1.4; color:#A1A1AA; max-width:760px; }
+  .comment:empty { display:none; }
+
+  .bottom { display:flex; align-items:center; justify-content:space-between; }
+  .tags { display:flex; gap:12px; }
+  .tags .t { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.09);
+    border-radius:100px; padding:11px 24px; font-size:26px; color:#D9D9DE; }
+  .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:27px; color:#A1A1AA; }
+  .handle .logo { width:36px; height:36px; border-radius:50%; background:#111114; background-image:var(--logo);
+    background-size:cover; background-position:center; }
+
+  /* Гибрид (фото-фон): кольца прячутся глобально (.rings), цифре хватает глоу и скрима */
+  .photo-mode .brand, .photo-mode .tags .t { background:color-mix(in srgb, var(--bg) 52%, transparent); backdrop-filter:blur(10px); }
+</style>
+</head>
+<body>
+  <div class="rings"><i></i><i></i><i></i></div>
+  <div class="glowspot"></div>
+  <div class="layer">
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span>{{BRAND}}</div>
+      <div class="rubric-pill">{{RUBRIC}}</div>
+    </div>
+    <div class="hero">
+      <div class="value">{{VALUE}}</div>
+      <div class="vlabel">{{LABEL}}</div>
+      <div class="comment">{{COMMENT}}</div>
+    </div>
+    <div class="bottom">
+      <div class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></div>
+      <div class="handle"><span class="logo"></span>{{HANDLE}}</div>
+    </div>
+  </div>
+</body>
+</html>

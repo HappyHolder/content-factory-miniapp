@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#FF6A00; --bg:#070708; --logo:none; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:1080px; height:1080px; background:var(--bg); color:#FFFFFF; position:relative; overflow:hidden;
+    font-family:'Onest', system-ui, sans-serif; display:flex; flex-direction:column; padding:72px; }
+  /* Текстура: редкие плюсики */
+  .tex { position:absolute; inset:0; z-index:1; pointer-events:none; opacity:0.6;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cpath d='M90 78 v24 M78 90 h24' stroke='rgba(255,255,255,0.07)' stroke-width='2'/%3E%3C/svg%3E");
+    background-size:180px 180px; }
+
+  .layer { position:relative; z-index:2; display:flex; flex-direction:column; height:100%; gap:34px; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:14px; background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.09); border-radius:100px; padding:14px 28px;
+    font-size:30px; font-weight:700; }
+  .brand .dot { width:20px; height:20px; border-radius:50%; background:var(--primary);
+    box-shadow:0 0 22px color-mix(in srgb, var(--primary) 60%, transparent); }
+  .rubric-pill { background:var(--primary); color:#FFFFFF; font-weight:800; font-size:26px;
+    letter-spacing:0.04em; text-transform:uppercase; padding:14px 28px; border-radius:100px;
+    box-shadow:0 0 44px color-mix(in srgb, var(--primary) 40%, transparent); }
+
+  .hero { flex:1; display:flex; flex-direction:column; justify-content:center; gap:38px; }
+  /* Речевой пузырь с вопросом */
+  .bubble { position:relative; background:rgba(255,255,255,0.055); border:1.5px solid rgba(255,255,255,0.12);
+    border-radius:36px 36px 36px 8px; padding:52px 56px; max-width:900px; }
+  .bubble .qmark { position:absolute; top:-34px; right:44px; width:68px; height:68px; border-radius:50%;
+    background:var(--primary); color:#FFFFFF; font-weight:800; font-size:40px; display:flex;
+    align-items:center; justify-content:center; box-shadow:0 0 44px color-mix(in srgb, var(--primary) 45%, transparent); }
+  .question { font-weight:800; font-size:72px; line-height:1.12; letter-spacing:-0.02em; }
+  .question .accent { color:var(--primary); }
+
+  .opts { display:flex; flex-direction:column; gap:16px; max-width:820px; }
+  .opt { display:flex; align-items:center; gap:20px; background:rgba(255,255,255,0.04);
+    border:1px solid rgba(255,255,255,0.09); border-radius:100px; padding:20px 32px;
+    font-size:31px; color:#EDEDED; }
+  .opt::before { content:''; width:26px; height:26px; flex-shrink:0; border-radius:50%;
+    border:2.5px solid color-mix(in srgb, var(--primary) 70%, transparent); }
+  .opt:has(span:empty) { display:none; }
+  .callout { font-size:28px; color:#A1A1AA; }
+  .callout::before { content:'↓ '; color:var(--primary); font-weight:800; }
+
+  .bottom { display:flex; align-items:center; justify-content:space-between; }
+  .tags { display:flex; gap:12px; }
+  .tags .t { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.09);
+    border-radius:100px; padding:11px 24px; font-size:26px; color:#D9D9DE; }
+  .tags .t:empty { display:none; }
+  .handle { display:flex; align-items:center; gap:12px; font-size:27px; color:#A1A1AA; }
+  .handle .logo { width:36px; height:36px; border-radius:50%; background:#111114; background-image:var(--logo);
+    background-size:cover; background-position:center; }
+
+  /* Гибрид (фото-фон) */
+  .photo-mode .bubble { background:color-mix(in srgb, var(--bg) 62%, transparent); backdrop-filter:blur(14px); }
+  .photo-mode .opt { background:color-mix(in srgb, var(--bg) 55%, transparent); backdrop-filter:blur(12px); }
+  .photo-mode .brand, .photo-mode .tags .t { background:color-mix(in srgb, var(--bg) 52%, transparent); backdrop-filter:blur(10px); }
+  .photo-mode .tex { opacity:0.3; }
+</style>
+</head>
+<body>
+  <div class="tex"></div>
+  <div class="layer">
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span>{{BRAND}}</div>
+      <div class="rubric-pill">{{RUBRIC}}</div>
+    </div>
+    <div class="hero">
+      <div class="bubble">
+        <span class="qmark">?</span>
+        <div class="question"><span class="white">{{QUESTION_WHITE}} </span><span class="accent">{{QUESTION_ACCENT}}</span></div>
+      </div>
+      <div class="opts">
+        <div class="opt"><span>{{OPT1}}</span></div>
+        <div class="opt"><span>{{OPT2}}</span></div>
+        <div class="opt"><span>{{OPT3}}</span></div>
+      </div>
+      <div class="callout">голосуй в комментариях</div>
+    </div>
+    <div class="bottom">
+      <div class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></div>
+      <div class="handle"><span class="logo"></span>{{HANDLE}}</div>
+    </div>
+  </div>
+</body>
+</html>
