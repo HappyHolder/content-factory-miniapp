@@ -644,9 +644,9 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
     case 'list':
       return (
         <div>
-          <textarea value={b.items.map(runsToText).join('\n')} rows={Math.max(2, b.items.length)}
-            onChange={e => onChange({ ...b, items: e.target.value.split('\n').filter(l => l.trim()).map(textToRuns) })}
-            placeholder="По пункту на строку" className="glass-input w-full px-3 py-2 text-sm resize-none" />
+          <MarkableTextarea value={b.items.map(runsToText).join('\n')} rows={Math.max(2, b.items.length)}
+            onChange={v => onChange({ ...b, items: v.split('\n').filter(l => l.trim()).map(textToRuns) })}
+            placeholder="По пункту на строку (форматирование — как в абзаце)" />
           <label className="flex items-center gap-2 mt-1.5 text-[12px] text-[#A1A1AA]">
             <input type="checkbox" checked={b.ordered === true} onChange={e => onChange({ ...b, ordered: e.target.checked })} />
             Нумерованный
