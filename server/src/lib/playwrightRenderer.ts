@@ -273,8 +273,14 @@ async function collapseEmptyBlocks(page: Browser): Promise<void> {
           return b && b !== 'none';
         });
       };
-      // Content = real text, a real <img>, or a background image (logos/icons).
-      const isContent = (el: any): boolean => hasText(el) || !!el.querySelector('img') || hasBgImage(el);
+      // Drawn SVG shapes (e.g. a decorative <svg> dot lattice / figures) are
+      // visible content too — otherwise an <svg> full of <circle>s reads as an
+      // "empty" block (no text/img/bg-image) and gets hidden, stripping the art.
+      const hasShape = (el: any): boolean =>
+        (typeof el.tagName === 'string' && el.tagName.toLowerCase() === 'svg') ||
+        !!el.querySelector('svg, circle, rect, path, line, polygon, polyline, ellipse');
+      // Content = real text, a real <img>, a background image (logos/icons), or SVG art.
+      const isContent = (el: any): boolean => hasText(el) || !!el.querySelector('img') || hasBgImage(el) || hasShape(el);
 
       const all = Array.from(doc.body.querySelectorAll('*')) as any[];
 
