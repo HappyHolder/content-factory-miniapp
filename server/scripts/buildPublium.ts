@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 
 const OUT = path.resolve(process.cwd(), 'scripts/publium-templates');
@@ -44,9 +45,9 @@ function shell(pattern: string, hero: string) {
   .mol{position:absolute;inset:0;z-index:1;} .mol circle{fill:var(--primary);}
   .layer{position:relative;z-index:3;height:100%;display:flex;flex-direction:column;padding:78px;}
   .top{display:flex;align-items:center;justify-content:space-between;}
-  .brand{display:flex;align-items:center;gap:16px;}
-  .brand .lg{width:52px;height:52px;background-image:var(--logo);background-size:contain;background-repeat:no-repeat;background-position:center;}
-  .brand .nm{font-size:32px;font-weight:700;letter-spacing:-0.01em;}
+  .brand{display:flex;align-items:center;gap:20px;}
+  .brand .lg{width:78px;height:78px;background-image:var(--logo);background-size:contain;background-repeat:no-repeat;background-position:center;}
+  .brand .nm{font-size:48px;font-weight:700;letter-spacing:-0.01em;}
   .chip{display:inline-flex;align-items:center;gap:10px;background:var(--primary);color:#fff;font-weight:600;font-size:25px;padding:13px 22px;border-radius:14px;box-shadow:0 8px 30px rgba(255,106,0,0.32);}
   .chip svg{width:25px;height:25px;}
   .vchip{display:inline-flex;align-items:center;gap:8px;background:color-mix(in srgb,var(--primary) 15%,transparent);color:var(--primary);border:1px solid color-mix(in srgb,var(--primary) 40%,transparent);border-radius:12px;padding:9px 18px;font-weight:700;font-size:26px;backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);}
@@ -75,7 +76,7 @@ function shell(pattern: string, hero: string) {
 }
 
 const T: Record<string, { avoid: number[][]; pattern: () => string; hero: string }> = {
-  '01-update.html': { avoid: [...HEAD, [60, 330, 280, 410], [60, 415, 900, 600]], pattern: () => diag(11, 1500, 150, 1.7), hero: `
+  '01-update.html': { avoid: [...HEAD, [60, 330, 280, 410], [60, 415, 760, 600]], pattern: () => molecule(11, 1150, 560, 560, 640, 1.35), hero: `
     <div class="hero" style="gap:34px;">
       <div><span class="vchip">${SPARK}{{VERSION}}</span></div>
       <div class="h" style="font-size:94px;max-width:820px;">{{TITLE_WHITE}} <span class="o">{{TITLE_ACCENT}}</span></div>
@@ -149,13 +150,31 @@ const T: Record<string, { avoid: number[][]; pattern: () => string; hero: string
         <div class="card"><span class="ic">${SPARK}</span><span class="tx">{{OPT3}}</span></div>
       </div>
     </div>` },
+  '10-about.html': { avoid: [...HEAD, [60, 330, 800, 880]], pattern: () => molecule(101, 1150, 560, 560, 640, 1.35), hero: `
+    <div class="hero" style="justify-content:center;gap:40px;">
+      <div class="h" style="font-size:112px;max-width:840px;">{{TITLE_WHITE}} <span class="o">{{TITLE_ACCENT}}</span></div>
+      <div class="card" style="max-width:800px;"><span class="tx" style="font-weight:500;color:#D6D6D2;">{{LEAD}}</span></div>
+    </div>` },
 };
+
+// Hand-painted layout from the dot editor (scripts/__dots/<name>.json) wins over
+// the algorithmic pattern when present — honored exactly as drawn.
+function customDots(file: string): string | null {
+  const p = path.resolve('scripts/__dots', file.replace('.html', '.json'));
+  if (!fsSync.existsSync(p)) return null;
+  const cells: number[][] = JSON.parse(fsSync.readFileSync(p, 'utf-8'));
+  let s = '';
+  for (const [i, j] of cells) { const x = cx(i), y = cy(j); if (x >= R && x <= 1080 - R && y >= R && y <= 1080 - R) s += circ(i, j); }
+  return s || '';
+}
 
 async function main() {
   for (const [file, { avoid, pattern, hero }] of Object.entries(T)) {
-    AV = avoid;                 // set exclusion zones, THEN generate this template's dots
-    await fs.writeFile(path.join(OUT, file), shell(pattern(), hero));
-    console.log('wrote', file);
+    AV = [];                                   // custom layout ignores exclusion zones
+    const custom = customDots(file);
+    if (custom === null) AV = avoid;           // only the algorithm respects the zones
+    await fs.writeFile(path.join(OUT, file), shell(custom ?? pattern(), hero));
+    console.log('wrote', file, custom !== null ? '(hand-painted)' : '');
   }
 }
 main();

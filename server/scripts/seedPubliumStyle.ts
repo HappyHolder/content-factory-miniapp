@@ -72,6 +72,8 @@ const TEMPLATES: { name: string; file: string; demoSlots: Record<string, string>
     QUESTION_WHITE: 'Какой стиль сделать', QUESTION_ACCENT: 'следующим?',
     OPT1: 'Минимализм для бизнеса', OPT2: 'Пастель для лайфстайла', OPT3: 'Неон для гейминга',
     TAG1: 'poll', TAG2: 'community', TAG3: 'styles', HANDLE: '@publium' } },
+  // NB: 10-about ("О проекте") is intentionally NOT seeded into the app pack —
+  // it's only used to hand-render the launch-post cover PNG. Keep the pack at 9.
 ];
 
 const PALETTE = [
