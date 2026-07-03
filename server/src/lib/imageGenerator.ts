@@ -366,84 +366,88 @@ export async function generateImageForPost(
   // high enough to pull in dark/neon/color mood from the reference.
   const refImageUrl = extractReferenceImage(input.visualKit);
 
-  // ── Build model input ─────────────────────────────────────────────────────
-  // flux-2-max uses `input_images: string[]` for img2img (file[] API).
-  // flux-schnell / flux-dev use `image: string` + `prompt_strength`.
-  // gpt-image uses `image: string`.
-  const isGptImage  = model.includes('gpt-image');
-  const isFlux2Max  = model.includes('flux-2-max');
-  // gpt-image-2 aspect_ratio enum has 1:1 / 16:9 / 9:16 but no 4:5 — map to nearest portrait.
-  const gptAspect = aspectRatio === '4:5' ? '2:3' : aspectRatio;
-  const modelInput: Record<string, unknown> = isGptImage
-    ? {
-        prompt,
-        aspect_ratio: gptAspect,
-        // medium is the cost/quality sweet spot for covers (see docs/low-high-plan.md).
-        quality: 'medium',
-        // img2img reference uses input_images[] (NOT `image`); openai_api_key is
-        // optional on gpt-image-2 (billed via Replicate) — don't send it.
-        ...(refImageUrl ? { input_images: [refImageUrl] } : {}),
-      }
-    : isFlux2Max
-    ? {
-        prompt,
-        aspect_ratio: aspectRatio,
-        resolution:   '1 MP',
-        ...(refImageUrl ? { input_images: [refImageUrl] } : {}),
-      }
-    : {
-        prompt,
-        aspect_ratio: aspectRatio,
-        ...(refImageUrl ? { image: refImageUrl, prompt_strength: 0.35 } : {}),
-      };
+  // ── Run one model → raw output image URL (or null) ────────────────────────
+  // Model-specific input: flux-2-max uses input_images[] (file[] API);
+  // flux-schnell/dev/1.1-pro use image + prompt_strength for img2img; gpt-image
+  // uses input_images[] and has no 4:5 aspect (mapped to 2:3).
+  const runModel = async (useModel: string): Promise<string | null> => {
+    const isGptImage = useModel.includes('gpt-image');
+    const isFlux2Max = useModel.includes('flux-2-max');
+    const gptAspect = aspectRatio === '4:5' ? '2:3' : aspectRatio;
+    const modelInput: Record<string, unknown> = isGptImage
+      ? {
+          prompt,
+          aspect_ratio: gptAspect,
+          // medium is the cost/quality sweet spot for covers (see docs/low-high-plan.md).
+          quality: 'medium',
+          ...(refImageUrl ? { input_images: [refImageUrl] } : {}),
+        }
+      : isFlux2Max
+      ? {
+          prompt,
+          aspect_ratio: aspectRatio,
+          resolution:   '1 MP',
+          ...(refImageUrl ? { input_images: [refImageUrl] } : {}),
+        }
+      : {
+          prompt,
+          aspect_ratio: aspectRatio,
+          ...(refImageUrl ? { image: refImageUrl, prompt_strength: 0.35 } : {}),
+        };
 
-  console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} ref=${refImageUrl ? 'yes' : 'no'} detail=${detailKey} style=${styleKey} promptLen=${prompt.length}`);
+    console.log(`[imageGenerator] model=${useModel} logo=${logoUrl ? 'yes' : 'no'} ref=${refImageUrl ? 'yes' : 'no'} detail=${detailKey} style=${styleKey} promptLen=${prompt.length}`);
 
-  try {
-    const createRes = await fetch(
-      `https://api.replicate.com/v1/models/${model}/predictions`,
-      {
-        method:  'POST',
-        headers: {
-          'Authorization': `Token ${env.REPLICATE_API_TOKEN}`,
-          'Content-Type':  'application/json',
+    try {
+      const createRes = await fetch(
+        `https://api.replicate.com/v1/models/${useModel}/predictions`,
+        {
+          method:  'POST',
+          headers: {
+            'Authorization': `Token ${env.REPLICATE_API_TOKEN}`,
+            'Content-Type':  'application/json',
+          },
+          body: JSON.stringify({ input: modelInput }),
         },
-        body: JSON.stringify({ input: modelInput }),
-      },
-    );
+      );
 
-    if (!createRes.ok) {
-      console.warn(`[imageGenerator] Create prediction failed: HTTP ${createRes.status}`);
+      if (!createRes.ok) {
+        console.warn(`[imageGenerator] ${useModel}: create prediction failed HTTP ${createRes.status}`);
+        return null;
+      }
+
+      const prediction = await createRes.json() as ReplicatePrediction;
+
+      if (prediction.status === 'succeeded' && prediction.output) {
+        return extractUrl(prediction.output);
+      }
+      if (prediction.status === 'failed' || prediction.status === 'canceled') {
+        console.warn(`[imageGenerator] ${useModel}: prediction ${prediction.status} immediately`);
+        return null;
+      }
+      if (!prediction.id) {
+        console.warn(`[imageGenerator] ${useModel}: no prediction id — cannot poll`);
+        return null;
+      }
+      return await pollPrediction(prediction.id, env.REPLICATE_API_TOKEN, env.IMAGE_GENERATION_POLL_TIMEOUT_MS);
+    } catch (err) {
+      console.warn(`[imageGenerator] ${useModel}: unexpected error:`, (err as Error).message);
       return null;
     }
+  };
 
-    const prediction = await createRes.json() as ReplicatePrediction;
-
-    // ── Synchronous response: output already present ──────────────────────
-    if (prediction.status === 'succeeded' && prediction.output) {
-      const url = extractUrl(prediction.output);
-      return url ? composeCover(url, { logoUrl, headline, brandColor }) : null;
-    }
-
-    // ── Failed immediately ────────────────────────────────────────────────
-    if (prediction.status === 'failed' || prediction.status === 'canceled') {
-      console.warn(`[imageGenerator] Prediction failed immediately: ${prediction.status}`);
-      return null;
-    }
-
-    // ── Asynchronous: poll until done ─────────────────────────────────────
-    if (!prediction.id) {
-      console.warn('[imageGenerator] No prediction id in response — cannot poll');
-      return null;
-    }
-
-    const polledUrl = await pollPrediction(prediction.id, env.REPLICATE_API_TOKEN, env.IMAGE_GENERATION_POLL_TIMEOUT_MS);
-    return polledUrl ? composeCover(polledUrl, { logoUrl, headline, brandColor }) : null;
-
-  } catch (err) {
-    console.warn('[imageGenerator] Unexpected error:', (err as Error).message);
-    return null;
+  // Primary model, then fall back to the Flux default (env.IMAGE_MODEL) when it
+  // yields no image — most often gpt-image-2's content filter (E005) rejecting an
+  // otherwise-benign news scene, which used to leave the cover with NO background
+  // at all (collapsing to the empty Satori atmospheric template). Flux has no such
+  // filter, so the cover still gets a real photo background.
+  let outputUrl = await runModel(model);
+  const fallbackModel = env.IMAGE_MODEL;
+  if (!outputUrl && fallbackModel && fallbackModel !== model) {
+    console.warn(`[imageGenerator] ${model} produced no image — falling back to ${fallbackModel}`);
+    outputUrl = await runModel(fallbackModel);
   }
+
+  return outputUrl ? composeCover(outputUrl, { logoUrl, headline, brandColor }) : null;
 }
 
 // ─── Sharp cover compositing (headline text + logo) ───────────────────────────
