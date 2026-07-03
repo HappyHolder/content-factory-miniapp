@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText, Copy } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText, Copy, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -653,32 +653,61 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
           </label>
         </div>
       )
-    case 'table':
+    case 'table': {
+      // Actual column count — robust to ragged rows / headers that got out of sync.
+      const cols = Math.max(b.headers.length, ...b.rows.map(r => r.length), 1)
+      const norm = (arr: string[]) => Array.from({ length: cols }, (_, i) => arr[i] ?? '')
+      const setHeader = (ci: number, v: string) =>
+        onChange({ ...b, headers: norm(b.headers).map((x, k) => k === ci ? v : x) })
+      const setCell = (ri: number, ci: number, v: string) =>
+        onChange({ ...b, rows: b.rows.map((r, k) => k === ri ? norm(r).map((x, kk) => kk === ci ? v : x) : r) })
+      const addRow = () => onChange({ ...b, rows: [...b.rows, Array.from({ length: cols }, () => '')] })
+      const removeRow = (ri: number) => onChange({ ...b, rows: b.rows.filter((_, k) => k !== ri) })
+      const addCol = () => onChange({ ...b, headers: [...norm(b.headers), ''], rows: b.rows.map(r => [...norm(r), '']) })
+      const removeCol = (ci: number) =>
+        onChange({ ...b, headers: norm(b.headers).filter((_, k) => k !== ci), rows: b.rows.map(r => norm(r).filter((_, k) => k !== ci)) })
       return (
         <div className="space-y-1">
-          {b.headers.length > 0 && (
-            <div className="flex gap-1">
-              {b.headers.map((h, ci) => (
-                <input key={ci} value={h} placeholder={`Столбец ${ci + 1}`}
-                  onChange={e => onChange({ ...b, headers: b.headers.map((x, k) => k === ci ? e.target.value : x) })}
-                  className="glass-input flex-1 min-w-0 px-2 py-1.5 text-[12px] font-semibold" />
+          {/* Per-column delete strip (aligned with the inputs below) */}
+          {cols > 1 && (
+            <div className="flex gap-1 items-center">
+              {Array.from({ length: cols }).map((_, ci) => (
+                <button key={ci} onClick={() => removeCol(ci)} title="Удалить столбец"
+                  className="flex-1 min-w-0 flex justify-center py-0.5 text-[#71717A] hover:text-[#EF4444]">
+                  <X size={11} />
+                </button>
               ))}
+              <span className="w-5 shrink-0" />
             </div>
           )}
+          <div className="flex gap-1 items-center">
+            {norm(b.headers).map((h, ci) => (
+              <input key={ci} value={h} placeholder={`Столбец ${ci + 1}`}
+                onChange={e => setHeader(ci, e.target.value)}
+                className="glass-input flex-1 min-w-0 px-2 py-1.5 text-[12px] font-semibold" />
+            ))}
+            <span className="w-5 shrink-0" />
+          </div>
           {b.rows.map((row, ri) => (
-            <div key={ri} className="flex gap-1">
-              {row.map((c, ci) => (
+            <div key={ri} className="flex gap-1 items-center">
+              {norm(row).map((c, ci) => (
                 <input key={ci} value={c}
-                  onChange={e => onChange({ ...b, rows: b.rows.map((r, k) => k === ri ? r.map((x, kk) => kk === ci ? e.target.value : x) : r) })}
+                  onChange={e => setCell(ri, ci, e.target.value)}
                   className="glass-input flex-1 min-w-0 px-2 py-1.5 text-[12px]" />
               ))}
+              <button onClick={() => removeRow(ri)} disabled={b.rows.length <= 1} title="Удалить строку"
+                className="w-5 shrink-0 flex justify-center text-[#71717A] hover:text-[#EF4444] disabled:opacity-30 disabled:hover:text-[#71717A]">
+                <Trash2 size={12} />
+              </button>
             </div>
           ))}
-          <button
-            onClick={() => onChange({ ...b, rows: [...b.rows, b.headers.map(() => '')] })}
-            className="text-[11px] font-medium text-[#FF6A00] mt-0.5">+ строка</button>
+          <div className="flex gap-3 mt-0.5">
+            <button onClick={addRow} className="text-[11px] font-medium text-[#FF6A00]">+ строка</button>
+            <button onClick={addCol} className="text-[11px] font-medium text-[#FF6A00]">+ столбец</button>
+          </div>
         </div>
       )
+    }
     case 'image':
       return (
         <div className="space-y-1.5">
