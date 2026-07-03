@@ -16,6 +16,7 @@ import { ScheduleSheet } from '@/components/posts/ScheduleSheet'
 import { brandKitService } from '@/services/brandKitService'
 import { getTelegramInitData, shareTelegramMessage } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
+import { isWithinEditWindow } from '@/lib/postEditWindow'
 import { cn } from '@/lib/utils'
 
 interface PostDetailsScreenProps {
@@ -28,10 +29,6 @@ type Section = 'format' | 'variants' | 'editor' | 'banner' | 'buttons'
 // Per-post regeneration caps — must match server lib/subscriptionLimits.ts
 const MAX_TEXT_REGENS = 3
 const MAX_IMAGE_REGENS = 3
-
-// A published post stays editable / re-publishable for this window, then it is
-// purged. Must match server lib/postRetention.ts (POST_EDIT_WINDOW_MS).
-const POST_EDIT_WINDOW_MS = 5 * 60 * 60 * 1000
 
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, language, authStatus, updatePost, deletePost } = useApp()
@@ -73,9 +70,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const isBlockPost = hasBlocks || isManual
   // Published posts stay fully editable and re-publishable (edited in place in the
   // channel) for a 5-hour window, after which they're purged server-side.
-  const publishedAtMs = post.publishedAt ? new Date(post.publishedAt).getTime() : 0
-  const withinEditWindow = post.status === 'published' && publishedAtMs > 0 &&
-    (Date.now() - publishedAtMs < POST_EDIT_WINDOW_MS)
+  const withinEditWindow = post.status === 'published' && isWithinEditWindow(post.publishedAt)
   const channel = state.channels.find(c => c.id === post.channelId)
   // Cover is a post-level asset — show it regardless of which text variant is selected
   const displayBannerUrl = selectedVariant?.bannerUrl || post.variants.find(v => v.bannerUrl)?.bannerUrl || null

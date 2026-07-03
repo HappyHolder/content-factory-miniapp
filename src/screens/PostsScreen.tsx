@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button'
 import { BannerMini } from '@/components/posts/BannerMini'
 import type { GeneratedPost } from '@/types'
 import { formatScheduledTime, formatRelativeTime } from '@/lib/utils'
+import { isWithinEditWindow } from '@/lib/postEditWindow'
 
 type TabId = 'new' | 'scheduled' | 'published'
 
@@ -82,6 +83,7 @@ export function PostsScreen({ onOpenPost }: PostsScreenProps) {
                 <PublishedCard
                   key={p.id}
                   post={p}
+                  onEdit={() => onOpenPost(p.id)}
                   onCopy={() => {
                     const variant = p.variants.find(v => v.id === p.selectedVariantId) || p.variants[0]
                     navigator.clipboard.writeText(variant?.text || '').catch(() => {})
@@ -155,13 +157,17 @@ function ScheduledCard({ post, onOpen, onPublishNow, onCancel, index }: {
   )
 }
 
-function PublishedCard({ post, onCopy, onCreateSimilar, index }: {
+function PublishedCard({ post, onEdit, onCopy, onCreateSimilar, index }: {
   post: GeneratedPost
+  onEdit: () => void
   onCopy: () => void
   onCreateSimilar: () => void
   index: number
 }) {
   const { t } = useApp()
+  // Inside the 5-hour window the post can still be pulled back, edited and
+  // re-published in place — surface an "Edit" action that opens the composer.
+  const editable = isWithinEditWindow(post.publishedAt)
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -178,6 +184,11 @@ function PublishedCard({ post, onCopy, onCreateSimilar, index }: {
             </p>
           </div>
         </div>
+        {editable && (
+          <Button variant="primary" size="sm" onClick={onEdit} fullWidth className="mb-1.5">
+            <Pencil size={11} /> {t('posts.actions.edit')}
+          </Button>
+        )}
         <div className="flex gap-1.5">
           <Button
             variant="ghost"

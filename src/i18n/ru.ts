@@ -195,6 +195,7 @@ export const ru: Dict = {
     },
     actions: {
       open:          'Открыть',
+      edit:          'Править',
       publishNow:    'Опубликовать сейчас',
       cancel:        'Отменить',
       editTime:      'Изменить время',

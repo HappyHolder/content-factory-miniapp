@@ -195,6 +195,7 @@ export const en = {
     },
     actions: {
       open:          'Open',
+      edit:          'Edit',
       publishNow:    'Publish now',
       cancel:        'Cancel',
       editTime:      'Edit time',
