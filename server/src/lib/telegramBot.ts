@@ -16,6 +16,20 @@ interface TgApiResponse<T> {
   error_code?: number;
 }
 
+/** Reference to a message the bot sent — kept so the post can be edited in place. */
+export interface SentMessageRef {
+  chatId:    number;
+  messageId: number;
+}
+
+/** Extracts { chatId, messageId } from a Telegram sendX result, or null. */
+function parseSentRef(result: unknown): SentMessageRef | null {
+  if (!result || typeof result !== 'object') return null;
+  const r = result as { message_id?: number; chat?: { id?: number } };
+  if (typeof r.message_id !== 'number' || typeof r.chat?.id !== 'number') return null;
+  return { messageId: r.message_id, chatId: r.chat.id };
+}
+
 export interface TgChat {
   id: number;
   type: 'private' | 'group' | 'supergroup' | 'channel';
@@ -269,7 +283,7 @@ export async function sendBotMessage(
   token: string,
   replyMarkup?: AnyInlineKeyboard,
   linkPreview?: LinkPreviewOptions,
-): Promise<void> {
+): Promise<SentMessageRef | null> {
   const url = `${TG_API}/bot${token}/sendMessage`;
   let res: Response;
   try {
@@ -294,6 +308,7 @@ export async function sendBotMessage(
       body.error_code,
     );
   }
+  return parseSentRef(body.result);
 }
 
 // ─── Telegram length limits ─────────────────────────────────────────────────
@@ -351,19 +366,18 @@ export async function sendChannelPost(params: {
   siteName?:   string;
   token:       string;
   replyMarkup?: AnyInlineKeyboard;
-}): Promise<void> {
+}): Promise<SentMessageRef | null> {
   const { chatId, text, bannerUrl, title, siteName, token, replyMarkup } = params;
 
   if (bannerUrl && text.length <= TELEGRAM_CAPTION_LIMIT) {
-    await sendBotPhoto(chatId, bannerUrl, text, token, replyMarkup);
-    return;
+    return await sendBotPhoto(chatId, bannerUrl, text, token, replyMarkup);
   }
 
   const linkPreview: LinkPreviewOptions | undefined = bannerUrl
     ? { url: buildOgPageUrl(bannerUrl, title, siteName), prefer_large_media: true, show_above_text: true }
     : undefined;
 
-  await sendBotMessage(chatId, buildMessageText(text), token, replyMarkup, linkPreview);
+  return await sendBotMessage(chatId, buildMessageText(text), token, replyMarkup, linkPreview);
 }
 
 // ─── Rich Messages (Bot API 10.1) ───────────────────────────────────────────
@@ -381,7 +395,7 @@ export async function sendRichMessage(
   html: string,
   token: string,
   replyMarkup?: AnyInlineKeyboard,
-): Promise<void> {
+): Promise<SentMessageRef | null> {
   const url = `${TG_API}/bot${token}/sendRichMessage`;
   let res: Response;
   try {
@@ -401,6 +415,51 @@ export async function sendRichMessage(
   if (!body.ok) {
     throw new TelegramApiError(body.description ?? 'sendRichMessage returned not-ok', body.error_code);
   }
+  return parseSentRef(body.result);
+}
+
+/**
+ * Edits an already-published channel message in place — the 5-hour "fix a typo"
+ * re-publish window. Formatted posts re-render as `rich_message` HTML (verified
+ * supported by editMessageText); legacy posts as plain text. Link buttons are
+ * refreshed too. A "message is not modified" response is treated as success.
+ * Throws TelegramApiError on any real failure (caller surfaces it).
+ */
+export async function editChannelPost(params: {
+  chatId:       number | string;
+  messageId:    number;
+  blocks:       PostBlock[] | null;
+  text?:        string;
+  replyMarkup?: AnyInlineKeyboard;
+  token:        string;
+}): Promise<void> {
+  const { chatId, messageId, blocks, text, replyMarkup, token } = params;
+
+  const payload: Record<string, unknown> = {
+    chat_id:    chatId,
+    message_id: messageId,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  };
+  if (blocks) payload['rich_message'] = { html: blocksToRichHtml(blocks) };
+  else        payload['text'] = buildMessageText(text ?? '');
+
+  const url = `${TG_API}/bot${token}/editMessageText`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling editMessageText: ${(err as Error).message}`);
+  }
+  const body = (await res.json()) as TgApiResponse<unknown>;
+  if (!body.ok) {
+    // Editing to identical content is a no-op success, not an error.
+    if ((body.description ?? '').includes('message is not modified')) return;
+    throw new TelegramApiError(body.description ?? 'editMessageText returned not-ok', body.error_code);
+  }
 }
 
 /**
@@ -415,7 +474,7 @@ export async function sendRichChannelPost(params: {
   title?:       string;
   siteName?:    string;
   replyMarkup?: AnyInlineKeyboard;
-}): Promise<void> {
+}): Promise<SentMessageRef | null> {
   const { chatId, blocks, token, title, siteName, replyMarkup } = params;
   const html = blocksToRichHtml(blocks);
   const docs = documentBlocks(blocks);
@@ -423,14 +482,15 @@ export async function sendRichChannelPost(params: {
   // Docs-only post: no text to send, just the attachments.
   if (!html.trim() && docs.length > 0) {
     await sendChannelDocuments(chatId, docs, token);
-    return;
+    return null;
   }
 
+  let ref: SentMessageRef | null = null;
   try {
-    await sendRichMessage(chatId, html, token, replyMarkup);
+    ref = await sendRichMessage(chatId, html, token, replyMarkup);
   } catch (err) {
     console.warn('[telegramBot] sendRichMessage failed, falling back to plain:', (err as Error).message);
-    await sendChannelPost({
+    ref = await sendChannelPost({
       chatId,
       text:      blocksToPlainText(blocks),
       bannerUrl: firstImage(blocks),
@@ -442,6 +502,7 @@ export async function sendRichChannelPost(params: {
   }
 
   await sendChannelDocuments(chatId, docs, token);
+  return ref;
 }
 
 /**
@@ -520,7 +581,7 @@ export async function sendBotPhoto(
   caption: string,
   token: string,
   replyMarkup?: AnyInlineKeyboard,
-): Promise<void> {
+): Promise<SentMessageRef | null> {
   const url = `${TG_API}/bot${token}/sendPhoto`;
   const safeCaption = buildPhotoCaption(caption);
 
@@ -547,6 +608,7 @@ export async function sendBotPhoto(
       body.error_code,
     );
   }
+  return parseSentRef(body.result);
 }
 
 /**

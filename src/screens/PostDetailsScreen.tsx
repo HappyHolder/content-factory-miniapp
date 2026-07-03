@@ -29,6 +29,10 @@ type Section = 'format' | 'variants' | 'editor' | 'banner' | 'buttons'
 const MAX_TEXT_REGENS = 3
 const MAX_IMAGE_REGENS = 3
 
+// A published post stays editable / re-publishable for this window, then it is
+// purged. Must match server lib/postRetention.ts (POST_EDIT_WINDOW_MS).
+const POST_EDIT_WINDOW_MS = 5 * 60 * 60 * 1000
+
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, language, authStatus, updatePost, deletePost } = useApp()
   const isRu = language === 'ru'
@@ -37,6 +41,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
+  const [isRepublishing, setIsRepublishing] = useState(false)
   const [isSharing, setIsSharing] = useState(false)
   const [isRegeneratingText, setIsRegeneratingText] = useState(false)
   const [isRegeneratingVisual, setIsRegeneratingVisual] = useState(false)
@@ -66,6 +71,11 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   // surface. Detected by sourceType so it holds even before any block is added.
   const isManual = post.sourceType === 'manual'
   const isBlockPost = hasBlocks || isManual
+  // Published posts stay fully editable and re-publishable (edited in place in the
+  // channel) for a 5-hour window, after which they're purged server-side.
+  const publishedAtMs = post.publishedAt ? new Date(post.publishedAt).getTime() : 0
+  const withinEditWindow = post.status === 'published' && publishedAtMs > 0 &&
+    (Date.now() - publishedAtMs < POST_EDIT_WINDOW_MS)
   const channel = state.channels.find(c => c.id === post.channelId)
   // Cover is a post-level asset — show it regardless of which text variant is selected
   const displayBannerUrl = selectedVariant?.bannerUrl || post.variants.find(v => v.bannerUrl)?.bannerUrl || null
@@ -121,6 +131,33 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
       showToast(t('postDetails.publishFailed'), 'error')
     } finally {
       setIsPublishing(false)
+    }
+  }
+
+  // Re-publish: push the (edited) published post to the channel IN PLACE — edits
+  // the original message so views/reactions/position survive and no new
+  // notification is sent. Only valid inside the 5-hour window.
+  const handleRepublish = async () => {
+    if (isRepublishing) return
+    const initData = getTelegramInitData()
+    if (!initData) { showToast(t('postDetails.updateInChannelFailed'), 'error'); return }
+    setIsRepublishing(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/${post.id}/republish`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData }),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({})) as { error?: string }
+        showToast(errData.error ?? t('postDetails.updateInChannelFailed'), 'error')
+        return
+      }
+      showToast(t('postDetails.updatedInChannel'))
+    } catch {
+      showToast(t('postDetails.updateInChannelFailed'), 'error')
+    } finally {
+      setIsRepublishing(false)
     }
   }
 
@@ -803,6 +840,25 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         {/* Actions — published post */}
         {post.status === 'published' && (
           <div className="space-y-2">
+            {/* Within the 5-hour window: push edits to the same channel message. */}
+            {withinEditWindow && (
+              <>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={handleRepublish}
+                  disabled={isRepublishing}
+                  fullWidth
+                >
+                  {isRepublishing
+                    ? <><Loader2 size={16} className="animate-spin" />{t('common.loading')}</>
+                    : <><RefreshCw size={16} />{t('postDetails.updateInChannel')}</>}
+                </Button>
+                <p className="text-[11px] text-[#66666E] text-center leading-snug px-2">
+                  {t('postDetails.editWindowHint')}
+                </p>
+              </>
+            )}
             <Button
               variant="secondary"
               size="lg"

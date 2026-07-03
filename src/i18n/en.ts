@@ -270,6 +270,10 @@ export const en = {
     fastShare:          'Share via Telegram',
     openInTelegram:     'Open in Telegram',
     createSimilar:      'Create similar',
+    updateInChannel:    'Update in channel',
+    updatedInChannel:   'Channel post updated',
+    updateInChannelFailed: 'Could not update the post. Try again.',
+    editWindowHint:     'Edits go to the same channel post for 5 hours after publishing.',
     save:               'Save',
     copy:               'Copy',
 

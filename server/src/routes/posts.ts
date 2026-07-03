@@ -4,8 +4,9 @@ import { putObject, deleteObject } from '../lib/storage';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { sendChannelPost, sendRichChannelPost, TelegramApiError, buildInlineKeyboard, savePreparedPostMessage } from '../lib/telegramBot';
+import { sendChannelPost, sendRichChannelPost, editChannelPost, TelegramApiError, buildInlineKeyboard, savePreparedPostMessage } from '../lib/telegramBot';
 import { blocksToRichHtml, type PostBlock } from '../lib/richPost';
+import { isWithinEditWindow } from '../lib/postRetention';
 
 /** Returns the variant's structured blocks if present and non-empty, else null. */
 function variantBlocks(v: { blocks?: unknown }): PostBlock[] | null {
@@ -675,12 +676,13 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   // shows PUBLISHED for a message that was never actually sent.
   // sendChannelPost picks the method: short post → native photo+caption;
   // long post → full text message with the cover as a large preview card.
+  let sentRef: Awaited<ReturnType<typeof sendRichChannelPost>> = null;
   try {
     const blocks = variantBlocks(selectedVariant);
     if (blocks) {
       // Formatted post — structured blocks → Rich Message (with internal fallback
       // to the legacy plain path inside sendRichChannelPost if the API rejects it).
-      await sendRichChannelPost({
+      sentRef = await sendRichChannelPost({
         chatId:      `@${post.channel.handle}`,
         blocks,
         title:       post.title,
@@ -690,7 +692,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       });
     } else {
       // Legacy posts created before formatting existed (no stored blocks).
-      await sendChannelPost({
+      sentRef = await sendChannelPost({
         chatId:      `@${post.channel.handle}`,
         text:        selectedVariant.text,
         bannerUrl:   selectedVariant.bannerUrl,
@@ -710,11 +712,18 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   }
 
   // ── 11. Persist PUBLISHED status ─────────────────────────────────────────
+  // Also store the sent message ref so the post can be edited in place during
+  // its 5-hour re-publish window (POST /:postId/republish).
   const publishedAt = new Date();
   try {
     await prisma.generatedPost.update({
       where: { id: postId },
-      data:  { status: 'PUBLISHED', publishedAt },
+      data:  {
+        status:      'PUBLISHED',
+        publishedAt,
+        tgChatId:    sentRef ? String(sentRef.chatId) : null,
+        tgMessageId: sentRef?.messageId ?? null,
+      },
     });
   } catch (err) {
     console.error('[posts/publish] DB update failed:', (err as Error).message);
@@ -734,6 +743,84 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       publishedAt: publishedAt.toISOString(),
     },
   });
+});
+
+// ─── POST /api/posts/:postId/republish ────────────────────────────────────────
+//
+// Edits an already-published post IN PLACE in the Telegram channel — the
+// 5-hour "I saw a typo after publishing" window. Re-renders the currently
+// selected variant's blocks (or legacy text) over the original message via
+// editMessageText, so views/reactions/position are preserved and no new
+// notification is sent. Requires the stored tgMessageId/tgChatId captured at
+// publish time; posts published before that support (or docs-only posts) can't
+// be edited in place.
+//
+// Body: { initData, postId }
+// Response 200: { ok: true }
+// Response 400/401/403/404
+// Response 409: post is not published (nothing to edit in place)
+// Response 410: edit window (5h) has expired
+// Response 422: post has no captured message ref (can't edit in place)
+// Response 502: Telegram rejected the edit
+router.post('/:postId/republish', async (req: Request, res: Response): Promise<void> => {
+  const { postId } = req.params as { postId: string };
+  const { initData } = req.body as { initData?: unknown };
+
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  const post = await prisma.generatedPost.findUnique({
+    where:  { id: postId },
+    select: {
+      id: true, status: true, publishedAt: true, title: true,
+      tgChatId: true, tgMessageId: true, selectedVariantId: true, linkButtons: true,
+      channel:  { select: { userId: true } },
+      variants: { orderBy: { variantIndex: 'asc' }, select: { id: true, text: true, blocks: true } },
+    },
+  }).catch(() => null);
+  if (!post) { res.status(404).json({ error: 'Post not found.' }); return; }
+  if (post.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
+
+  // Only a published post can be edited in place.
+  if (post.status !== 'PUBLISHED') { res.status(409).json({ error: 'Post is not published yet — use publish instead.' }); return; }
+  // 5-hour grace period.
+  if (!isWithinEditWindow(post.publishedAt)) {
+    res.status(410).json({ error: 'The 5-hour edit window for this post has expired.' }); return;
+  }
+  // We can only edit if we captured the message ref at publish time.
+  if (!post.tgMessageId || !post.tgChatId) {
+    res.status(422).json({ error: 'This post cannot be edited in the channel (published before in-place editing was supported).' }); return;
+  }
+
+  const selectedVariant = post.variants.find(v => v.id === post.selectedVariantId) ?? post.variants[0];
+  if (!selectedVariant?.text?.trim() && !variantBlocks(selectedVariant)) {
+    res.status(400).json({ error: 'Post has no content to publish.' }); return;
+  }
+  const blocks = variantBlocks(selectedVariant);
+
+  try {
+    await editChannelPost({
+      chatId:      post.tgChatId,
+      messageId:   post.tgMessageId,
+      blocks,
+      text:        selectedVariant?.text ?? '',
+      replyMarkup: buildInlineKeyboard(post.linkButtons),
+      token:       env.TELEGRAM_BOT_TOKEN,
+    });
+  } catch (err) {
+    const msg = err instanceof TelegramApiError ? err.message : (err as Error).message ?? 'Telegram API error';
+    console.error('[posts/republish] Telegram edit failed:', msg);
+    res.status(502).json({ error: `Telegram rejected the update: ${msg}` });
+    return;
+  }
+
+  res.json({ ok: true });
 });
 
 // ─── PATCH /api/posts/:postId/blocks ─────────────────────────────────────────

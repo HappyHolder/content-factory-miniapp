@@ -178,6 +178,8 @@ model GeneratedPost {
   status          PostStatus @default(NEW)
   scheduledAt     DateTime?
   publishedAt     DateTime?
+  tgChatId        String?    // chat id of the published channel message — enables edit-in-place
+  tgMessageId     Int?       // message id of the published channel message (5-hour re-publish window)
   textRegensUsed  Int        @default(0)
   imageRegensUsed Int        @default(0)
 

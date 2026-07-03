@@ -270,6 +270,10 @@ export const ru: Dict = {
     fastShare:          'Отправить через Telegram',
     openInTelegram:     'Открыть в Telegram',
     createSimilar:      'Создать похожий',
+    updateInChannel:    'Обновить в канале',
+    updatedInChannel:   'Пост в канале обновлён',
+    updateInChannelFailed: 'Не удалось обновить пост. Попробуй ещё раз.',
+    editWindowHint:     'Правки уходят в тот же пост в канале в течение 5 часов после публикации.',
     save:               'Сохранить',
     copy:               'Скопировать',
 

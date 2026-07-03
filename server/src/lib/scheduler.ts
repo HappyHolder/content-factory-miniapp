@@ -19,6 +19,8 @@
 import { prisma } from '../db';
 import { env } from '../env';
 import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard } from './telegramBot';
+import { deleteObject } from './storage';
+import { POST_EDIT_WINDOW_MS } from './postRetention';
 import type { PostBlock } from './richPost';
 
 // ─── In-flight guard ─────────────────────────────────────────────────────────
@@ -103,9 +105,10 @@ async function publishDuePosts(): Promise<void> {
 
     // Send to Telegram — short post → native photo+caption; long post → full
     // text message with the cover as a large preview card (sendChannelPost).
+    let sentRef: Awaited<ReturnType<typeof sendRichChannelPost>> = null;
     try {
       if (blocks) {
-        await sendRichChannelPost({
+        sentRef = await sendRichChannelPost({
           chatId:      `@${post.channel.handle}`,
           blocks,
           title:       post.title,
@@ -114,7 +117,7 @@ async function publishDuePosts(): Promise<void> {
           replyMarkup,
         });
       } else {
-        await sendChannelPost({
+        sentRef = await sendChannelPost({
           chatId:      `@${post.channel.handle}`,
           text:        selectedVariant.text,
           bannerUrl:   selectedVariant.bannerUrl,
@@ -130,12 +133,18 @@ async function publishDuePosts(): Promise<void> {
       continue;
     }
 
-    // Mark PUBLISHED in DB
+    // Mark PUBLISHED in DB — store the sent message ref for the 5-hour
+    // edit-in-place window (mirrors the manual /publish route).
     const publishedAt = new Date();
     try {
       await prisma.generatedPost.update({
         where: { id: post.id },
-        data:  { status: 'PUBLISHED', publishedAt },
+        data:  {
+          status:      'PUBLISHED',
+          publishedAt,
+          tgChatId:    sentRef ? String(sentRef.chatId) : null,
+          tgMessageId: sentRef?.messageId ?? null,
+        },
       });
       console.log(`[scheduler] Post ${post.id} published at ${publishedAt.toISOString()}`);
     } catch (err) {
@@ -148,6 +157,59 @@ async function publishDuePosts(): Promise<void> {
   }
 }
 
+// ─── Retention purge ──────────────────────────────────────────────────────────
+// A published post "lives fully" only for POST_EDIT_WINDOW_MS (5h) — during it
+// the user can pull it back, edit and re-publish (edit in place). After that we
+// drop the DB row and its stored media so data doesn't accumulate forever. The
+// Telegram message itself stays in the channel; we just stop tracking it.
+
+/** Collects every stored media URL (cover + block media) from a post's variants. */
+function mediaUrlsOf(variants: { bannerUrl: string | null; blocks: unknown }[]): string[] {
+  const urls = new Set<string>();
+  for (const v of variants) {
+    if (v.bannerUrl) urls.add(v.bannerUrl);
+    const blocks = Array.isArray(v.blocks) ? (v.blocks as PostBlock[]) : [];
+    for (const b of blocks) {
+      if (b.type === 'image' && b.url) urls.add(b.url);
+      else if (b.type === 'video') { if (b.url) urls.add(b.url); if (b.poster) urls.add(b.poster); }
+      else if (b.type === 'document' && b.url) urls.add(b.url);
+      else if (b.type === 'gallery') for (const u of b.urls) if (u) urls.add(u);
+    }
+  }
+  return [...urls];
+}
+
+async function purgeExpiredPublished(): Promise<void> {
+  const cutoff = new Date(Date.now() - POST_EDIT_WINDOW_MS);
+
+  let expired: { id: string; variants: { bannerUrl: string | null; blocks: unknown }[] }[];
+  try {
+    expired = await prisma.generatedPost.findMany({
+      where:  { status: 'PUBLISHED', publishedAt: { lt: cutoff } },
+      select: { id: true, variants: { select: { bannerUrl: true, blocks: true } } },
+      take:   100, // bound each sweep
+    });
+  } catch (err) {
+    console.error('[scheduler] purge query failed:', (err as Error).message);
+    return;
+  }
+  if (expired.length === 0) return;
+
+  for (const post of expired) {
+    // Best-effort media cleanup — a failed delete never blocks the row removal.
+    for (const url of mediaUrlsOf(post.variants)) {
+      try { await deleteObject(url); }
+      catch (err) { console.error(`[scheduler] purge media delete failed (${url}):`, (err as Error).message); }
+    }
+    try {
+      await prisma.generatedPost.delete({ where: { id: post.id } }); // cascades to variants
+    } catch (err) {
+      console.error(`[scheduler] purge delete failed for ${post.id}:`, (err as Error).message);
+    }
+  }
+  console.log(`[scheduler] purged ${expired.length} expired published post(s)`);
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 export function startScheduler(): void {
@@ -155,15 +217,20 @@ export function startScheduler(): void {
 
   console.log(`[scheduler] Started — polling every ${INTERVAL_MS / 1000}s`);
 
-  // Initial sweep: catch any posts that became due while the server was down.
-  publishDuePosts().catch(err =>
-    console.error('[scheduler] Startup sweep failed:', (err as Error).message)
-  );
+  const sweep = async () => {
+    await publishDuePosts().catch(err =>
+      console.error('[scheduler] Publish sweep failed:', (err as Error).message)
+    );
+    await purgeExpiredPublished().catch(err =>
+      console.error('[scheduler] Purge sweep failed:', (err as Error).message)
+    );
+  };
+
+  // Initial sweep: catch posts that became due (or expired) while we were down.
+  sweep().catch(err => console.error('[scheduler] Startup sweep failed:', (err as Error).message));
 
   // Recurring sweep
   setInterval(() => {
-    publishDuePosts().catch(err =>
-      console.error('[scheduler] Sweep failed:', (err as Error).message)
-    );
+    sweep().catch(err => console.error('[scheduler] Sweep failed:', (err as Error).message));
   }, INTERVAL_MS);
 }
