@@ -1,14 +1,42 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Bot, Loader2, Sparkles, ArrowLeft, ChevronDown } from 'lucide-react'
+import { Bot, Loader2, Sparkles, ArrowLeft, ChevronDown, CalendarClock, Layers, Play, Check } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
+export interface ContentPlanItem {
+  id: string
+  orderIndex: number
+  scheduledAt: string
+  rubricId: string | null
+  rubricName: string | null
+  workingTitle: string
+  angle: string
+  searchQuery: string
+}
+
+export interface ContentPlan {
+  id: string
+  channelId: string
+  topic: string
+  postsPerDay: number
+  days: number
+  startDate: string
+  source: string
+  status: string   // DRAFT | GENERATING | SCHEDULED | FAILED | CANCELLED
+  totalPosts: number
+  items: ContentPlanItem[]
+  /** Live progress while GENERATING (finished items) — set by the poller. */
+  processed?: number
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  /** Present when the assistant produced a content-series plan (renders a card). */
+  plan?: ContentPlan
 }
 
 const SUGGESTIONS = [
@@ -18,6 +46,107 @@ const SUGGESTIONS = [
   'Сделай контент-план на неделю',
 ]
 
+const SOURCE_LABELS: Record<string, string> = {
+  web: 'Веб-поиск', uploads: 'Материалы проекта', both: 'Веб + материалы',
+}
+
+function formatStartDate(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso.slice(0, 10)
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+}
+
+/** Compact plan summary card + «Приступить» button, rendered under an assistant reply. */
+function PlanCard({ plan, onConfirm, onCancel, confirming }: {
+  plan: ContentPlan
+  onConfirm?: (plan: ContentPlan) => void
+  onCancel?: (plan: ContentPlan) => void
+  confirming: boolean
+}) {
+  const rubricNames = [...new Set(plan.items.map(i => i.rubricName).filter(Boolean))] as string[]
+  const status = plan.status
+  const isDraft = status === 'DRAFT'
+  const isDone = status === 'SCHEDULED'
+  const isGenerating = status === 'GENERATING'
+  const isFailed = status === 'FAILED' || status === 'CANCELLED'
+
+  return (
+    <div className="w-full max-w-[82%] mt-1 rounded-2xl rounded-bl-sm bg-[rgba(255,106,0,0.06)] border border-[rgba(255,106,0,0.20)] overflow-hidden">
+      <div className="px-3.5 pt-3 pb-2.5">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Layers size={13} className="text-[#FF6A00]" />
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-[#FF6A00]">Контент-план</span>
+        </div>
+        <p className="text-[13.5px] font-semibold text-white leading-snug">{plan.topic}</p>
+
+        <div className="mt-2.5 space-y-1.5 text-[12px] text-[#C7C7CE]">
+          <div className="flex items-center gap-2">
+            <Layers size={12} className="text-[#8A8A92] shrink-0" />
+            <span>{plan.totalPosts} постов · {plan.postsPerDay}/день · {plan.days} дн.</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <CalendarClock size={12} className="text-[#8A8A92] shrink-0" />
+            <span>Старт отложки — {formatStartDate(plan.startDate)}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Sparkles size={12} className="text-[#8A8A92] shrink-0" />
+            <span>{SOURCE_LABELS[plan.source] ?? plan.source}{rubricNames.length ? ` · ${rubricNames.join(', ')}` : ''}</span>
+          </div>
+        </div>
+
+        {/* First few working titles as a preview */}
+        <ul className="mt-2.5 space-y-1">
+          {plan.items.slice(0, 4).map((it, i) => (
+            <li key={it.id} className="flex gap-1.5 text-[11.5px] text-[#9A9AA2] leading-snug">
+              <span className="text-[#55555D] tabular-nums">{i + 1}.</span>
+              <span className="truncate">{it.workingTitle}</span>
+            </li>
+          ))}
+          {plan.items.length > 4 && (
+            <li className="text-[11px] text-[#55555D] pl-4">…и ещё {plan.items.length - 4}</li>
+          )}
+        </ul>
+      </div>
+
+      <button
+        onClick={() => isDraft && onConfirm?.(plan)}
+        disabled={!isDraft || confirming}
+        className={cn(
+          'w-full flex items-center justify-center gap-1.5 py-2.5 text-[13px] font-semibold border-t transition-colors',
+          isDone
+            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 cursor-default'
+            : isFailed
+              ? 'bg-red-500/10 border-red-500/20 text-red-400 cursor-default'
+            : isDraft
+              ? 'bg-[#FF6A00] border-transparent text-white hover:bg-[#ff7a1a] active:bg-[#e55f00] disabled:opacity-60'
+              : 'bg-white/[0.04] border-white/[0.06] text-[#8A8A92] cursor-default',
+        )}
+      >
+        {confirming
+          ? <><Loader2 size={14} className="animate-spin" /> Запускаю…</>
+          : isDone
+            ? <><Check size={14} /> В Отложке</>
+            : isGenerating
+              ? <><Loader2 size={14} className="animate-spin" /> Генерирую {plan.processed ?? 0}/{plan.totalPosts}…</>
+            : isFailed
+              ? <>{status === 'CANCELLED' ? 'Отменён' : 'Ошибка генерации'}</>
+            : isDraft
+              ? <><Play size={13} /> Приступить</>
+              : <>Генерация…</>}
+      </button>
+
+      {(isDraft || isGenerating) && onCancel && (
+        <button
+          onClick={() => onCancel(plan)}
+          className="w-full py-1.5 text-[11.5px] text-[#8A8A92] hover:text-red-400 border-t border-white/[0.06] transition-colors"
+        >
+          {isDraft ? 'Отклонить план' : 'Отменить генерацию'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 interface ChatScreenProps {
   messages: ChatMessage[]
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
@@ -26,6 +155,12 @@ interface ChatScreenProps {
   onSend: (text: string) => void
   /** Hand an assistant reply to the Create flow (generates a post from it). */
   onSendToCreate?: (text: string) => void
+  /** Start generating a content-series plan (the «Приступить» button). */
+  onConfirmPlan?: (plan: ContentPlan) => void
+  /** Cancel a draft/generating plan. */
+  onCancelPlan?: (plan: ContentPlan) => void
+  /** Plan id currently being confirmed (button shows a spinner). */
+  confirmingPlanId?: string | null
   loading: boolean
   /** True while the AI tab is the visible one. The screen stays mounted (hidden)
    *  when other tabs are active, so we use this to re-pin to the bottom on entry. */
@@ -34,7 +169,7 @@ interface ChatScreenProps {
   onScrollBtnChange: (visible: boolean, scrollFn: () => void) => void
 }
 
-export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, onSendToCreate, loading, active, onBack, onScrollBtnChange }: ChatScreenProps) {
+export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, onSendToCreate, onConfirmPlan, onCancelPlan, confirmingPlanId, loading, active, onBack, onScrollBtnChange }: ChatScreenProps) {
   const { activeChannel, authStatus } = useApp()
   const bottomRef    = useRef<HTMLDivElement>(null)
   const scrollRef    = useRef<HTMLDivElement>(null)
@@ -191,7 +326,14 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
                   <div className="px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] leading-relaxed whitespace-pre-wrap bg-white/[0.06] text-[#E0E0E0]">
                     {msg.content}
                   </div>
-                  {onSendToCreate && msg.content.trim().length > 20 && (
+                  {msg.plan ? (
+                    <PlanCard
+                      plan={msg.plan}
+                      onConfirm={onConfirmPlan}
+                      onCancel={onCancelPlan}
+                      confirming={confirmingPlanId === msg.plan.id}
+                    />
+                  ) : onSendToCreate && msg.content.trim().length > 20 && (
                     <button
                       onClick={() => onSendToCreate(msg.content)}
                       disabled={loading}

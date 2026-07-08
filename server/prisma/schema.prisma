@@ -51,6 +51,30 @@ enum ModelTier {
   HIGH
 }
 
+// Lifecycle of an AI content-manager plan (a whole series of posts).
+// DRAFT      = built by the planner, awaiting the user's «Приступить».
+// GENERATING = worker is running items sequentially.
+// SCHEDULED  = all items processed, posts sit in Отложка.
+// FAILED     = worker aborted; CANCELLED = user cancelled.
+enum ContentPlanStatus {
+  DRAFT
+  GENERATING
+  SCHEDULED
+  FAILED
+  CANCELLED
+}
+
+// Per-item progress within a ContentPlan. A failed item becomes SKIPPED and the
+// plan continues with the next one.
+enum PlanItemStatus {
+  PENDING
+  RESEARCHING
+  GENERATING
+  DONE
+  FAILED
+  SKIPPED
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -95,6 +119,8 @@ model Channel {
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   brandKit       BrandKit?
   generatedPosts GeneratedPost[]
+  projectDocs    ProjectDoc[]
+  contentPlans   ContentPlan[]
 
   @@index([userId])
 }
@@ -348,4 +374,74 @@ model StylePurchase {
 
   @@unique([userId, styleId]) // one ownership row per user/style
   @@index([userId])
+}
+
+// ─── AI Content manager ───────────────────────────────────────────────────────
+// The content manager lets the assistant generate a whole SERIES of posts and
+// drop them into Отложка. A ProjectDoc is uploaded knowledge (whitepaper, deck)
+// the planner can base a series on; a ContentPlan is one series; a
+// ContentPlanItem is one post-to-be within it. See docs/content-manager-plan.md.
+
+// Uploaded project material attached to a channel's knowledge base. `text` holds
+// the extracted plain text (pdf-parse / mammoth), capped ~200k chars; the raw
+// file is not stored.
+model ProjectDoc {
+  id        String   @id @default(cuid())
+  channelId String
+  name      String
+  mime      String
+  sizeBytes Int
+  text      String
+  createdAt DateTime @default(now())
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId])
+}
+
+// One content series. `source` = 'web' | 'uploads' | 'both'. Items are generated
+// strictly sequentially by contentWorker; on completion posts sit SCHEDULED.
+model ContentPlan {
+  id          String            @id @default(cuid())
+  channelId   String
+  topic       String
+  postsPerDay Int
+  days        Int
+  startDate   DateTime
+  source      String            @default("web") // 'web' | 'uploads' | 'both'
+  status      ContentPlanStatus @default(DRAFT)
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  channel Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  items   ContentPlanItem[]
+
+  @@index([channelId])
+  @@index([status])
+}
+
+// One planned post within a ContentPlan. Carries the pre-chosen rubric so the
+// worker skips classification, and links to the GeneratedPost it produced.
+model ContentPlanItem {
+  id              String         @id @default(cuid())
+  planId          String
+  orderIndex      Int
+  scheduledAt     DateTime
+  rubricId        String?
+  rubricName      String?
+  workingTitle    String
+  angle           String
+  searchQuery     String
+  status          PlanItemStatus @default(PENDING)
+  generatedPostId String?
+  errorMessage    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plan ContentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
 }

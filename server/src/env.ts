@@ -28,6 +28,15 @@ if (AI_PROVIDER === 'deepseek' && !process.env['DEEPSEEK_API_KEY']) {
 
 const IMAGE_PROVIDER = (process.env['IMAGE_PROVIDER'] ?? 'none') as 'none' | 'replicate';
 
+// Deep-research backend for the AI content manager. 'opus' uses the Anthropic
+// SDK with native web_search/web_fetch server tools (needs ANTHROPIC_API_KEY);
+// 'deepseek' falls back to the existing Serper/Tavily + fetchArticle pipeline.
+// Defaults to 'opus' when a key is present, otherwise 'deepseek'.
+const CONTENT_RESEARCH_BACKEND = (
+  process.env['CONTENT_RESEARCH_BACKEND'] ??
+  (process.env['ANTHROPIC_API_KEY'] ? 'opus' : 'deepseek')
+) as 'opus' | 'deepseek';
+
 // Comma-separated Telegram numeric IDs allowed to access the admin panel.
 // Example: ADMIN_TELEGRAM_IDS=123456789,987654321
 const ADMIN_TELEGRAM_IDS = (process.env['ADMIN_TELEGRAM_IDS'] ?? '')
@@ -93,4 +102,10 @@ export const env = {
   //   'flux'     — always use Flux via Replicate (AI-generated artistic images)
   //   'auto'     — use template when brand kit is complete, fall back to flux
   COVER_ENGINE: (process.env['COVER_ENGINE'] ?? 'auto') as 'template' | 'flux' | 'auto',
+  // ── AI content manager (deep research + post synthesis on Opus) ──────────────
+  // ANTHROPIC_API_KEY unlocks the Anthropic SDK path (Opus 4.8 + native web
+  // search/fetch). Optional — the engine falls back to DeepSeek/Serper without it.
+  ANTHROPIC_API_KEY:       process.env['ANTHROPIC_API_KEY']       ?? '',
+  CONTENT_RESEARCH_MODEL:  process.env['CONTENT_RESEARCH_MODEL']  ?? 'claude-opus-4-8',
+  CONTENT_RESEARCH_BACKEND,
 } as const;

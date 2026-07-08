@@ -5,6 +5,7 @@ import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { TIER_LIMITS } from '../lib/subscriptionLimits';
 import { webSearch } from '../lib/webSearch';
 import { replicateText } from '../lib/replicateText';
+import { generateContentPlan, type ContentPlanDTO, MAX_POSTS_PER_DAY, MAX_DAYS } from '../lib/contentPlanner';
 
 const router = Router();
 
@@ -145,6 +146,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   }).catch(() => null);
   const tier = sub?.tier ?? 'FREE';
   const modelTier: 'LOW' | 'HIGH' = sub?.modelTier ?? 'LOW';
+  const canPlan = TIER_LIMITS[tier].canUseContentManager; // AI content-series manager (CREATOR+)
   if (!TIER_LIMITS[tier].canUseAiAssistant) {
     res.status(403).json({ error: 'AI ассистент доступен на тарифе Starter и выше.', code: 'UPGRADE_REQUIRED' });
     return;
@@ -255,23 +257,55 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
             `For ANYTHING time-sensitive or factual — sports fixtures/scores, news, prices, "what is happening now", recent statistics, "latest" anything — you MUST call web_search before answering, and you MUST build the query using the current year ${currentYear} (e.g. "FIFA World Cup ${currentYear} schedule") rather than a year from memory. ` +
             `Never answer such questions from memory. After searching, answer in your own words and briefly mention the sources. If the search returns nothing useful, say so plainly instead of guessing.\n`)
       : '') +
+    (canPlan
+      ? `\nCONTENT MANAGER: You can build a whole SERIES of posts (a mini-course, a themed multi-day plan) and drop them into the user's Отложка (scheduler). When the user asks for a series/mini-course/content-plan of MULTIPLE posts, do NOT write the posts yourself in chat. Instead:\n` +
+        `1) Ask a few brief CLARIFYING questions in one message if anything is missing: from which day to start the schedule (so they have time to review before posts go out), how many posts per day and over how many days (max ${MAX_POSTS_PER_DAY}/day, ${MAX_DAYS} days), the sources (web research / uploaded project docs / both), and a preferred rubric if any.\n` +
+        `2) Once you have topic + postsPerDay + days + startDate, call the create_content_plan_draft tool. A plan card with a «Приступить» button then appears for the user — after the tool returns, just confirm in ONE short sentence (e.g. "Готово, план на N постов ниже — нажми «Приступить»"). Do NOT re-list the posts or call the tool again.\n`
+      : '') +
     `Be concise, practical, and creative. Give actionable advice.`;
 
-  // Web-search tool, only offered when Tavily is configured.
-  const tools = canSearch ? [{
-    type: 'function',
-    function: {
-      name: 'web_search',
-      description: 'Search the web for up-to-date or factual information. Returns a short summary and the top results with title, URL and snippet.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: "Search query, ideally in the user's language" },
+  // Tool set for the DeepSeek loop: web_search (when Tavily configured) and the
+  // content-series planner (CREATOR+). undefined when neither is available.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const toolList: any[] = [];
+  if (canSearch) {
+    toolList.push({
+      type: 'function',
+      function: {
+        name: 'web_search',
+        description: 'Search the web for up-to-date or factual information. Returns a short summary and the top results with title, URL and snippet.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: "Search query, ideally in the user's language" },
+          },
+          required: ['query'],
         },
-        required: ['query'],
       },
-    },
-  }] : undefined;
+    });
+  }
+  if (canPlan) {
+    toolList.push({
+      type: 'function',
+      function: {
+        name: 'create_content_plan_draft',
+        description: 'Build a DRAFT plan for a SERIES of posts (mini-course / multi-day content plan) for the active channel. Only call this once you know the topic, postsPerDay, days and startDate. The user reviews the plan and confirms it — you do NOT write the posts here.',
+        parameters: {
+          type: 'object',
+          properties: {
+            topic:       { type: 'string',  description: 'The overall subject of the series, in the channel language' },
+            postsPerDay: { type: 'integer', description: `How many posts per day (1–${MAX_POSTS_PER_DAY})` },
+            days:        { type: 'integer', description: `Over how many days (1–${MAX_DAYS})` },
+            startDate:   { type: 'string',  description: 'ISO date (YYYY-MM-DD) the schedule should start from — leave a few days for review' },
+            source:      { type: 'string',  enum: ['web', 'uploads', 'both'], description: "Where to research: 'web', the channel's uploaded docs, or both" },
+            rubricHint:  { type: 'string',  description: 'Optional preferred rubric/category name for the series' },
+          },
+          required: ['topic', 'postsPerDay', 'days', 'startDate'],
+        },
+      },
+    });
+  }
+  const tools = toolList.length > 0 ? toolList : undefined;
 
   // Conversation buffer for the tool-use loop. Typed loosely because assistant /
   // tool turns carry extra fields (tool_calls, tool_call_id) beyond {role, content}.
@@ -308,6 +342,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
   try {
     let reply = '';
+    let pendingPlan: ContentPlanDTO | null = null; // set when the planner tool runs
 
     // HIGH tier: Claude on Replicate, with an optional manual Tavily pre-search
     // (Replicate's text API has no tool-calling). Falls through to the DeepSeek
@@ -343,6 +378,36 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
             let query = '';
             try { query = String(JSON.parse(tc.function.arguments || '{}').query ?? ''); } catch { /* ignore */ }
             result = (query && await webSearch(query)) || 'No results found.';
+          } else if (tc.function?.name === 'create_content_plan_draft' && canPlan) {
+            // Build the plan only once per message; ignore duplicate calls.
+            if (pendingPlan) {
+              result = 'A plan draft was already created for this request. Do not call this tool again.';
+            } else {
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const a = JSON.parse(tc.function.arguments || '{}') as any;
+                const topic = typeof a.topic === 'string' ? a.topic.trim() : '';
+                if (!topic) {
+                  result = 'Missing "topic". Ask the user what the series should be about.';
+                } else {
+                  pendingPlan = await generateContentPlan({
+                    channelId,
+                    topic,
+                    postsPerDay: Number(a.postsPerDay) || 1,
+                    days:        Number(a.days) || 1,
+                    startDate:   new Date(typeof a.startDate === 'string' ? a.startDate : Date.now()),
+                    source:      (a.source === 'uploads' || a.source === 'both') ? a.source : 'web',
+                    rubricHint:  typeof a.rubricHint === 'string' ? a.rubricHint : undefined,
+                  });
+                  result = `Draft plan created: ${pendingPlan.totalPosts} posts on "${pendingPlan.topic}", ` +
+                    `starting ${pendingPlan.startDate.slice(0, 10)}. A plan card with a «Приступить» button is now shown to the user. ` +
+                    `Confirm in ONE short sentence; do not list the posts or call this tool again.`;
+                }
+              } catch (err) {
+                console.error('[chat] create_content_plan_draft failed:', (err as Error).message);
+                result = 'Failed to build the plan. Apologize briefly and suggest trying again.';
+              }
+            }
           }
           messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
         }
@@ -376,7 +441,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       }
     }).catch(() => {});
 
-    res.json({ reply });
+    res.json({ reply, ...(pendingPlan ? { plan: pendingPlan } : {}) });
 
   } catch (err) {
     console.error('[chat] Error:', (err as Error).message);

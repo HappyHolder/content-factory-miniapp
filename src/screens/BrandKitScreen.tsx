@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BookOpen, Mic, LayoutList, Hash, Link, Image, ChevronRight } from 'lucide-react'
+import { BookOpen, Mic, LayoutList, Hash, Link, Image, FileText, ChevronRight } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import type { TranslationKey } from '@/i18n'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -12,9 +12,10 @@ import { PostFormatForm }         from '@/components/profile/PostFormatForm'
 import { WordsRestrictionsForm }  from '@/components/profile/WordsRestrictionsForm'
 import { CtaLinksForm }           from '@/components/profile/CtaLinksForm'
 import { CoversForm }             from '@/components/profile/CoversForm'
+import { ProjectDocsForm }        from '@/components/profile/ProjectDocsForm'
 import { ChannelStyleSummary }    from '@/components/profile/ChannelStyleSummary'
 
-type SectionId = 'about' | 'textVoice' | 'postFormat' | 'words' | 'ctaLinks' | 'covers'
+type SectionId = 'about' | 'textVoice' | 'postFormat' | 'words' | 'ctaLinks' | 'covers' | 'projectDocs'
 
 interface SectionConfig {
   id: SectionId
@@ -28,6 +29,7 @@ const SECTIONS: SectionConfig[] = [
   { id: 'words',      icon: Hash        },
   { id: 'ctaLinks',   icon: Link        },
   { id: 'covers',     icon: Image       },
+  { id: 'projectDocs', icon: FileText   },
 ]
 
 interface BrandKitScreenProps {
@@ -97,6 +99,8 @@ export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitS
             initialData={brandKit.visualKit}
           />
         )
+      case 'projectDocs':
+        return <ProjectDocsForm channelId={channelId} />
     }
   }
 

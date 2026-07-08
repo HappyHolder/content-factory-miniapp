@@ -14,8 +14,11 @@ import adminRouter from './routes/admin';
 import promoRouter from './routes/promo';
 import paymentsRouter from './routes/payments';
 import stylesRouter from './routes/styles';
+import projectDocsRouter from './routes/projectDocs';
+import contentPlanRouter from './routes/contentPlan';
 import ogRouter from './routes/og';
 import { startScheduler } from './lib/scheduler';
+import { resumeGeneratingPlans } from './lib/contentWorker';
 
 const app = express();
 
@@ -57,6 +60,8 @@ app.use('/api/admin',     adminRouter);
 app.use('/api/promo',     promoRouter);
 app.use('/api/payments',  paymentsRouter);
 app.use('/api/styles',    stylesRouter);
+app.use('/api/project-docs', projectDocsRouter);
+app.use('/api/content-plan', contentPlanRouter);
 app.use('/api/og',        ogRouter);
 
 // ─── Start ────────────────────────────────────────────────────────────────────
@@ -65,6 +70,9 @@ app.listen(env.PORT, () => {
     `[publium-api] Running on port ${env.PORT} (${env.NODE_ENV})`
   );
   startScheduler();
+  // Resume any content-manager plans interrupted by a restart.
+  resumeGeneratingPlans().catch(err =>
+    console.error('[content-worker] resume failed:', (err as Error).message));
 });
 
 export default app;

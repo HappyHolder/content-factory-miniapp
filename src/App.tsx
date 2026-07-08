@@ -15,7 +15,7 @@ import { BrandKitScreen } from '@/screens/BrandKitScreen'
 import { PlansScreen } from '@/screens/PlansScreen'
 import { AdminPanelScreen } from '@/screens/AdminPanelScreen'
 import { OnboardingSlides } from '@/screens/OnboardingSlides'
-import { ChatScreen, type ChatMessage } from '@/screens/ChatScreen'
+import { ChatScreen, type ChatMessage, type ContentPlan } from '@/screens/ChatScreen'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 
@@ -45,6 +45,7 @@ function AppContent() {
   }, [startWalkthrough])
   const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false)
   const [chatLoading, setChatLoading]         = useState(false)
+  const [confirmingPlanId, setConfirmingPlanId] = useState<string | null>(null)
   const [showChatScrollBtn, setShowChatScrollBtn] = useState(false)
   const chatScrollFn = useRef<(() => void) | null>(null)
 
@@ -66,15 +67,90 @@ function AppContent() {
           message:   trimmed,
         }),
       })
-      const data = await res.json() as { reply?: string; error?: string }
+      const data = await res.json() as { reply?: string; error?: string; plan?: ContentPlan }
       const reply = data.reply ?? data.error ?? 'Ошибка'
-      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      setChatMessages(prev => [...prev, { role: 'assistant', content: reply, plan: data.plan }])
     } catch {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Ошибка соединения' }])
     } finally {
       setChatLoading(false)
     }
   }, [activeChannel, chatLoading])
+
+  // Live progress poller for a generating plan. Updates the card's status +
+  // n/N until the plan reaches a terminal state (SCHEDULED/FAILED/CANCELLED).
+  const planTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const pollPlan = useCallback((planId: string) => {
+    let attempts = 0
+    const tick = async () => {
+      attempts++
+      try {
+        const initData = getTelegramInitData() ?? 'mock'
+        const res = await fetch(`${API_BASE}/api/content-plan/${planId}?initData=${encodeURIComponent(initData)}`)
+        if (res.ok) {
+          const data = await res.json() as { status?: string; processed?: number }
+          if (data.status) {
+            setChatMessages(prev => prev.map(m =>
+              m.plan?.id === planId ? { ...m, plan: { ...m.plan, status: data.status!, processed: data.processed } } : m))
+            if (data.status !== 'GENERATING') { delete planTimers.current[planId]; return } // terminal
+          }
+        }
+      } catch { /* transient — keep polling */ }
+      if (attempts < 200) {   // hard cap ~13 min at 4s
+        planTimers.current[planId] = setTimeout(tick, 4000)
+      } else {
+        delete planTimers.current[planId]
+      }
+    }
+    void tick()
+  }, [])
+
+  // Clear any active plan pollers on unmount.
+  useEffect(() => () => { for (const t of Object.values(planTimers.current)) clearTimeout(t) }, [])
+
+  // «Приступить» — confirm a content-series plan; the worker fills Отложка.
+  const handleConfirmPlan = useCallback(async (plan: ContentPlan) => {
+    if (confirmingPlanId) return
+    setConfirmingPlanId(plan.id)
+    const setPlanStatus = (status: string) =>
+      setChatMessages(prev => prev.map(m =>
+        m.plan?.id === plan.id ? { ...m, plan: { ...m.plan, status } } : m))
+    try {
+      const initData = getTelegramInitData() ?? 'mock'
+      const res = await fetch(`${API_BASE}/api/content-plan/${plan.id}/confirm`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string }
+        setChatMessages(prev => [...prev, { role: 'assistant', content: err.error ?? 'Не удалось запустить план.' }])
+        return
+      }
+      setPlanStatus('GENERATING')
+      pollPlan(plan.id)
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Ошибка соединения при запуске плана.' }])
+    } finally {
+      setConfirmingPlanId(null)
+    }
+  }, [confirmingPlanId, pollPlan])
+
+  // Cancel a draft (discard) or generating (stop worker) plan.
+  const handleCancelPlan = useCallback(async (plan: ContentPlan) => {
+    const timer = planTimers.current[plan.id]
+    if (timer) { clearTimeout(timer); delete planTimers.current[plan.id] }
+    setChatMessages(prev => prev.map(m =>
+      m.plan?.id === plan.id ? { ...m, plan: { ...m.plan, status: 'CANCELLED' } } : m))
+    try {
+      const initData = getTelegramInitData() ?? 'mock'
+      await fetch(`${API_BASE}/api/content-plan/${plan.id}/cancel`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData }),
+      })
+    } catch { /* best-effort — card already reflects cancellation */ }
+  }, [])
 
   const handleOpenPost = (id: string) => setModal({ type: 'post_detail', postId: id })
   const handlePostCreated = (id: string) => { setActiveTab('posts'); setModal({ type: 'post_detail', postId: id }) }
@@ -153,6 +229,9 @@ function AppContent() {
                   setHistoryLoaded={setChatHistoryLoaded}
                   onSend={sendChatMessage}
                   onSendToCreate={handleSendToCreate}
+                  onConfirmPlan={handleConfirmPlan}
+                  onCancelPlan={handleCancelPlan}
+                  confirmingPlanId={confirmingPlanId}
                   loading={chatLoading}
                   active={activeTab === 'ai'}
                   onBack={() => { setActiveTab('posts'); setShowChatScrollBtn(false) }}

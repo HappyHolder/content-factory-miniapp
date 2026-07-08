@@ -59,6 +59,10 @@ export interface CreateDraftParams {
   allowHtmlCovers?: boolean; // default true; false (FREE tier) forces coverMode 'ai'
   coverModeOverride?: 'ai' | 'html' | 'ai_html'; // per-generation cover engine; overrides channel setting
   modelTier?: 'LOW' | 'HIGH'; // LOW = DeepSeek/Flux (default); HIGH = Claude/GPT Image
+  // Content-manager path: use this pre-chosen rubric instead of classifying.
+  // Resolved against visualKit.rubrics for its mode/template; a plain AI rubric
+  // is used if the id isn't found. See docs/content-manager-plan.md.
+  forcedRubric?: { id: string; name: string };
 }
 
 /** Frontend-compatible post shape — identical to what /api/posts/generate returns. */
@@ -157,7 +161,7 @@ function extractButtonLinks(brandKit: unknown): {
 export async function createDraftPostForChannel(
   params: CreateDraftParams,
 ): Promise<DraftPost> {
-  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false, allowHtmlCovers = true, coverModeOverride, modelTier = 'LOW' } = params;
+  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false, allowHtmlCovers = true, coverModeOverride, modelTier = 'LOW', forcedRubric } = params;
 
   // HIGH tier routes the AI picture model to GPT Image; LOW keeps Flux (env.IMAGE_MODEL).
   const imageModel = modelTier === 'HIGH' ? env.HIGH_IMAGE_MODEL : env.IMAGE_MODEL;
@@ -293,7 +297,18 @@ export async function createDraftPostForChannel(
   let rubricId: string | null = null;
   let rubricName: string | null = null;
   let rubricHybridPrompt: string | undefined;
-  if (rubrics.length > 0 && !coverModeOverride) {
+  if (forcedRubric && !coverModeOverride) {
+    // Content-manager path: use the plan's pre-chosen rubric. Resolve its mode +
+    // template from visualKit.rubrics; fall back to a plain AI rubric if the id
+    // isn't present. No classifier call.
+    const chosen = rubrics.find(r => r.id === forcedRubric.id);
+    rubricMode = chosen?.mode ?? 'ai';
+    rubricId = forcedRubric.id;
+    rubricName = chosen?.name ?? forcedRubric.name;
+    rubricHybridPrompt = chosen?.hybridPrompt;
+    if (chosen?.templateUrl) rubricTemplate = { name: chosen.name, url: chosen.templateUrl };
+    console.log(`[draftGenerator] Forced rubric "${rubricName}" → mode=${rubricMode}, template=${rubricTemplate ? 'yes' : 'no'}`);
+  } else if (rubrics.length > 0 && !coverModeOverride) {
     try {
       const chosen = await classifyPostRubric(title, sourceSummary, rubrics);
       if (chosen) {
