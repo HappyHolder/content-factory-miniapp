@@ -85,6 +85,69 @@ async function decidedSearchBlock(message: string, _currentYear: number): Promis
   return '';
 }
 
+/**
+ * Deterministic content-plan intent detector. DeepSeek's tool-calling is
+ * unreliable here — it tends to NARRATE "I'm building the plan" in prose instead
+ * of emitting the create_content_plan_draft call — so we decide server-side with
+ * a cheap JSON classifier over the conversation. Only fires `ready` when the
+ * user is clearly asking to BUILD a multi-post series AND topic + postsPerDay +
+ * days + startDate are all known (explicitly or inferable from context).
+ * Returns null when not configured, on error, or when not ready.
+ */
+interface PlanIntent {
+  topic: string; postsPerDay: number; days: number; startDate: string;
+  source: 'web' | 'uploads' | 'both'; rubricHint?: string;
+}
+async function detectPlanIntent(
+  history: { role: string; content: string }[],
+  message: string,
+  todayISO: string,
+): Promise<PlanIntent | null> {
+  if (!env.DEEPSEEK_API_KEY) return null;
+
+  const transcript = [...history.slice(-12), { role: 'user', content: message }]
+    .map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
+    .join('\n');
+
+  const system =
+    `Today is ${todayISO}. You decide whether the user is confirming that they want to BUILD a SERIES of multiple posts ` +
+    `(a mini-course / multi-day content plan) to be scheduled — and whether enough is known to build it right now.\n` +
+    `Return ONLY JSON: {"ready":bool,"topic":str,"postsPerDay":int,"days":int,"startDate":"YYYY-MM-DD","source":"web|uploads|both","rubricHint":str}.\n` +
+    `Set ready=true ONLY if ALL of these are known from the conversation: the topic, how many posts per day, over how many days (derive days from a total like "7 posts, 1/day" = 7 days), and a start date. Resolve relative dates ("с 13 июля", "послезавтра") against today into an absolute YYYY-MM-DD.\n` +
+    `Set ready=false if the user is still asking questions, brainstorming, wants a single post, or any of topic/postsPerDay/days/startDate is missing. When ready=false the other fields are ignored.\n` +
+    `source: "web" for internet research, "uploads" for the user's own documents, "both". Default "web". rubricHint: a category name if the user named one, else "".`;
+
+  try {
+    const res = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
+      body: JSON.stringify({
+        model: env.DEEPSEEK_MODEL,
+        response_format: { type: 'json_object' },
+        max_tokens: 200, temperature: 0.1,
+        messages: [{ role: 'system', content: system }, { role: 'user', content: transcript }],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p = JSON.parse(data.choices?.[0]?.message?.content ?? '{}') as any;
+    if (!p || p.ready !== true) return null;
+    const topic = typeof p.topic === 'string' ? p.topic.trim() : '';
+    const postsPerDay = Number(p.postsPerDay);
+    const days = Number(p.days);
+    const startDate = typeof p.startDate === 'string' ? p.startDate : '';
+    if (!topic || !Number.isFinite(postsPerDay) || !Number.isFinite(days) || !/^\d{4}-\d{2}-\d{2}/.test(startDate)) return null;
+    return {
+      topic, postsPerDay, days, startDate,
+      source: p.source === 'uploads' || p.source === 'both' ? p.source : 'web',
+      rubricHint: typeof p.rubricHint === 'string' && p.rubricHint.trim() ? p.rubricHint.trim() : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ─── GET /api/chat/history ────────────────────────────────────────────────────
 // Returns the user's full chat history (oldest → newest).
 // Query: { initData }
@@ -342,12 +405,37 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
   try {
     let reply = '';
-    let pendingPlan: ContentPlanDTO | null = null; // set when the planner tool runs
+    let pendingPlan: ContentPlanDTO | null = null; // set when a content-series plan is built
+
+    // ── Deterministic content-plan path (CREATOR+) ────────────────────────────
+    // Decided server-side instead of trusting DeepSeek to emit the tool call —
+    // it reliably narrates "building the plan" without actually calling it.
+    if (canPlan) {
+      const todayISO = now.toLocaleDateString('en-CA', { timeZone: MSK_TZ }); // YYYY-MM-DD (MSK)
+      const intent = await detectPlanIntent(history, message, todayISO).catch(() => null);
+      if (intent) {
+        try {
+          pendingPlan = await generateContentPlan({
+            channelId,
+            topic:       intent.topic,
+            postsPerDay: intent.postsPerDay,
+            days:        intent.days,
+            startDate:   new Date(intent.startDate),
+            source:      intent.source,
+            rubricHint:  intent.rubricHint,
+          });
+          reply = `Готово — собрал план на ${pendingPlan.totalPosts} ${pendingPlan.totalPosts === 1 ? 'пост' : 'постов'} по теме «${pendingPlan.topic}». Проверь карточку ниже и нажми «Приступить» — я разложу их в Отложку.`;
+        } catch (err) {
+          console.error('[chat] plan build failed:', (err as Error).message);
+          // Fall through to the normal chat loop (the tool remains as a backup).
+        }
+      }
+    }
 
     // HIGH tier: Claude on Replicate, with an optional manual Tavily pre-search
     // (Replicate's text API has no tool-calling). Falls through to the DeepSeek
     // tool-loop below if it yields nothing.
-    if (modelTier === 'HIGH' && env.REPLICATE_API_TOKEN) {
+    if (!reply && modelTier === 'HIGH' && env.REPLICATE_API_TOKEN) {
       const high = await generateHighChatReply({ systemPrompt, history, message, canSearch, currentYear });
       if (high && high.trim()) reply = high.trim();
     }
