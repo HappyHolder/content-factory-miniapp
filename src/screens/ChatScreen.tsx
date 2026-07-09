@@ -53,7 +53,7 @@ const SOURCE_LABELS: Record<string, string> = {
 function formatStartDate(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso.slice(0, 10)
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' })
 }
 
 /** Compact plan summary card + «Приступить» button, rendered under an assistant reply. */
@@ -65,7 +65,7 @@ function PlanCard({ plan, onConfirm, onCancel, confirming }: {
 }) {
   const rubricNames = [...new Set(plan.items.map(i => i.rubricName).filter(Boolean))] as string[]
   const times = [...new Set(plan.items.map(i =>
-    new Date(i.scheduledAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })))]
+    new Date(i.scheduledAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })))]
     .filter(Boolean).slice(0, 4)
   const status = plan.status
   const isDraft = status === 'DRAFT'

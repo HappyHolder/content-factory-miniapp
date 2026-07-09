@@ -99,17 +99,26 @@ function slotTimes(postsPerDay: number, times?: string[]): { h: number; m: numbe
   return result.sort((a, b) => a.h - b.h || a.m - b.m).slice(0, postsPerDay);
 }
 
+// Moscow is a fixed UTC+3 offset (no DST since 2014) — the whole app treats
+// times as MSK. Slots are built as MSK wall-clock and converted to the correct
+// UTC instant, so a "18:00" the user asked for publishes at 18:00 Moscow time,
+// regardless of the server's own timezone (prod runs UTC).
+const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
+
 /** Produces `total` datetime slots starting at `startDate`, `postsPerDay` per day. */
 function computeSlots(startDate: Date, days: number, postsPerDay: number, total: number, times?: string[]): Date[] {
   const daily = slotTimes(postsPerDay, times);
+  // MSK calendar day of the chosen start date (Y-M-D), then build each slot as
+  // that MSK wall-clock time and shift by the offset to get the UTC instant.
+  const ymd = startDate.toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' }); // YYYY-MM-DD
+  const [Y, M, D] = ymd.split('-').map(Number);
   const slots: Date[] = [];
   for (let d = 0; d < days && slots.length < total; d++) {
     for (const t of daily) {
       if (slots.length >= total) break;
-      const dt = new Date(startDate);
-      dt.setDate(dt.getDate() + d);
-      dt.setHours(t.h, t.m, 0, 0);
-      slots.push(dt);
+      // Date.UTC treats t.h as UTC; subtract the MSK offset → the UTC instant of
+      // t.h:t.m Moscow time. Handles day/month rollover automatically.
+      slots.push(new Date(Date.UTC(Y, M - 1, D + d, t.h, t.m) - MSK_OFFSET_MS));
     }
   }
   return slots;

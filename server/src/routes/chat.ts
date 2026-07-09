@@ -116,6 +116,7 @@ async function detectPlanIntent(
     `Set ready=true ONLY if ALL of these are known from the conversation: the topic, how many posts per day, over how many days (derive days from a total like "7 posts, 1/day" = 7 days), a start date, AND the publish time(s) of day. Resolve relative dates ("с 13 июля", "послезавтра") against today into an absolute YYYY-MM-DD.\n` +
     `"times": the daily publish times the user asked for, as "HH:MM" 24h (e.g. ["10:00"] or ["10:00","18:00"] for 2/day). If the user has NOT specified a posting time yet, set ready=false — the assistant must ask for it first. Interpret "утром"≈09:00, "днём"≈13:00, "вечером"≈19:00.\n` +
     `Set ready=false if the user is still asking questions, brainstorming, wants a single post, or any of topic/postsPerDay/days/startDate/times is missing. When ready=false the other fields are ignored.\n` +
+    `IMPORTANT: only use parameters the user has given for the CURRENT request. If the latest request is a NEW series and the user hasn't restated the start date / time / cadence for it, set ready=false and let the assistant ask — do NOT silently reuse details from an earlier, already-built plan in the history.\n` +
     `source: "web" for internet research, "uploads" for the user's own documents, "both". Default "web". rubricHint: a category name if the user named one, else "".`;
 
   try {
