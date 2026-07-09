@@ -99,6 +99,7 @@ interface AppContextValue {
   deletePost: (postId: string) => void
   setActiveChannel: (id: string) => void
   connectChannel: (channel: Channel) => void
+  disconnectChannel: (channelId: string) => void
   updateBrandKit: (channelId: string, kit: Partial<BrandKit>) => void
   applyServerSubscription: (sub: {
     tier: string
@@ -594,6 +595,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
+  // Removes a channel from local state after the server has deleted it (and its
+  // posts / brand kit / plans via cascade). Mirrors connectChannel: keeps the
+  // in-memory services in sync and repoints the active channel if it was the one
+  // removed, so no screen ever targets a deleted channel.
+  const disconnectChannel = useCallback((channelId: string) => {
+    setState(prev => {
+      const remainingChannels  = prev.channels.filter(c => c.id !== channelId)
+      const remainingBrandKits = prev.brandKits.filter(k => k.channelId !== channelId)
+      const remainingPosts     = prev.posts.filter(p => p.channelId !== channelId)
+
+      const wasActive        = prev.activeChannelId === channelId
+      const nextActiveId      = wasActive ? (remainingChannels[0]?.id ?? '') : prev.activeChannelId
+
+      // Sync in-memory services to match the trimmed state.
+      channelService.init(remainingChannels)
+      brandKitService.init(remainingBrandKits)
+      postService.init(remainingPosts)
+
+      if (wasActive) {
+        try {
+          if (nextActiveId) localStorage.setItem('activeChannelId', nextActiveId)
+          else localStorage.removeItem('activeChannelId')
+        } catch {}
+      }
+
+      return {
+        ...prev,
+        channels:        remainingChannels,
+        brandKits:       remainingBrandKits,
+        posts:           remainingPosts,
+        activeChannelId: nextActiveId,
+      }
+    })
+  }, [])
+
   const updateBrandKit = useCallback((channelId: string, updates: Partial<BrandKit>) => {
     // 1. Immediate in-memory update — UI reflects changes instantly
     brandKitService.update(channelId, updates)
@@ -657,6 +693,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateVariantBannerUrl,
       setActiveChannel,
       connectChannel,
+      disconnectChannel,
       updateBrandKit,
       applyServerSubscription,
       toasts,

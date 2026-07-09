@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket
+  Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket, Trash2
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
+import { getTelegramInitData } from '@/lib/telegram'
+import { API_BASE } from '@/lib/api'
 import { useWalkthrough } from '@/context/WalkthroughContext'
 import { Coachmark, HighlightRing } from '@/components/onboarding/Coachmark'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -28,7 +30,7 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: ProfileScreenProps) {
-  const { state, setActiveChannel, showToast, language, setLanguage, t } = useApp()
+  const { state, setActiveChannel, disconnectChannel, showToast, language, setLanguage, t, authStatus } = useApp()
   const { step: wtStep } = useWalkthrough()
   const { user, channels, activeChannelId } = state
   const { subscription } = user
@@ -43,6 +45,31 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
   // Billing period display
   const billingLabel = t('profile.monthly')
   const renewsLabel  = t('profile.renews')
+
+  // Disconnect a channel: delete it on the server (cascades posts / style / plans)
+  // then trim it from local state. Confirmed first — this is irreversible.
+  const handleDisconnect = async (channelId: string) => {
+    if (!window.confirm(t('profile.disconnectConfirm'))) return
+
+    if (authStatus === 'authenticated') {
+      const initData = getTelegramInitData()
+      if (!initData) return
+      try {
+        const res = await fetch(`${API_BASE}/api/channels/disconnect`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData, channelId }),
+        })
+        if (!res.ok) { showToast(t('profile.disconnectFailed'), 'error'); return }
+      } catch {
+        showToast(t('profile.disconnectFailed'), 'error')
+        return
+      }
+    }
+
+    disconnectChannel(channelId)
+    showToast(t('profile.disconnectSuccess'))
+  }
 
   return (
     <div>
@@ -156,6 +183,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
                   isActive={ch.id === activeChannelId}
                   onSetDefault={() => setActiveChannel(ch.id)}
                   onOpenBrandKit={() => onOpenBrandKit(ch.id, ch.username)}
+                  onDisconnect={() => handleDisconnect(ch.id)}
                   highlightStyle={wtStep === 'style' && i === 0}
                   index={i}
                   t={t}
@@ -288,11 +316,12 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
   )
 }
 
-function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, highlightStyle, index, t }: {
+function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onDisconnect, highlightStyle, index, t }: {
   channel: Channel
   isActive: boolean
   onSetDefault: () => void
   onOpenBrandKit: () => void
+  onDisconnect: () => void
   highlightStyle?: boolean
   index: number
   t: (key: TranslationKey) => string
@@ -334,6 +363,9 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, highligh
               </Button>
             </HighlightRing>
           </div>
+          <Button variant="danger" size="sm" onClick={onDisconnect}>
+            <Trash2 size={13} />
+          </Button>
         </div>
       </GlassCard>
     </motion.div>

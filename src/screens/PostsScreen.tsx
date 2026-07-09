@@ -11,6 +11,8 @@ import { BannerMini } from '@/components/posts/BannerMini'
 import type { GeneratedPost } from '@/types'
 import { formatScheduledTime, formatRelativeTime } from '@/lib/utils'
 import { isWithinEditWindow } from '@/lib/postEditWindow'
+import { getTelegramInitData } from '@/lib/telegram'
+import { API_BASE } from '@/lib/api'
 
 type TabId = 'new' | 'scheduled' | 'published'
 
@@ -19,8 +21,76 @@ interface PostsScreenProps {
 }
 
 export function PostsScreen({ onOpenPost }: PostsScreenProps) {
-  const { state, publishPost, cancelSchedule, showToast, t } = useApp()
+  const { state, updatePost, deletePost, showToast, t, authStatus } = useApp()
   const [activeTab, setActiveTab] = useState<TabId>('new')
+  // Post id with a publish/delete request in flight — disables that card's buttons.
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  // Publish a scheduled post to its Telegram channel right now. Real server send
+  // (mirrors PostDetailsScreen.handlePublish) — not a local-only status flip, so
+  // the change survives a reload instead of reverting from /api/posts/list.
+  const handlePublishNow = async (post: GeneratedPost) => {
+    if (busyId) return
+
+    // Dev / mock mode — no backend; flip status locally.
+    if (authStatus !== 'authenticated') {
+      updatePost(post.id, { status: 'published', publishedAt: new Date() })
+      showToast(t('posts.actions.publishNowSuccess'))
+      return
+    }
+
+    const initData = getTelegramInitData()
+    if (!initData) return
+    setBusyId(post.id)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/publish`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ initData, postId: post.id }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string }
+        showToast(err.error ?? t('postDetails.publishFailed'), 'error')
+        return
+      }
+      const data = await res.json() as { post: { publishedAt: string } }
+      updatePost(post.id, { status: 'published', publishedAt: new Date(data.post.publishedAt) })
+      showToast(t('posts.actions.publishNowSuccess'))
+    } catch {
+      showToast(t('postDetails.publishFailed'), 'error')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  // Permanently delete a scheduled post. Real server delete (mirrors
+  // PostDetailsScreen.handleDelete) so it doesn't reappear on the next reload.
+  const handleDelete = async (post: GeneratedPost) => {
+    if (busyId) return
+    if (!window.confirm(t('postDetails.deletePostConfirm'))) return
+
+    if (authStatus === 'authenticated') {
+      const initData = getTelegramInitData()
+      if (!initData) return
+      setBusyId(post.id)
+      try {
+        const res = await fetch(`${API_BASE}/api/posts/delete`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData, postId: post.id }),
+        })
+        if (!res.ok) { showToast(t('postDetails.deleteFailed'), 'error'); return }
+      } catch {
+        showToast(t('postDetails.deleteFailed'), 'error')
+        return
+      } finally {
+        setBusyId(null)
+      }
+    }
+
+    deletePost(post.id)
+    showToast(t('postDetails.deletePostSuccess'))
+  }
 
   const newPosts       = state.posts.filter(p => p.status === 'new')
   const scheduledPosts = state.posts.filter(p => p.status === 'scheduled')
@@ -69,8 +139,9 @@ export function PostsScreen({ onOpenPost }: PostsScreenProps) {
                   key={p.id}
                   post={p}
                   onOpen={() => onOpenPost(p.id)}
-                  onPublishNow={() => publishPost(p.id)}
-                  onCancel={() => cancelSchedule(p.id)}
+                  onPublishNow={() => handlePublishNow(p)}
+                  onDelete={() => handleDelete(p)}
+                  busy={busyId === p.id}
                   index={i}
                 />
               ))
@@ -116,11 +187,12 @@ function EmptyState({ message, sub }: { message: string; sub: string }) {
   )
 }
 
-function ScheduledCard({ post, onOpen, onPublishNow, onCancel, index }: {
+function ScheduledCard({ post, onOpen, onPublishNow, onDelete, busy, index }: {
   post: GeneratedPost
   onOpen: () => void
   onPublishNow: () => void
-  onCancel: () => void
+  onDelete: () => void
+  busy: boolean
   index: number
 }) {
   const { t } = useApp()
@@ -142,13 +214,13 @@ function ScheduledCard({ post, onOpen, onPublishNow, onCancel, index }: {
           </div>
         </div>
         <div className="flex gap-1.5">
-          <Button variant="ghost" size="sm" onClick={onOpen} className="flex-1">
+          <Button variant="ghost" size="sm" onClick={onOpen} className="flex-1" disabled={busy}>
             <Pencil size={11} /> {t('posts.actions.open')}
           </Button>
-          <Button variant="primary" size="sm" onClick={onPublishNow} className="flex-1">
+          <Button variant="primary" size="sm" onClick={onPublishNow} className="flex-1" disabled={busy}>
             <Send size={11} /> {t('posts.actions.publishNow')}
           </Button>
-          <Button variant="danger" size="sm" onClick={onCancel}>
+          <Button variant="danger" size="sm" onClick={onDelete} disabled={busy}>
             <Trash2 size={11} />
           </Button>
         </div>

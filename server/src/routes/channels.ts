@@ -272,4 +272,101 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
   });
 });
 
+// ─── POST /api/channels/disconnect ────────────────────────────────────────────
+//
+// Removes a connected channel from the user's account. Deleting the Channel row
+// cascades (schema onDelete: Cascade) to its BrandKit, GeneratedPosts (+ variants),
+// ProjectDocs and ContentPlans (+ items), so nothing dangling is left behind.
+//
+// The bot's admin rights in the Telegram channel are NOT touched — Publium simply
+// stops managing the channel. The user can re-connect it later (a fresh row).
+//
+// If the disconnected channel was the user's activeChannelId, it is repointed to
+// any remaining channel (or cleared) so the app never targets a deleted channel.
+//
+// Request body: { initData, channelId }
+// Response 200: { ok: true, activeChannelId: string | null }
+// Response 400: missing / invalid fields
+// Response 401: invalid initData / user not found
+// Response 403: channel belongs to another user
+// Response 404: channel not found
+// Response 500: DB error
+
+router.post('/disconnect', async (req: Request, res: Response): Promise<void> => {
+  const { initData, channelId } = req.body as { initData?: unknown; channelId?: unknown };
+
+  // ── 1. Input validation ───────────────────────────────────────────────────
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof channelId !== 'string' || !channelId.trim()) {
+    res.status(400).json({ error: 'channelId is required' }); return;
+  }
+
+  // ── 2. Validate Telegram initData ────────────────────────────────────────
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  // ── 3. Resolve authenticated user ────────────────────────────────────────
+  const telegramId = String(parsed.user.id);
+  let dbUser: { id: string; activeChannelId: string | null } | null = null;
+  try {
+    dbUser = await prisma.user.findUnique({
+      where:  { telegramId },
+      select: { id: true, activeChannelId: true },
+    });
+  } catch (err) {
+    console.error('[channels/disconnect] User lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!dbUser) {
+    res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
+  }
+
+  // ── 4. Load channel + verify ownership ────────────────────────────────────
+  let channel: { id: string; userId: string } | null = null;
+  try {
+    channel = await prisma.channel.findUnique({
+      where:  { id: channelId },
+      select: { id: true, userId: true },
+    });
+  } catch (err) {
+    console.error('[channels/disconnect] Channel lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+  if (!channel) {
+    res.status(404).json({ error: 'Channel not found.' }); return;
+  }
+  if (channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This channel does not belong to your account.' }); return;
+  }
+
+  // ── 5. Delete the channel (cascade removes brandKit / posts / docs / plans) ─
+  try {
+    await prisma.channel.delete({ where: { id: channelId } });
+  } catch (err) {
+    console.error('[channels/disconnect] Delete failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  // ── 6. Repoint activeChannelId if it was the deleted channel ───────────────
+  // activeChannelId is a plain String (not an FK), so it would otherwise dangle.
+  let nextActiveChannelId: string | null = dbUser.activeChannelId;
+  if (dbUser.activeChannelId === channelId) {
+    const remaining = await prisma.channel
+      .findFirst({ where: { userId: dbUser.id }, orderBy: { createdAt: 'asc' }, select: { id: true } })
+      .catch(() => null);
+    nextActiveChannelId = remaining?.id ?? null;
+    await prisma.user
+      .update({ where: { id: dbUser.id }, data: { activeChannelId: nextActiveChannelId } })
+      .catch(err => console.error('[channels/disconnect] activeChannel repoint failed:', (err as Error).message));
+  }
+
+  res.json({ ok: true, activeChannelId: nextActiveChannelId });
+});
+
 export default router;
