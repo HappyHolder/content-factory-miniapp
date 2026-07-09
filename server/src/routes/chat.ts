@@ -96,7 +96,7 @@ async function decidedSearchBlock(message: string, _currentYear: number): Promis
  */
 interface PlanIntent {
   topic: string; postsPerDay: number; days: number; startDate: string;
-  source: 'web' | 'uploads' | 'both'; rubricHint?: string;
+  source: 'web' | 'uploads' | 'both'; rubricHint?: string; times: string[];
 }
 async function detectPlanIntent(
   history: { role: string; content: string }[],
@@ -112,9 +112,10 @@ async function detectPlanIntent(
   const system =
     `Today is ${todayISO}. You decide whether the user is confirming that they want to BUILD a SERIES of multiple posts ` +
     `(a mini-course / multi-day content plan) to be scheduled — and whether enough is known to build it right now.\n` +
-    `Return ONLY JSON: {"ready":bool,"topic":str,"postsPerDay":int,"days":int,"startDate":"YYYY-MM-DD","source":"web|uploads|both","rubricHint":str}.\n` +
-    `Set ready=true ONLY if ALL of these are known from the conversation: the topic, how many posts per day, over how many days (derive days from a total like "7 posts, 1/day" = 7 days), and a start date. Resolve relative dates ("с 13 июля", "послезавтра") against today into an absolute YYYY-MM-DD.\n` +
-    `Set ready=false if the user is still asking questions, brainstorming, wants a single post, or any of topic/postsPerDay/days/startDate is missing. When ready=false the other fields are ignored.\n` +
+    `Return ONLY JSON: {"ready":bool,"topic":str,"postsPerDay":int,"days":int,"startDate":"YYYY-MM-DD","times":["HH:MM"],"source":"web|uploads|both","rubricHint":str}.\n` +
+    `Set ready=true ONLY if ALL of these are known from the conversation: the topic, how many posts per day, over how many days (derive days from a total like "7 posts, 1/day" = 7 days), a start date, AND the publish time(s) of day. Resolve relative dates ("с 13 июля", "послезавтра") against today into an absolute YYYY-MM-DD.\n` +
+    `"times": the daily publish times the user asked for, as "HH:MM" 24h (e.g. ["10:00"] or ["10:00","18:00"] for 2/day). If the user has NOT specified a posting time yet, set ready=false — the assistant must ask for it first. Interpret "утром"≈09:00, "днём"≈13:00, "вечером"≈19:00.\n` +
+    `Set ready=false if the user is still asking questions, brainstorming, wants a single post, or any of topic/postsPerDay/days/startDate/times is missing. When ready=false the other fields are ignored.\n` +
     `source: "web" for internet research, "uploads" for the user's own documents, "both". Default "web". rubricHint: a category name if the user named one, else "".`;
 
   try {
@@ -137,9 +138,14 @@ async function detectPlanIntent(
     const postsPerDay = Number(p.postsPerDay);
     const days = Number(p.days);
     const startDate = typeof p.startDate === 'string' ? p.startDate : '';
-    if (!topic || !Number.isFinite(postsPerDay) || !Number.isFinite(days) || !/^\d{4}-\d{2}-\d{2}/.test(startDate)) return null;
+    const times = Array.isArray(p.times)
+      ? p.times.filter((t: unknown): t is string => typeof t === 'string' && /^\d{1,2}(:\d{1,2})?$/.test(t.trim())).map((t: string) => t.trim())
+      : [];
+    // Time is required — without it we won't build (the assistant should ask).
+    if (!topic || !Number.isFinite(postsPerDay) || !Number.isFinite(days)
+      || !/^\d{4}-\d{2}-\d{2}/.test(startDate) || times.length === 0) return null;
     return {
-      topic, postsPerDay, days, startDate,
+      topic, postsPerDay, days, startDate, times,
       source: p.source === 'uploads' || p.source === 'both' ? p.source : 'web',
       rubricHint: typeof p.rubricHint === 'string' && p.rubricHint.trim() ? p.rubricHint.trim() : undefined,
     };
@@ -322,7 +328,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       : '') +
     (canPlan
       ? `\nCONTENT MANAGER: You can build a whole SERIES of posts (a mini-course, a themed multi-day plan) and drop them into the user's Отложка (scheduler). When the user asks for a series/mini-course/content-plan of MULTIPLE posts, do NOT write the posts yourself in chat. Instead:\n` +
-        `1) Ask a few brief CLARIFYING questions in one message if anything is missing: from which day to start the schedule (so they have time to review before posts go out), how many posts per day and over how many days (max ${MAX_POSTS_PER_DAY}/day, ${MAX_DAYS} days), the sources (web research / uploaded project docs / both), and a preferred rubric if any.\n` +
+        `1) Ask a few brief CLARIFYING questions in one message if anything is missing: from which day to start the schedule (so they have time to review before posts go out), **at what time of day to publish** (e.g. 10:00, or 10:00 and 18:00 for two a day), how many posts per day and over how many days (max ${MAX_POSTS_PER_DAY}/day, ${MAX_DAYS} days), the sources (web research / uploaded project docs / both), and a preferred rubric if any. Do NOT invent a posting time — you must ask the user for it.\n` +
         `2) Once you have topic + postsPerDay + days + startDate, call the create_content_plan_draft tool. A plan card with a «Приступить» button then appears for the user — after the tool returns, just confirm in ONE short sentence (e.g. "Готово, план на N постов ниже — нажми «Приступить»"). Do NOT re-list the posts or call the tool again.\n`
       : '') +
     `Be concise, practical, and creative. Give actionable advice.`;
@@ -360,10 +366,11 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
             postsPerDay: { type: 'integer', description: `How many posts per day (1–${MAX_POSTS_PER_DAY})` },
             days:        { type: 'integer', description: `Over how many days (1–${MAX_DAYS})` },
             startDate:   { type: 'string',  description: 'ISO date (YYYY-MM-DD) the schedule should start from — leave a few days for review' },
+            times:       { type: 'array', items: { type: 'string' }, description: 'Daily publish times as "HH:MM" (24h), one per post/day, e.g. ["10:00"] or ["10:00","18:00"]. Ask the user; do not invent.' },
             source:      { type: 'string',  enum: ['web', 'uploads', 'both'], description: "Where to research: 'web', the channel's uploaded docs, or both" },
             rubricHint:  { type: 'string',  description: 'Optional preferred rubric/category name for the series' },
           },
-          required: ['topic', 'postsPerDay', 'days', 'startDate'],
+          required: ['topic', 'postsPerDay', 'days', 'startDate', 'times'],
         },
       },
     });
@@ -423,6 +430,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
             startDate:   new Date(intent.startDate),
             source:      intent.source,
             rubricHint:  intent.rubricHint,
+            times:       intent.times,
           });
           reply = `Готово — собрал план на ${pendingPlan.totalPosts} ${pendingPlan.totalPosts === 1 ? 'пост' : 'постов'} по теме «${pendingPlan.topic}». Проверь карточку ниже и нажми «Приступить» — я разложу их в Отложку.`;
         } catch (err) {
@@ -486,6 +494,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
                     startDate:   new Date(typeof a.startDate === 'string' ? a.startDate : Date.now()),
                     source:      (a.source === 'uploads' || a.source === 'both') ? a.source : 'web',
                     rubricHint:  typeof a.rubricHint === 'string' ? a.rubricHint : undefined,
+                    times:       Array.isArray(a.times) ? a.times.filter((t: unknown) => typeof t === 'string') : undefined,
                   });
                   result = `Draft plan created: ${pendingPlan.totalPosts} posts on "${pendingPlan.topic}", ` +
                     `starting ${pendingPlan.startDate.slice(0, 10)}. A plan card with a «Приступить» button is now shown to the user. ` +

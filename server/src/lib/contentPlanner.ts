@@ -24,6 +24,9 @@ export interface GenerateContentPlanParams {
   startDate: Date;
   source: 'web' | 'uploads' | 'both';
   rubricHint?: string;
+  /** Publish times per day as "HH:MM" (MSK). One per post/day if given; when
+   *  absent or short, the remaining slots are spread across 09–21. */
+  times?: string[];
 }
 
 export interface ContentPlanItemDTO {
@@ -63,7 +66,7 @@ function todayContext(): { iso: string; year: string } {
 
 // ─── Scheduling ───────────────────────────────────────────────────────────────
 
-/** Hours-of-day for `n` posts, spread between 09:00 and 21:00. */
+/** Default hours-of-day for `n` posts, spread between 09:00 and 21:00. */
 function dayHours(n: number): number[] {
   if (n <= 1) return [10];
   const start = 9, end = 21;
@@ -71,16 +74,41 @@ function dayHours(n: number): number[] {
   return Array.from({ length: n }, (_, i) => Math.round(start + i * step));
 }
 
+/** Parses "HH:MM" / "H" / "9:30" → {h, m}, clamped to a valid time, or null. */
+function parseHHMM(s: string): { h: number; m: number } | null {
+  const m = /^\s*(\d{1,2})(?::(\d{1,2}))?\s*$/.exec(s);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = m[2] !== undefined ? Number(m[2]) : 0;
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return { h, m: min };
+}
+
+/** Publish times-of-day for one day: honors the user's `times`, falling back to
+ *  a 09–21 spread for any slots the user didn't specify. */
+function slotTimes(postsPerDay: number, times?: string[]): { h: number; m: number }[] {
+  const given = (times ?? []).map(parseHHMM).filter((t): t is { h: number; m: number } => t !== null);
+  if (given.length >= postsPerDay) return given.slice(0, postsPerDay);
+  if (given.length === 0) return dayHours(postsPerDay).map(h => ({ h, m: 0 }));
+  // Some times given but fewer than needed — keep them, spread the rest.
+  const result = [...given];
+  for (const h of dayHours(postsPerDay)) {
+    if (result.length >= postsPerDay) break;
+    if (!result.some(r => r.h === h)) result.push({ h, m: 0 });
+  }
+  return result.sort((a, b) => a.h - b.h || a.m - b.m).slice(0, postsPerDay);
+}
+
 /** Produces `total` datetime slots starting at `startDate`, `postsPerDay` per day. */
-function computeSlots(startDate: Date, days: number, postsPerDay: number, total: number): Date[] {
-  const hours = dayHours(postsPerDay);
+function computeSlots(startDate: Date, days: number, postsPerDay: number, total: number, times?: string[]): Date[] {
+  const daily = slotTimes(postsPerDay, times);
   const slots: Date[] = [];
   for (let d = 0; d < days && slots.length < total; d++) {
-    for (const h of hours) {
+    for (const t of daily) {
       if (slots.length >= total) break;
       const dt = new Date(startDate);
       dt.setDate(dt.getDate() + d);
-      dt.setHours(h, 0, 0, 0);
+      dt.setHours(t.h, t.m, 0, 0);
       slots.push(dt);
     }
   }
@@ -270,7 +298,7 @@ export async function generateContentPlan(params: GenerateContentPlanParams): Pr
 
   const styleContext = buildStyleContext(channelAbout, voiceProfile);
   const rawItems = await generateItems(params, styleContext, docContext, total);
-  const slots = computeSlots(startDate, days, postsPerDay, total);
+  const slots = computeSlots(startDate, days, postsPerDay, total, params.times);
 
   const created = await prisma.contentPlan.create({
     data: {

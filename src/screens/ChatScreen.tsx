@@ -64,6 +64,9 @@ function PlanCard({ plan, onConfirm, onCancel, confirming }: {
   confirming: boolean
 }) {
   const rubricNames = [...new Set(plan.items.map(i => i.rubricName).filter(Boolean))] as string[]
+  const times = [...new Set(plan.items.map(i =>
+    new Date(i.scheduledAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })))]
+    .filter(Boolean).slice(0, 4)
   const status = plan.status
   const isDraft = status === 'DRAFT'
   const isDone = status === 'SCHEDULED'
@@ -86,7 +89,7 @@ function PlanCard({ plan, onConfirm, onCancel, confirming }: {
           </div>
           <div className="flex items-center gap-2">
             <CalendarClock size={12} className="text-[#8A8A92] shrink-0" />
-            <span>Старт отложки — {formatStartDate(plan.startDate)}</span>
+            <span>Старт {formatStartDate(plan.startDate)}{times.length ? ` · в ${times.join(', ')}` : ''}</span>
           </div>
           <div className="flex items-center gap-2">
             <Sparkles size={12} className="text-[#8A8A92] shrink-0" />
