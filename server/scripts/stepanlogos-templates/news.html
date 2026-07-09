@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<style>
+  @font-face{font-family:'Barlow';src:url('barlow-800.woff2') format('woff2');font-weight:800;font-style:normal}
+  @font-face{font-family:'Barlow';src:url('barlow-700.woff2') format('woff2');font-weight:700;font-style:normal}
+  @font-face{font-family:'Inter';src:url('inter.woff2') format('woff2');font-weight:400 700;font-style:normal}
+  :root{ --primary:#4DB8FF; --bg:#0F1011; --logo:none; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1080px;height:1080px;position:relative;overflow:hidden;isolation:isolate;background:var(--bg);color:#fff;
+    font-family:'Inter',system-ui,sans-serif;display:flex;flex-direction:column;
+    background-image:
+      linear-gradient(color-mix(in srgb,var(--primary) 9%,transparent) 1px,transparent 1px),
+      linear-gradient(90deg,color-mix(in srgb,var(--primary) 9%,transparent) 1px,transparent 1px),
+      linear-gradient(color-mix(in srgb,var(--primary) 3.5%,transparent) 1px,transparent 1px),
+      linear-gradient(90deg,color-mix(in srgb,var(--primary) 3.5%,transparent) 1px,transparent 1px);
+    background-size:150px 150px,150px 150px,37px 37px,37px 37px}
+  body.photo-mode{background-image:none}
+
+  .top,.main,.bottom{position:relative;z-index:2}
+  .top{display:flex;align-items:center;justify-content:space-between;padding:0 60px;height:104px;border-bottom:2px solid var(--primary);background:rgba(10,12,16,.55)}
+  body.photo-mode .top,body.photo-mode .bottom{background:rgba(6,8,10,.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .top .l{font-family:'Fira Code','SF Mono',monospace;color:var(--primary);font-size:34px;letter-spacing:.1em}
+  .top .r{font-family:'Fira Code','SF Mono',monospace;color:rgba(255,255,255,.7);font-size:28px;letter-spacing:.14em;text-transform:uppercase}
+  .top .r:empty{display:none}
+
+  .main{flex:1;display:flex;flex-direction:column;justify-content:flex-end;padding:0 60px 44px;gap:26px}
+  .badge{align-self:flex-start;display:inline-flex;align-items:center;gap:12px;font-family:'Fira Code','SF Mono',monospace;font-weight:500;font-size:25px;letter-spacing:.16em;text-transform:uppercase;color:var(--bg);background:var(--primary);padding:13px 26px;border-radius:6px;box-shadow:0 8px 28px color-mix(in srgb,var(--primary) 40%,transparent)}
+  .badge:empty{display:none}
+  .badge .dot{width:10px;height:10px;border-radius:50%;background:var(--bg)}
+  .h1{font-family:'Barlow',sans-serif;font-weight:700;font-size:92px;line-height:1;letter-spacing:-.015em}
+  body.photo-mode .h1{text-shadow:0 4px 26px rgba(0,0,0,.6)}
+  .h1 .a{color:var(--primary)}
+  .lead{align-self:flex-start;font-family:'Inter',sans-serif;font-size:34px;font-weight:500;line-height:1.4;color:rgba(255,255,255,.86);background:rgba(255,255,255,.05);border:2px solid color-mix(in srgb,var(--primary) 24%,transparent);border-radius:22px;padding:22px 30px;max-width:840px}
+  body.photo-mode .lead{background:rgba(8,10,13,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .lead:empty{display:none}
+
+  .bottom{display:flex;align-items:center;justify-content:space-between;padding:0 60px;height:92px;border-top:2px solid var(--primary)}
+  .tags{font-family:'Fira Code','SF Mono',monospace;font-size:26px;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.72)}
+  .tags .t{margin-right:14px}
+  .tags .t::before{content:'/// ';color:var(--primary)}
+  .tags .t:empty{margin:0}
+  .tags .t:empty::before{content:none}
+  .handle{font-family:'Fira Code','SF Mono',monospace;font-size:28px;color:var(--primary)}
+</style>
+</head>
+<body>
+  <div class="top"><span class="l">// {{RUBRIC}}</span><span class="r">{{SOURCE}}</span></div>
+  <div class="main">
+    <span class="badge"><span class="dot"></span>{{BADGE}}</span>
+    <div class="h1"><span class="w">{{TITLE_WHITE}} </span><span class="a">{{TITLE_ACCENT}}</span></div>
+    <div class="lead">{{LEAD}}</div>
+  </div>
+  <div class="bottom">
+    <span class="tags"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span></span>
+    <span class="handle">{{AUTHOR}}</span>
+  </div>
+</body>
+</html>

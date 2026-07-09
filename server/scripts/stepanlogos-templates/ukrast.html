@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<style>
+  @font-face{font-family:'Barlow';src:url('barlow-800.woff2') format('woff2');font-weight:800;font-style:normal}
+  @font-face{font-family:'Barlow';src:url('barlow-700.woff2') format('woff2');font-weight:700;font-style:normal}
+  @font-face{font-family:'Inter';src:url('inter.woff2') format('woff2');font-weight:400 700;font-style:normal}
+  :root{ --primary:#4DB8FF; --bg:#0F1011; --logo:none; }
+  *{margin:0;padding:0;box-sizing:border-box}
+
+  body{
+    width:1080px;height:1080px;position:relative;overflow:hidden;isolation:isolate;
+    background:var(--bg);color:#fff;font-family:'Inter',system-ui,sans-serif;
+    display:flex;flex-direction:column;padding:58px 62px;
+    /* HTML-mode background = the blueprint grid drawn from the template */
+    background-image:
+      linear-gradient(color-mix(in srgb,var(--primary) 9%,transparent) 1px,transparent 1px),
+      linear-gradient(90deg,color-mix(in srgb,var(--primary) 9%,transparent) 1px,transparent 1px),
+      linear-gradient(color-mix(in srgb,var(--primary) 3.5%,transparent) 1px,transparent 1px),
+      linear-gradient(90deg,color-mix(in srgb,var(--primary) 3.5%,transparent) 1px,transparent 1px);
+    background-size:150px 150px,150px 150px,37px 37px,37px 37px;
+  }
+  /* Hybrid (ai_html): the service places the AI photo behind + a scrim and adds
+     .photo-mode — so we drop our own grid and let the photo show through. */
+  body.photo-mode{ background-image:none; }
+
+  .head,.h1,.cols,.foot{position:relative;z-index:2}
+  .head{display:flex;align-items:center;justify-content:space-between}
+  .head .l{font-family:'Fira Code','SF Mono',monospace;color:var(--primary);font-size:32px;letter-spacing:.1em}
+  .head .r{font-family:'Fira Code','SF Mono',monospace;color:rgba(255,255,255,.5);font-size:25px;letter-spacing:.14em;text-transform:uppercase}
+  .head .r:empty{display:none}
+
+  .h1{font-family:'Barlow',sans-serif;font-weight:700;text-transform:uppercase;font-size:104px;line-height:.92;letter-spacing:-.02em;margin:30px 0 34px}
+  .h1 .a{color:var(--primary)}
+
+  .cols{flex:1;display:flex;gap:22px;align-items:stretch}
+  .card{flex:1;position:relative;border:2px solid color-mix(in srgb,var(--primary) 26%,transparent);border-radius:26px;padding:38px 40px;display:flex;flex-direction:column;gap:20px;
+        background:rgba(255,255,255,.045)}
+  body.photo-mode .card{background:rgba(8,10,13,.55);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px)}
+  .card.to{border-color:color-mix(in srgb,var(--primary) 55%,transparent);box-shadow:0 0 46px color-mix(in srgb,var(--primary) 14%,transparent)}
+
+  .chead{display:flex;align-items:center;gap:14px;font-family:'Fira Code','SF Mono',monospace;font-size:26px;letter-spacing:.12em;text-transform:uppercase;color:var(--primary)}
+  .card.from .chead{color:rgba(255,255,255,.55)}
+  .chead .n{width:52px;height:52px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:'Barlow',sans-serif;font-weight:800;font-size:32px;color:var(--bg);background:var(--primary)}
+  .card.from .chead .n{background:rgba(255,255,255,.14);color:#fff}
+
+  /* Bullet list: a slot per line. Empty slots collapse, so the template adapts to
+     2, 3, 4… points and the remaining ones spread across the card height. */
+  .blist{flex:1;display:flex;flex-direction:column;justify-content:space-evenly;gap:16px;margin:6px 0}
+  .bi{font-family:'Inter',sans-serif;font-size:34px;font-weight:500;line-height:1.25;color:rgba(255,255,255,.9);padding-left:40px;position:relative}
+  .bi::before{content:'\203A';position:absolute;left:0;top:-1px;color:var(--primary);font-weight:700}
+  .bi:empty{display:none}
+  .card.to .bi{font-weight:600}
+
+  .cfoot{margin-top:auto;padding-top:24px;border-top:1px solid color-mix(in srgb,var(--primary) 18%,transparent);font-family:'Fira Code','SF Mono',monospace;font-size:23px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.5)}
+  .cfoot:empty{display:none;border:0}
+  .card.to .cfoot{color:var(--primary);border-top-color:color-mix(in srgb,var(--primary) 40%,transparent)}
+
+  .arrow{position:absolute;top:50%;left:-33px;transform:translateY(-50%);z-index:3;width:64px;height:64px;border-radius:50%;background:var(--bg);border:2px solid var(--primary);display:flex;align-items:center;justify-content:center;box-shadow:0 0 26px color-mix(in srgb,var(--primary) 50%,transparent)}
+
+  .foot{display:flex;align-items:center;justify-content:space-between;margin-top:30px;padding-top:24px;border-top:2px solid color-mix(in srgb,var(--primary) 50%,transparent)}
+  .foot .tag{font-family:'Inter',sans-serif;font-size:30px;color:rgba(255,255,255,.66)}
+  .foot .handle{font-family:'Fira Code','SF Mono',monospace;font-size:28px;color:var(--primary)}
+</style>
+</head>
+<body>
+  <div class="head">
+    <span class="l">// {{RUBRIC}}</span>
+    <span class="r">{{TOP_TAG}}</span>
+  </div>
+
+  <div class="h1"><span class="w">{{TITLE_WHITE}} </span><span class="a">{{TITLE_ACCENT}}</span></div>
+
+  <div class="cols">
+    <div class="card from">
+      <div class="chead"><span class="n">01</span>{{FROM_LABEL}}</div>
+      <div class="blist">
+        <div class="bi">{{FROM1}}</div>
+        <div class="bi">{{FROM2}}</div>
+        <div class="bi">{{FROM3}}</div>
+        <div class="bi">{{FROM4}}</div>
+      </div>
+      <div class="cfoot">{{FROM_FOOT}}</div>
+    </div>
+
+    <div class="card to">
+      <div class="arrow"><svg width="34" height="26" viewBox="0 0 34 26" xmlns="http://www.w3.org/2000/svg"><path d="M2 13 H29 M20 4 L31 13 L20 22" stroke="#4DB8FF" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="chead"><span class="n">02</span>{{TO_LABEL}}</div>
+      <div class="blist">
+        <div class="bi">{{TO1}}</div>
+        <div class="bi">{{TO2}}</div>
+        <div class="bi">{{TO3}}</div>
+        <div class="bi">{{TO4}}</div>
+      </div>
+      <div class="cfoot">{{TO_FOOT}}</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span class="tag">{{TAGLINE}}</span>
+    <span class="handle">{{AUTHOR}}</span>
+  </div>
+</body>
+</html>
