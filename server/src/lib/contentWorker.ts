@@ -58,9 +58,16 @@ async function loadPlanDocContext(channelId: string): Promise<string> {
   return docs.map(d => `### ${d.name}\n${d.text.slice(0, 2500)}`).join('\n\n').slice(0, 10_000);
 }
 
-/** Builds the createDraftPostForChannel `input` from the item + research brief. */
+/** Builds the createDraftPostForChannel `input` from the item + research brief.
+ *  Anchors the current date so the post writer uses present-day facts, not its
+ *  training-cutoff view (which drifts to 2024/2025). */
 function composeInput(workingTitle: string, angle: string, material: string): string {
-  const parts = [`Тема поста: ${workingTitle}`];
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
+  const year = today.slice(0, 4);
+  const parts = [
+    `Сегодня ${today} (текущий год ${year}). Пиши актуальный на сейчас пост — опирайся на свежие факты из материала ниже; НЕ привязывай к ${Number(year) - 1}/${Number(year) - 2} годам и не выдавай устаревшие данные за актуальные.`,
+    `Тема поста: ${workingTitle}`,
+  ];
   if (angle) parts.push(`Угол подачи: ${angle}`);
   if (material) parts.push(`\nМатериал для поста (факты из ресёрча — используй как фактическую основу, не копируй дословно):\n${material}`);
   return parts.join('\n');

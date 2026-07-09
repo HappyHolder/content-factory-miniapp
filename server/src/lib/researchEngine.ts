@@ -55,13 +55,26 @@ function dedupeSources(sources: ResearchSource[]): ResearchSource[] {
 
 // ─── Opus backend (Anthropic SDK + server-side web tools) ────────────────────
 
-const RESEARCH_SYSTEM =
-  'You are a diligent research assistant preparing source material for a Telegram post. ' +
-  'Research the given topic thoroughly using web search and web fetch: find recent, factual, ' +
-  'specific information — key facts, figures, dates, names, and a few concrete examples or quotes. ' +
-  'Then write a structured research brief (NOT a finished post): bullet the key points and facts, ' +
-  'note anything time-sensitive, and keep every claim grounded in the sources you read. ' +
-  'Write the brief in the same language as the topic.';
+/** Real 'now' (Moscow) — anchors the model so it treats the present, not its
+ *  training cutoff (2024/2025), as current. */
+function todayContext(): { iso: string; year: string } {
+  const iso = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
+  return { iso, year: iso.slice(0, 4) };
+}
+
+function researchSystem(): string {
+  const { iso, year } = todayContext();
+  return (
+    `Today's real date is ${iso} (current year ${year}) — do NOT rely on your training cutoff; treat ${year} as the present. ` +
+    'You are a diligent research assistant preparing source material for a Telegram post. ' +
+    'Research the given topic thoroughly using web search and web fetch: find recent, factual, ' +
+    'specific information — key facts, figures, dates, names, and a few concrete examples or quotes. ' +
+    `Prioritize the most CURRENT information (${year}); do not present older (2024/2025) facts as current unless clearly historical context. ` +
+    'Then write a structured research brief (NOT a finished post): bullet the key points and facts, ' +
+    'note anything time-sensitive, and keep every claim grounded in the sources you read. ' +
+    'Write the brief in the same language as the topic.'
+  );
+}
 
 /** Pulls text + source URLs out of one Anthropic message's content blocks. */
 function collectFromContent(
@@ -111,7 +124,7 @@ async function researchViaOpus(query: string, extraContext?: string): Promise<Re
       max_tokens: 16_000,
       thinking: { type: 'adaptive' },
       output_config: { effort: 'medium' },
-      system: RESEARCH_SYSTEM,
+      system: researchSystem(),
       tools: [
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         { type: 'web_search_20260209', name: 'web_search', max_uses: 8 } as any,
@@ -170,7 +183,7 @@ async function deepseekSynthesize(
       body: JSON.stringify({
         model: env.DEEPSEEK_MODEL,
         messages: [
-          { role: 'system', content: RESEARCH_SYSTEM },
+          { role: 'system', content: researchSystem() },
           { role: 'user', content: userPrompt },
         ],
         max_tokens: 2000,

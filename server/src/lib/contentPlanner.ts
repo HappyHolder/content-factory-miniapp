@@ -54,6 +54,13 @@ interface Rubric { id: string; name: string; description?: string; mode?: string
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
 
+/** Real 'now' (Moscow) for date-anchoring — the models default to their training
+ *  cutoff (2024/2025) otherwise, poisoning search queries and post facts. */
+function todayContext(): { iso: string; year: string } {
+  const iso = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' }); // YYYY-MM-DD
+  return { iso, year: iso.slice(0, 4) };
+}
+
 // ─── Scheduling ───────────────────────────────────────────────────────────────
 
 /** Hours-of-day for `n` posts, spread between 09:00 and 21:00. */
@@ -174,11 +181,14 @@ async function generateItems(
 
   if (!env.DEEPSEEK_API_KEY) return fallback();
 
+  const { iso, year } = todayContext();
   const system =
+    `Today's real date is ${iso} (current year ${year}). This is the source of truth for "now" — do NOT rely on your training cutoff. ` +
     'You are a content-series planner for a Telegram channel. Given a topic and the channel style, ' +
     `design a cohesive, logically progressing series of exactly ${count} posts (like a mini-course). ` +
     'For each post return: workingTitle (short, in the channel language), angle (one sentence on what it covers), ' +
     'and searchQuery (a focused web-search query, in the topic language, to research that specific post). ' +
+    `For anything time-sensitive (platforms, trends, prices, "best", "latest", stats), put the CURRENT year ${year} in the searchQuery — never an older year like 2024 or 2025. ` +
     'Titles must not repeat and should build on each other. ' +
     'Return ONLY strict JSON: {"items":[{"workingTitle":"","angle":"","searchQuery":""}, ...]}';
 
