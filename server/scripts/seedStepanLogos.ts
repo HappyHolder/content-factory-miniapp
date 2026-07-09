@@ -49,6 +49,12 @@ const TEMPLATES: { name: string; file: string; demoSlots: Record<string, string>
     M2_VALUE: '~$100', M2_LABEL: 'бюджет',
     M3_VALUE: 'App Center', M3_LABEL: 'в Telegram',
     TAG1: 'ton', TAG2: 'socialfi', TAG3: 'mini app', AUTHOR: '@stepanlogos' } },
+  { name: 'Идея на миллион', file: 'idea.html', demoSlots: {
+    RUBRIC: 'идея на миллион', TOP_TAG: 'концепт',
+    IDEA_WHITE: 'Дуэли ставок', IDEA_ACCENT: 'в Telegram',
+    DESC: '1 на 1: закинул прогноз, соперник принял — победитель забирает банк.',
+    CHIP1: 'SocialFi', CHIP2: 'GameFi', CHIP3: 'Mini App',
+    NOTE: 'потенциал: вирусно и просто', AUTHOR: '@stepanlogos' } },
   { name: 'Украсть как билдер', file: 'ukrast.html', demoSlots: {
     RUBRIC: 'украсть как билдер', TOP_TAG: 'перенос паттерна',
     TITLE_WHITE: 'Ворую стрик', TITLE_ACCENT: 'у Duolingo',

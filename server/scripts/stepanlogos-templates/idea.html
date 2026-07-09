@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Сервис вставляет сюда: <style>:root{--primary:...;--bg:...;--logo:url(...)}</style> -->
+<style>
+  @font-face{font-family:'Barlow';src:url('barlow-800.woff2') format('woff2');font-weight:800;font-style:normal}
+  @font-face{font-family:'Barlow';src:url('barlow-700.woff2') format('woff2');font-weight:700;font-style:normal}
+  @font-face{font-family:'Inter';src:url('inter.woff2') format('woff2');font-weight:400 700;font-style:normal}
+  :root{ --primary:#4DB8FF; --bg:#0F1011; --logo:none; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1080px;height:1080px;position:relative;overflow:hidden;isolation:isolate;background:var(--bg);color:#fff;
+    font-family:'Inter',system-ui,sans-serif;display:flex;flex-direction:column;padding:58px 64px;
+    background-image:
+      linear-gradient(color-mix(in srgb,var(--primary) 9%,transparent) 1px,transparent 1px),
+      linear-gradient(90deg,color-mix(in srgb,var(--primary) 9%,transparent) 1px,transparent 1px),
+      linear-gradient(color-mix(in srgb,var(--primary) 3.5%,transparent) 1px,transparent 1px),
+      linear-gradient(90deg,color-mix(in srgb,var(--primary) 3.5%,transparent) 1px,transparent 1px);
+    background-size:150px 150px,150px 150px,37px 37px,37px 37px}
+  body.photo-mode{background-image:none}
+  body::after{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;background:radial-gradient(ellipse 60% 45% at 30% 34%,color-mix(in srgb,var(--primary) 9%,transparent),transparent 70%)}
+  body.photo-mode::after{display:none}
+
+  .head,.body,.foot{position:relative;z-index:2}
+  .head{display:flex;align-items:center;justify-content:space-between}
+  .head .l{font-family:'Fira Code','SF Mono',monospace;color:var(--primary);font-size:32px;letter-spacing:.1em}
+  .head .r{font-family:'Fira Code','SF Mono',monospace;color:rgba(255,255,255,.5);font-size:25px;letter-spacing:.14em;text-transform:uppercase}
+  .head .r:empty{display:none}
+
+  .body{flex:1;display:flex;flex-direction:column;justify-content:center;gap:28px}
+  body.photo-mode .body{text-shadow:0 3px 20px rgba(0,0,0,.55)}
+  .kicker{display:flex;align-items:center;gap:20px;font-family:'Barlow',sans-serif;font-weight:800;text-transform:uppercase;font-size:64px;line-height:1;letter-spacing:.01em;color:transparent;-webkit-text-stroke:2px color-mix(in srgb,var(--primary) 70%,transparent)}
+  .kicker svg{flex:0 0 auto}
+  .h1{font-family:'Barlow',sans-serif;font-weight:700;text-transform:uppercase;font-size:118px;line-height:.9;letter-spacing:-.02em}
+  .h1 .a{color:var(--primary)}
+  .desc{font-family:'Inter',sans-serif;font-size:34px;font-weight:500;line-height:1.4;color:rgba(255,255,255,.8);max-width:900px}
+  .desc:empty{display:none}
+  .chips{display:flex;flex-wrap:wrap;gap:16px;margin-top:6px}
+  .chip{font-family:'Fira Code','SF Mono',monospace;font-size:26px;letter-spacing:.06em;text-transform:uppercase;color:var(--primary);border:1.5px solid color-mix(in srgb,var(--primary) 40%,transparent);background:color-mix(in srgb,var(--primary) 9%,transparent);padding:12px 22px;border-radius:8px}
+  body.photo-mode .chip{background:rgba(8,10,13,.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .chip:empty{display:none}
+
+  .foot{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:24px;border-top:2px solid color-mix(in srgb,var(--primary) 50%,transparent)}
+  .foot .note{font-family:'Inter',sans-serif;font-size:29px;color:rgba(255,255,255,.62)}
+  .foot .note b{color:#fff;font-weight:700}
+  .foot .note:empty{display:none}
+  .foot .handle{font-family:'Fira Code','SF Mono',monospace;font-size:28px;color:var(--primary)}
+</style>
+</head>
+<body>
+  <div class="head"><span class="l">// {{RUBRIC}}</span><span class="r">{{TOP_TAG}}</span></div>
+  <div class="body">
+    <div class="kicker">А что если<svg width="60" height="44" viewBox="0 0 60 44" xmlns="http://www.w3.org/2000/svg"><path d="M4 22 H52 M38 8 L56 22 L38 36" stroke="#4DB8FF" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="h1"><span class="w">{{IDEA_WHITE}} </span><span class="a">{{IDEA_ACCENT}}</span></div>
+    <div class="desc">{{DESC}}</div>
+    <div class="chips">
+      <span class="chip">{{CHIP1}}</span><span class="chip">{{CHIP2}}</span><span class="chip">{{CHIP3}}</span>
+    </div>
+  </div>
+  <div class="foot"><span class="note">{{NOTE}}</span><span class="handle">{{AUTHOR}}</span></div>
+</body>
+</html>
