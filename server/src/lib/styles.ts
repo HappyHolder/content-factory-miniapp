@@ -28,6 +28,7 @@ export function serializeStyle(s: Style) {
     fontPreset:       s.fontPreset ?? null,
     logoUsage:        s.logoUsage ?? null,
     templates:        s.templates,                  // HtmlTemplateItem[]
+    carouselTemplate: s.carouselTemplate ?? null,   // { name, url } — separate universal carousel slide
     previews:         s.previews,
     heroPreview:      s.heroPreview ?? null,
     sortOrder:        s.sortOrder,

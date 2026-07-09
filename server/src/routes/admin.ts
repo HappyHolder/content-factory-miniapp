@@ -7,6 +7,7 @@ import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { putObject } from '../lib/storage';
 import { renderHtmlPreview } from '../lib/playwrightRenderer';
 import { serializeStyle } from '../lib/styles';
+import { Prisma } from '@prisma/client';
 import type { PlanTier } from '@prisma/client';
 
 const router = Router();
@@ -169,6 +170,7 @@ interface StyleInput {
   visualCoverStyle?: string;
   bgStyle?: unknown; bgDetail?: unknown; fontPreset?: unknown; logoUsage?: unknown;
   templates?: unknown;
+  carouselTemplate?: unknown;
   published?: unknown;
   sortOrder?: unknown;
 }
@@ -225,6 +227,7 @@ router.post('/styles/upsert', async (req: Request, res: Response): Promise<void>
     bgStyle: strOrNull(style.bgStyle), bgDetail: strOrNull(style.bgDetail),
     fontPreset: strOrNull(style.fontPreset), logoUsage: strOrNull(style.logoUsage),
     templates: Array.isArray(style.templates) ? style.templates : [],
+    carouselTemplate: (style.carouselTemplate && typeof style.carouselTemplate === 'object' && !Array.isArray(style.carouselTemplate)) ? (style.carouselTemplate as Prisma.InputJsonValue) : Prisma.DbNull,
     published: style.published === true,
     sortOrder: Number.isInteger(Number(style.sortOrder)) ? Number(style.sortOrder) : 0,
   };

@@ -345,6 +345,7 @@ model Style {
   fontPreset       String?                   // VisualKit.visualFontPreset
   logoUsage        String?                   // LogoUsage
   templates        Json    @default("[]")   // HtmlTemplateItem[] { name, url }
+  carouselTemplate Json?                     // one universal carousel-slide template { name, url, demoSlots } — separate from rubric templates
 
   // Static demo previews, pre-rendered with a demo brand.
   previews    String[] @default([])

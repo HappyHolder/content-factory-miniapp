@@ -85,6 +85,16 @@ async function main() {
     templates.push({ name: tpl.name, url: obj.url, demoSlots: tpl.demoSlots });
   }
 
+  // Universal carousel slide — stored separately from the rubric templates.
+  const carRaw = await fs.readFile(path.join(DIR, 'carousel.html'), 'utf8');
+  const carObj = await putObject('styles/stepanlogos/carousel.html', Buffer.from(await inlineFonts(carRaw), 'utf8'), { contentType: 'text/html; charset=utf-8' });
+  console.log(`[seed:stepanlogos]   carousel.html → ${carObj.url}`);
+  const carouselTemplate = {
+    name: 'Карусель', url: carObj.url,
+    demoSlots: { RUBRIC: 'подборка', COUNT: '02 / 05', NUM: '02', TITLE_WHITE: 'Cursor', TITLE_ACCENT: '',
+      DESC: 'AI-редактор, где код пишется диалогом с моделью.', TAG1: 'инструменты', TAG2: 'ai', TAG3: 'workflow', TAG4: 'стек' },
+  };
+
   const baseData = {
     nameRu: 'Stepan Logos', nameEn: 'Stepan Logos',
     descRu: 'Приватный стиль канала Stepan Logos: тёмный «чертёжный» вид с голубым акцентом, стеклянные карточки, терминальные подписи. Рубрики билдера — новости, мои проекты, украсть как билдер (и далее).',
@@ -97,6 +107,7 @@ async function main() {
     visualCoverStyle: VISUAL_COVER_STYLE,
     bgStyle: null, bgDetail: null, fontPreset: null, logoUsage: 'when_relevant',
     templates,
+    carouselTemplate,
     published: false, // admin-only: not applicable by other users
     sortOrder: 98,
   };
