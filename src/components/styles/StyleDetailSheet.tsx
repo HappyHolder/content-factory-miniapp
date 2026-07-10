@@ -163,15 +163,15 @@ export function StyleDetailSheet({ style, owned, onClose, onPurchased }: StyleDe
           )}
         </div>
 
-        {/* Carousel — shown separately from the rubric cover templates */}
-        {style.carouselTemplate?.preview && (
+        {/* Carousel — full sequence (cover → items → outro), separate from rubric covers */}
+        {style.carouselTemplate?.previews && style.carouselTemplate.previews.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-2">{isRu ? 'Карусель' : 'Carousel'}</p>
-            <img
-              src={style.carouselTemplate.preview}
-              alt={isRu ? 'Слайд карусели' : 'Carousel slide'}
-              className="h-44 rounded-[14px] border border-white/[0.08] object-cover"
-            />
+            <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-2">{isRu ? 'Карусель · последовательность' : 'Carousel · sequence'}</p>
+            <div className="-mx-1 flex gap-2 overflow-x-auto no-scrollbar pb-1">
+              {style.carouselTemplate.previews.map((src, i) => (
+                <img key={i} src={src} alt={`carousel ${i + 1}`} className="h-44 rounded-[14px] border border-white/[0.08] object-cover shrink-0" />
+              ))}
+            </div>
           </div>
         )}
 

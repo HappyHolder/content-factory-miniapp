@@ -85,14 +85,17 @@ async function main() {
     templates.push({ name: tpl.name, url: obj.url, demoSlots: tpl.demoSlots });
   }
 
-  // Universal carousel slide — stored separately from the rubric templates.
-  const carRaw = await fs.readFile(path.join(DIR, 'carousel.html'), 'utf8');
-  const carObj = await putObject('styles/stepanlogos/carousel.html', Buffer.from(await inlineFonts(carRaw), 'utf8'), { contentType: 'text/html; charset=utf-8' });
-  console.log(`[seed:stepanlogos]   carousel.html → ${carObj.url}`);
-  const carouselTemplate = {
-    name: 'Карусель', url: carObj.url,
-    demoSlots: { RUBRIC: 'подборка', COUNT: '02 / 05', NUM: '02', TITLE_WHITE: 'Cursor', TITLE_ACCENT: '',
-      DESC: 'AI-редактор, где код пишется диалогом с моделью.', TAG1: 'инструменты', TAG2: 'ai', TAG3: 'workflow', TAG4: 'стек' },
+  // Carousel = a SET of slide templates: cover (intro) → item (repeated) → outro.
+  const uploadCar = async (file: string): Promise<string> => {
+    const raw = await fs.readFile(path.join(DIR, file), 'utf8');
+    const obj = await putObject(`styles/stepanlogos/${file}`, Buffer.from(await inlineFonts(raw), 'utf8'), { contentType: 'text/html; charset=utf-8' });
+    console.log(`[seed:stepanlogos]   ${file} → ${obj.url}`);
+    return obj.url;
+  };
+  const carouselTemplate: { cover: string; item: string; outro: string; previews?: string[] } = {
+    cover: await uploadCar('car-cover.html'),
+    item:  await uploadCar('carousel.html'),
+    outro: await uploadCar('car-outro.html'),
   };
 
   const baseData = {
@@ -135,16 +138,22 @@ async function main() {
     console.log(`[seed:stepanlogos] saved ${previews.length} previews`);
   }
 
-  // Preview for the carousel slide — shown separately in the style card.
-  const carPreview = await renderHtmlPreview({
-    htmlTemplateUrl: carObj.url,
-    brand:           { primaryColor: '#4DB8FF', bgColor: '#0F1011' },
-    slots:           carouselTemplate.demoSlots,
-    aspectRatio:     '1:1',
-  });
-  if (carPreview) {
-    await prisma.style.update({ where: { id: style.id }, data: { carouselTemplate: { ...carouselTemplate, preview: carPreview } as never } });
-    console.log('[seed:stepanlogos]   carousel preview →', carPreview);
+  // Render a full carousel SEQUENCE (cover → items → outro) for the style card.
+  const T = { TAG1: 'инструменты', TAG2: 'ai', TAG3: 'workflow', TAG4: 'стек' };
+  const seq = [
+    { url: carouselTemplate.cover, slots: { RUBRIC: 'подборка', COUNT: '5 пунктов', TITLE_WHITE: '5 нейросетей', TITLE_ACCENT: 'моего стека', SUBTITLE: 'которыми пользуюсь каждый день', ...T } },
+    { url: carouselTemplate.item,  slots: { RUBRIC: 'подборка', COUNT: '01 / 05', NUM: '01', TITLE_WHITE: 'Claude', DESC: 'пишет и разбирает код лучше всех.', ...T } },
+    { url: carouselTemplate.item,  slots: { RUBRIC: 'подборка', COUNT: '02 / 05', NUM: '02', TITLE_WHITE: 'Cursor', DESC: 'AI-редактор, код пишется диалогом.', ...T } },
+    { url: carouselTemplate.outro, slots: { RUBRIC: 'готово', TITLE_WHITE: 'Сохрани', TITLE_ACCENT: 'подборку', CTA: 'и подпишись — дальше будет больше.', AUTHOR: '@stepanlogos', ...T } },
+  ];
+  const carPreviews: string[] = [];
+  for (const sl of seq) {
+    const u = await renderHtmlPreview({ htmlTemplateUrl: sl.url, brand: { primaryColor: '#4DB8FF', bgColor: '#0F1011' }, slots: sl.slots, aspectRatio: '1:1' });
+    if (u) carPreviews.push(u);
+  }
+  if (carPreviews.length) {
+    await prisma.style.update({ where: { id: style.id }, data: { carouselTemplate: { ...carouselTemplate, previews: carPreviews } as never } });
+    console.log(`[seed:stepanlogos]   carousel previews → ${carPreviews.length}`);
   }
 
   console.log('[seed:stepanlogos] done ✓');

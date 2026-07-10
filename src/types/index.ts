@@ -184,7 +184,8 @@ export interface HtmlTemplateItem {
   // template (e.g. { TITLE_WHITE: 'Bitcoin', TAG: 'crypto' }). Not used at
   // real cover-generation time (AI fills slots then).
   demoSlots?: Record<string, string>
-  preview?: string   // rendered 1:1 preview URL (used for the carousel item in the style card)
+  preview?: string     // first rendered slide (fallback / thumbnail)
+  previews?: string[]  // full carousel sample sequence (cover + item slides) for the style card
 }
 
 // A content-type rubric for a channel. The AI classifies each post into one,
@@ -202,6 +203,15 @@ export interface Rubric {
 }
 
 export type CoverMode = 'ai' | 'html' | 'ai_html'
+
+// A carousel is a SET of slide templates: cover (intro) → item (repeated per
+// point) → outro (ending). Stored separately from the per-rubric cover templates.
+export interface CarouselTemplate {
+  cover?:    string      // url of the intro/cover slide template
+  item?:     string      // url of the repeated item slide template
+  outro?:    string      // url of the ending slide template
+  previews?: string[]    // rendered sample sequence (cover + items + outro) for the style card
+}
 
 // A purchasable cover-style PACK from the Styles market (mirrors the server
 // Style model's public shape, see server/src/lib/styles.ts serializeStyle).
@@ -225,7 +235,7 @@ export interface MarketStyle {
   fontPreset:       string | null
   logoUsage:        string | null
   templates:        HtmlTemplateItem[]
-  carouselTemplate?: HtmlTemplateItem | null  // one universal carousel slide, separate from rubric templates
+  carouselTemplate?: CarouselTemplate | null  // carousel slide set (cover/item/outro)
   previews:         string[]
   heroPreview:      string | null
   sortOrder:        number

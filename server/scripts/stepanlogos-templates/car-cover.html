@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Карусель · ЗАВЯЗКА (первый слайд). Сервис вставляет :root{--primary/--bg/--logo}. -->
+<style>
+  @font-face{font-family:'Barlow';src:url('barlow-800.woff2') format('woff2');font-weight:800;font-style:normal}
+  @font-face{font-family:'Barlow';src:url('barlow-700.woff2') format('woff2');font-weight:700;font-style:normal}
+  @font-face{font-family:'Inter';src:url('inter.woff2') format('woff2');font-weight:400 700;font-style:normal}
+  :root{ --primary:#4DB8FF; --bg:#0F1011; --logo:none; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1080px;height:1080px;position:relative;overflow:hidden;isolation:isolate;background:var(--bg);color:#fff;
+    font-family:'Inter',system-ui,sans-serif;display:flex;flex-direction:column;padding:60px 62px 138px;
+    background-image:
+      linear-gradient(color-mix(in srgb,var(--primary) 9%,transparent) 1px,transparent 1px),
+      linear-gradient(90deg,color-mix(in srgb,var(--primary) 9%,transparent) 1px,transparent 1px),
+      linear-gradient(color-mix(in srgb,var(--primary) 3.5%,transparent) 1px,transparent 1px),
+      linear-gradient(90deg,color-mix(in srgb,var(--primary) 3.5%,transparent) 1px,transparent 1px);
+    background-size:150px 150px,150px 150px,37px 37px,37px 37px}
+  body.photo-mode{background-image:none}
+  body::after{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;background:radial-gradient(ellipse 62% 45% at 30% 34%,color-mix(in srgb,var(--primary) 9%,transparent),transparent 70%)}
+  body.photo-mode::after{display:none}
+
+  .top,.body{position:relative;z-index:2}
+  .top{display:flex;align-items:center;justify-content:space-between}
+  .top .l{font-family:'Fira Code','SF Mono',monospace;color:var(--primary);font-size:32px;letter-spacing:.12em;text-transform:uppercase}
+  .top .r{font-family:'Fira Code','SF Mono',monospace;color:rgba(255,255,255,.5);font-size:28px;letter-spacing:.12em;text-transform:uppercase}
+  .top .r:empty{display:none}
+
+  .body{flex:1;display:flex;flex-direction:column;justify-content:center;gap:26px}
+  body.photo-mode .body{text-shadow:0 3px 20px rgba(0,0,0,.55)}
+  .count{align-self:flex-start;display:inline-flex;align-items:center;font-family:'Fira Code','SF Mono',monospace;font-weight:500;font-size:25px;letter-spacing:.14em;text-transform:uppercase;color:var(--bg);background:var(--primary);padding:12px 24px;border-radius:6px;box-shadow:0 8px 28px color-mix(in srgb,var(--primary) 40%,transparent)}
+  .count:empty{display:none}
+  .h1{font-family:'Barlow',sans-serif;font-weight:700;text-transform:uppercase;font-size:120px;line-height:.9;letter-spacing:-.02em;overflow-wrap:anywhere}
+  .h1 .a{color:var(--primary)}
+  .sub{font-family:'Inter',sans-serif;font-size:38px;font-weight:500;line-height:1.35;color:rgba(255,255,255,.8);max-width:900px}
+  .sub:empty{display:none}
+  .swipe{font-family:'Fira Code','SF Mono',monospace;font-size:30px;color:var(--primary);letter-spacing:.1em;margin-top:6px}
+
+  .marquee{position:absolute;left:0;bottom:0;height:72px;width:100%;box-sizing:border-box;background:#07090B;border-top:2px solid color-mix(in srgb,var(--primary) 50%,transparent);border-bottom:2px solid color-mix(in srgb,var(--primary) 50%,transparent);overflow:hidden;display:flex;align-items:center;z-index:3}
+  body.photo-mode .marquee{background:rgba(6,8,10,.85)}
+  .mtrack{display:flex;white-space:nowrap;padding-left:22px}
+  .mtrack .t{font-family:'Fira Code','SF Mono',monospace;font-size:26px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.7)}
+  .mtrack .t::after{content:'///';color:var(--primary);padding:0 22px}
+  .mtrack .t:empty{display:none}
+</style>
+</head>
+<body>
+  <div class="top"><span class="l">// {{RUBRIC}}</span><span class="r">{{TOP_TAG}}</span></div>
+  <div class="body">
+    <span class="count">{{COUNT}}</span>
+    <div class="h1"><span class="w">{{TITLE_WHITE}} </span><span class="a">{{TITLE_ACCENT}}</span></div>
+    <div class="sub">{{SUBTITLE}}</div>
+    <div class="swipe">листай →</div>
+  </div>
+  <div class="marquee"><div class="mtrack"><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span><span class="t">{{TAG4}}</span><span class="t">{{TAG1}}</span><span class="t">{{TAG2}}</span><span class="t">{{TAG3}}</span><span class="t">{{TAG4}}</span></div></div>
+</body>
+</html>

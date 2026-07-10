@@ -8,7 +8,7 @@ import { OptionPills } from '@/components/ui/OptionPills'
 import {
   adminListStyles, adminUpsertStyle, adminDeleteStyle, adminUploadTemplate, adminRenderPreviews,
 } from '@/lib/styles'
-import type { MarketStyle, BrandColor, HtmlTemplateItem } from '@/types'
+import type { MarketStyle, BrandColor, HtmlTemplateItem, CarouselTemplate } from '@/types'
 import { cn } from '@/lib/utils'
 
 interface AdminStylesScreenProps { onBack: () => void }
@@ -70,15 +70,15 @@ export function AdminStylesScreen({ onBack }: AdminStylesScreenProps) {
   }
 
   // ── Carousel template (one universal slide, separate from rubrics) ────────────
-  const [uploadingCar, setUploadingCar] = useState(false)
+  const [uploadingCar, setUploadingCar] = useState<null | 'cover' | 'item' | 'outro'>(null)
   const carInputRef = useRef<HTMLInputElement>(null)
-  const updCar = (patch: Partial<HtmlTemplateItem>) =>
-    set('carouselTemplate', { name: 'Карусель', url: '', ...(draft?.carouselTemplate ?? {}), ...patch })
-  const uploadCarousel = async (file: File) => {
-    setUploadingCar(true)
-    try { updCar({ url: await adminUploadTemplate(file) }); showToast(isRu ? 'Загружено' : 'Uploaded') }
+  const updCar = (patch: Partial<CarouselTemplate>) =>
+    set('carouselTemplate', { ...(draft?.carouselTemplate ?? {}), ...patch })
+  const uploadCarousel = async (file: File, part: 'cover' | 'item' | 'outro') => {
+    setUploadingCar(part)
+    try { updCar({ [part]: await adminUploadTemplate(file) }); showToast(isRu ? 'Загружено' : 'Uploaded') }
     catch (e) { showToast((e as Error).message, 'error') }
-    finally { setUploadingCar(false) }
+    finally { setUploadingCar(null) }
   }
 
   // ── Save / delete / render ─────────────────────────────────────────────────────
@@ -316,29 +316,29 @@ export function AdminStylesScreen({ onBack }: AdminStylesScreenProps) {
           </div>
         </div>
 
-        {/* Carousel — one universal slide, separate from the rubric templates */}
+        {/* Carousel — a set of slides: cover → item → outro */}
         <div>
-          <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-2">{isRu ? 'Карусель · универсальный слайд' : 'Carousel · universal slide'}</p>
+          <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-2">{isRu ? 'Карусель · завязка / пункт / концовка' : 'Carousel · cover / item / outro'}</p>
           <div className="p-3 rounded-[12px] bg-white/[0.03] border border-white/[0.06] space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="flex-1 text-[11px] text-[#55555D] truncate font-mono">{draft.carouselTemplate?.url ? draft.carouselTemplate.url.split('/').pop() : (isRu ? 'нет файла' : 'no file')}</span>
-              <button onClick={() => carInputRef.current?.click()} disabled={uploadingCar} className="flex items-center gap-1 text-[11px] font-medium text-[#FF6A00] disabled:opacity-40">
-                {uploadingCar ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
-                {draft.carouselTemplate?.url ? (isRu ? 'Заменить' : 'Replace') : (isRu ? 'Загрузить' : 'Upload')}
-              </button>
-            </div>
-            <textarea
-              value={draft.carouselTemplate?.demoSlots ? JSON.stringify(draft.carouselTemplate.demoSlots, null, 0) : ''}
-              onChange={e => { const raw = e.target.value.trim(); if (!raw) { updCar({ demoSlots: undefined }); return } try { updCar({ demoSlots: JSON.parse(raw) }) } catch { /* keep typing */ } }}
-              placeholder={'demoSlots JSON: {"NUM":"02","TITLE_WHITE":"Cursor","DESC":"…"}'}
-              rows={2}
-              className="glass-input w-full px-2 py-1.5 text-[11px] font-mono resize-none"
-            />
-            {draft.carouselTemplate?.url && (
+            {(['cover', 'item', 'outro'] as const).map(part => (
+              <div key={part} className="flex items-center gap-2">
+                <span className="w-14 text-[11px] text-[#55555D] uppercase font-mono">{part}</span>
+                <span className="flex-1 text-[11px] text-[#55555D] truncate font-mono">{draft.carouselTemplate?.[part] ? draft.carouselTemplate[part]!.split('/').pop() : (isRu ? 'нет файла' : 'no file')}</span>
+                <button
+                  onClick={() => { if (carInputRef.current) { carInputRef.current.dataset['part'] = part; carInputRef.current.click() } }}
+                  disabled={uploadingCar === part}
+                  className="flex items-center gap-1 text-[11px] font-medium text-[#FF6A00] disabled:opacity-40"
+                >
+                  {uploadingCar === part ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+                  {draft.carouselTemplate?.[part] ? (isRu ? 'Заменить' : 'Replace') : (isRu ? 'Загрузить' : 'Upload')}
+                </button>
+              </div>
+            ))}
+            {draft.carouselTemplate && (
               <button onClick={() => set('carouselTemplate', null)} className="text-[11px] text-[#55555D] hover:text-red-400">{isRu ? 'Убрать карусель' : 'Remove carousel'}</button>
             )}
           </div>
-          <input ref={carInputRef} type="file" accept=".html,text/html" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadCarousel(f); e.target.value = '' }} />
+          <input ref={carInputRef} type="file" accept=".html,text/html" className="hidden" onChange={e => { const f = e.target.files?.[0]; const part = (carInputRef.current?.dataset['part'] ?? 'item') as 'cover' | 'item' | 'outro'; if (f) uploadCarousel(f, part); e.target.value = '' }} />
         </div>
 
         {/* Publish + sortOrder */}
