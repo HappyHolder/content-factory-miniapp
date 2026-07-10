@@ -12,8 +12,26 @@ For the full always-current capability list, see [FEATURES.md](FEATURES.md).
 ---
 
 ## [Unreleased]
-_Work in progress — next up: AI content manager (weekly content plan → research →
-batch-generate → auto-schedule; upload project docs as a knowledge source)._
+_Work in progress — next up: richer inline formatting in generation (inline links,
+highlight, italic, mono), nested lists, link headings._
+
+---
+
+## [1.1.0] — 2026-07-11
+
+Everything below is live in production.
+
+### Added
+- **AI Content Manager** — the assistant turns one request into a whole SERIES of scheduled posts: chat → plan card → background worker researches each topic (Opus web_search/web_fetch, DeepSeek/Serper fallback), generates each post with a rubric cover, and drops them into Отложка. Asks for and honors the publish time (MSK). Project docs (PDF/DOCX) as a knowledge source in the Brand Kit.
+- **Carousel engine** — a post that holds 3–7 parallel points becomes a swipeable slide **carousel** built from the channel pack's slide set (cover → item → outro), with a running bottom strip and a section label read from the post. Peer of the cover engines; degrades to a plain post when the pack has no slides or the post has no parallel points.
+- **Publium carousel pack** — carousel slides in the Publium signature style (hand-painted orange dot ornament, glass cards, Onest).
+- **Showcase-only style packs** — the internal **Publium** and **Stepan Logos** packs are now visible in the market to everyone, but only an admin can apply them (a shop window); regular users see a disabled CTA + "витрина" badge.
+- **Private Stepan Logos cover pack** — dark blueprint rubrics (admin-only).
+
+### Fixed
+- **Content manager** — plans are built deterministically (a server-side intent classifier), not via a DeepSeek tool-call that never fired; the real current date is anchored across the whole pipeline (no more stale 2024/2025 facts); scheduling is in Moscow time, not server UTC.
+- **Отложка** — the trash button really deletes and "publish now" really sends (were local-only); channel disconnect cascades (posts/brandkit/docs/plans).
+- **Carousel** — the bottom ticker reads as one continuous band across slides; the section label is separated from the channel rubric; seed scripts no longer hang on Chromium (browser is closed on exit).
 
 ---
 
