@@ -82,6 +82,21 @@ async function getBrowser(): Promise<Browser> {
   return _browser;
 }
 
+/**
+ * Closes the shared Chromium.
+ *
+ * The long-running server never calls this — it wants the browser warm. One-shot
+ * scripts (seeds) MUST: an open browser keeps the event loop alive, so `node`
+ * hangs forever after the script's last line and the command never returns.
+ */
+export async function closeBrowser(): Promise<void> {
+  if (!_browser) return;
+  const browser = _browser;
+  _browser = null;
+  await browser.close().catch((err: Error) =>
+    console.warn('[playwrightRenderer] browser close failed:', err.message));
+}
+
 // ─── SSRF guard ─────────────────────────────────────────────────────────────
 // Cover HTML (user-uploaded templates and AI-generated markup) is rendered in a
 // real browser. Intercept every subresource request and abort any that targets

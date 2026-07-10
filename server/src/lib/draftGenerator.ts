@@ -16,6 +16,7 @@ import { env } from '../env';
 import { generatePostVariants, classifyPostRubric, type RubricItem } from './aiGenerator';
 import { type GeneratedCover } from './imageGenerator';
 import { buildCoverRouted } from './coverEngineRouter';
+import { buildCarousel, insertCarouselBlock } from './carouselEngine';
 import { generateRichBlocks } from './richPostGenerator';
 import type { PostBlock } from './richPost';
 
@@ -415,13 +416,32 @@ export async function createDraftPostForChannel(
     try {
       const selected = dbPost.variants.find(v => v.id === dbPost.selectedVariantId) ?? dbPost.variants[0];
       if (selected) {
-        const blocks = await generateRichBlocks({
+        let blocks = await generateRichBlocks({
           postText: selected.text,
           level:    'auto',
           images:   cover?.bannerUrl ? [cover.bannerUrl] : [],
           handle:   channel.handle ? `@${channel.handle.replace(/^@/, '')}` : null,
           lang:     coverLanguage,
         });
+
+        // ── Carousel (peer engine, never touches the cover) ──────────────────
+        // Runs AFTER the layout so the slides are spliced in as one gallery block
+        // instead of being scattered as loose images by the layout model. Yields
+        // nothing at all unless the channel's pack ships slide templates AND the
+        // post genuinely holds 3-7 parallel points — see carouselEngine/fallbacks.
+        if (blocks.length > 0) {
+          const carousel = await buildCarousel({
+            useBrandKit, visualKit, vkObj,
+            postText:      selected.text,
+            rubricName,
+            channelName:   channel.name,
+            handle:        channel.handle,
+            coverLanguage,
+          });
+          console.log(`[draftGenerator] carousel: ${carousel.plan.scenario} (${carousel.plan.slideCount} slides); ${carousel.debug.join(' | ')}`);
+          if (carousel.block) blocks = insertCarouselBlock(blocks, carousel.block, carousel.plan.position);
+        }
+
         if (blocks.length > 0) {
           firstVariantBlocks = blocks;
           await prisma.postVariant.update({

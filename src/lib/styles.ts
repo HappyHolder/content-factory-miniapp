@@ -117,6 +117,17 @@ export function applyStyleToVisualKit(style: MarketStyle, current: VisualKit): V
       }
     })
 
+  // The pack's carousel slide set. A pack without one clears the channel's, so
+  // applying a style never leaves slides from the previous pack behind.
+  const carouselTemplate = style.carouselTemplate?.item
+    ? {
+        cover:    style.carouselTemplate.cover,
+        item:     style.carouselTemplate.item,
+        outro:    style.carouselTemplate.outro,
+        previews: style.carouselTemplate.previews,
+      }
+    : undefined
+
   return {
     ...current,
     coverMode:        style.recommendedMode,
@@ -124,6 +135,7 @@ export function applyStyleToVisualKit(style: MarketStyle, current: VisualKit): V
     visualCoverStyle: style.visualCoverStyle || current.visualCoverStyle,
     htmlTemplates,
     rubrics,
+    carouselTemplate,
     coverBgStyle:     (style.bgStyle as CoverBgStyle | null) ?? current.coverBgStyle,
     coverBgDetail:    (style.bgDetail as CoverBgDetail | null) ?? current.coverBgDetail,
     visualFontPreset: (style.fontPreset as VisualKit['visualFontPreset']) ?? current.visualFontPreset,

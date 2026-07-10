@@ -14,7 +14,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { prisma } from '../src/db';
 import { putObject } from '../src/lib/storage';
-import { renderHtmlPreview } from '../src/lib/playwrightRenderer';
+import { closeBrowser, renderHtmlPreview } from '../src/lib/playwrightRenderer';
 
 const SLUG = 'crypto';
 const TEMPLATES_DIR = path.resolve(process.cwd(), 'scripts/crypto-templates');
@@ -131,11 +131,20 @@ async function main() {
   }
 
   console.log('[seed:crypto] done ✓');
-  await prisma.$disconnect();
 }
 
-main().catch(async (err) => {
-  console.error('[seed:crypto] FAILED:', err);
-  await prisma.$disconnect();
-  process.exit(1);
-});
+/** Releases everything that keeps the event loop alive, so the script exits.
+ *  Without closing Chromium the seed finishes its work and then hangs forever —
+ *  the command never returns and the browser sits on the box eating RAM. */
+async function shutdown(): Promise<void> {
+  await closeBrowser();
+  await prisma.$disconnect().catch(() => {});
+}
+
+main()
+  .then(async () => { await shutdown(); process.exit(0); })
+  .catch(async (err) => {
+    console.error('[seed:crypto] FAILED:', err);
+    await shutdown();
+    process.exit(1);
+  });

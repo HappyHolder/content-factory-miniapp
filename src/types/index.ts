@@ -148,6 +148,9 @@ export interface VisualKit {
   // whose `mode` + template decide the cover — replacing the channel coverMode
   // toggle. Absent → legacy coverMode + htmlTemplates path (unchanged).
   rubrics?: Rubric[]
+  // Slide templates for post carousels, copied from an applied style pack.
+  // Absent → the channel never gets a carousel (there is no default design).
+  carouselTemplate?: CarouselTemplate
   // Cover generation mode:
   //   'ai'      — Flux neural image
   //   'html'    — user HTML templates / Sonnet structured cover

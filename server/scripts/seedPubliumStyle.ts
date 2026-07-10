@@ -13,7 +13,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { prisma } from '../src/db';
 import { putObject } from '../src/lib/storage';
-import { renderHtmlPreview } from '../src/lib/playwrightRenderer';
+import { closeBrowser, renderHtmlPreview } from '../src/lib/playwrightRenderer';
 
 const SLUG = 'publium';
 const TEMPLATES_DIR = path.resolve(process.cwd(), 'scripts/publium-templates');
@@ -150,11 +150,20 @@ async function main() {
   }
 
   console.log('[seed:publium] done ✓');
-  await prisma.$disconnect();
 }
 
-main().catch(async (err) => {
-  console.error('[seed:publium] FAILED:', err);
-  await prisma.$disconnect();
-  process.exit(1);
-});
+/** Releases everything that keeps the event loop alive, so the script exits.
+ *  Without closing Chromium the seed finishes its work and then hangs forever —
+ *  the command never returns and the browser sits on the box eating RAM. */
+async function shutdown(): Promise<void> {
+  await closeBrowser();
+  await prisma.$disconnect().catch(() => {});
+}
+
+main()
+  .then(async () => { await shutdown(); process.exit(0); })
+  .catch(async (err) => {
+    console.error('[seed:publium] FAILED:', err);
+    await shutdown();
+    process.exit(1);
+  });
