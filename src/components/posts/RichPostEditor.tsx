@@ -44,7 +44,8 @@ interface RichPostEditorProps {
 
 const BLOCK_LABEL: Record<PostBlock['type'], string> = {
   heading: 'Заголовок', paragraph: 'Абзац', list: 'Список', quote: 'Цитата',
-  table: 'Таблица', image: 'Картинка', video: 'Видео', document: 'Файл', gallery: 'Галерея', divider: 'Разделитель',
+  table: 'Таблица', image: 'Картинка', video: 'Видео', document: 'Файл', gallery: 'Галерея',
+  linkbox: 'Ссылка-рамка', divider: 'Разделитель',
 }
 
 function makeBlock(type: PostBlock['type']): PostBlock {
@@ -55,6 +56,7 @@ function makeBlock(type: PostBlock['type']): PostBlock {
     case 'quote':     return { type: 'quote', runs: [{ t: '' }], expandable: false }
     case 'table':     return { type: 'table', headers: ['', ''], rows: [['', '']] }
     case 'gallery':   return { type: 'gallery', layout: 'slideshow', urls: [] }
+    case 'linkbox':   return { type: 'linkbox', text: '', url: '' }
     case 'document':  return { type: 'document', url: '', name: 'Файл' }
     case 'divider':   return { type: 'divider' }
     default:          return { type: 'paragraph', runs: [{ t: '' }] }
@@ -400,7 +402,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
             </button>
             {addOpen && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {(['paragraph', 'heading', 'list', 'table', 'quote', 'gallery', 'divider'] as const).map(tp => (
+                {(['paragraph', 'heading', 'list', 'table', 'quote', 'linkbox', 'gallery', 'divider'] as const).map(tp => (
                   <button key={tp} onClick={() => add(tp)}
                     className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40">
                     {BLOCK_LABEL[tp]}
@@ -645,6 +647,15 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
             <input type="checkbox" checked={b.expandable === true} onChange={e => onChange({ ...b, expandable: e.target.checked })} />
             Сворачиваемая («Показать ещё»)
           </label>
+        </div>
+      )
+    case 'linkbox':
+      return (
+        <div className="space-y-1.5">
+          <input value={b.text} onChange={e => onChange({ ...b, text: e.target.value })}
+            placeholder="Текст в рамке (напр. Подробнее)" className="glass-input w-full px-3 py-2 text-sm font-semibold" />
+          <input value={b.url} onChange={e => onChange({ ...b, url: e.target.value.trim() })}
+            placeholder="Ссылка — https://…" className="glass-input w-full px-3 py-1.5 text-[12px]" />
         </div>
       )
     case 'list':

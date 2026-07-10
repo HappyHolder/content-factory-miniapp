@@ -310,6 +310,7 @@ export type PostBlock =
   | { type: 'video';     url: string; poster?: string }
   | { type: 'document';  url: string; name: string; mime?: string; size?: number }
   | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
+  | { type: 'linkbox';   text: string; url: string }  // framed CTA box with a centered link
   | { type: 'divider' }
 
 export interface PostVariant {

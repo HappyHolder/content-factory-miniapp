@@ -181,6 +181,14 @@ function Block({ b }: { b: PostBlock }) {
           <p className="text-center text-[10px] text-[#55555D] mt-0.5">← листать · {b.urls.length} фото</p>
         </div>
       )
+    case 'linkbox':
+      return (
+        <div className="rounded-[10px] border border-white/15 bg-white/[0.05] px-3 py-2.5 text-center">
+          {b.url
+            ? <a href={b.url} className="text-[13.5px] font-semibold text-[#5AA9FF]">{b.text || 'Ссылка'}</a>
+            : <span className="text-[13.5px] font-semibold text-white">{b.text || 'Ссылка'}</span>}
+        </div>
+      )
     case 'divider':
       return <div className="h-px bg-white/10 my-1.5" />
     default:

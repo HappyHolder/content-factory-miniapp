@@ -42,8 +42,9 @@ export interface RichGenInput {
 // ─── AI element schema (what the model returns) ─────────────────────────────────
 
 interface AiElement {
-  kind: 'paragraph' | 'quote' | 'list' | 'table' | 'image' | 'gallery' | 'divider';
-  text?: string;                 // paragraph / quote
+  kind: 'paragraph' | 'quote' | 'list' | 'table' | 'image' | 'gallery' | 'divider' | 'linkbox';
+  text?: string;                 // paragraph / quote / linkbox
+  url?:  string;                 // linkbox
   expandable?: boolean;          // quote
   ordered?: boolean;             // list
   items?: (string | { text?: string; sub?: string[] })[];  // list (item may carry a nested sub-list)
@@ -84,7 +85,8 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
     'Extract figures buried in prose into tables/lists rather than leaving them in a wall of text. ' +
     'If the post is bilingual (two languages), KEEP BOTH versions and SEPARATE them with a {"kind":"divider"} (first language fully, then divider, then the second). ' +
     'Output STRICT JSON only, matching this shape: ' +
-    '{"heading": string, "headingUrl"?: string, "elements": [ {"kind":"paragraph","text":"..."} | {"kind":"quote","text":"...","expandable":true} | {"kind":"list","ordered":true,"items":["..."]} | {"kind":"table","headers":["..."],"rows":[["..."]]} | {"kind":"image","index":0} | {"kind":"gallery","layout":"slideshow","indices":[0,1]} | {"kind":"divider"} ] }. ' +
+    '{"heading": string, "headingUrl"?: string, "elements": [ {"kind":"paragraph","text":"..."} | {"kind":"quote","text":"...","expandable":true} | {"kind":"list","ordered":true,"items":["..."]} | {"kind":"table","headers":["..."],"rows":[["..."]]} | {"kind":"image","index":0} | {"kind":"gallery","layout":"slideshow","indices":[0,1]} | {"kind":"linkbox","text":"...","url":"..."} | {"kind":"divider"} ] }. ' +
+    'A "linkbox" is a framed CTA box with a centered link — use it AT MOST once, at the very end, and ONLY when the source has a real action URL (a product/site/handle). Never invent its URL. ' +
     'A list "items" entry is a string, OR an object {"text":"...","sub":["...","..."]} to nest a numbered sub-list under that item (use nesting when the source groups sub-points under a point). ' +
     '"headingUrl" is optional — set it ONLY if the source text contains a URL that the heading should link to. ' +
     'Inline emphasis via these markers inside text (never output HTML tags): **bold**, __italic__, ~~strike~~, `mono`, ==highlight==, ||spoiler||, and links [text](url). ' +
@@ -172,6 +174,9 @@ function mapElement(el: AiElement, images: string[], usedImages: Set<number>): P
     }
     case 'divider':
       return { type: 'divider' };
+    case 'linkbox':
+      return isStr(el.text) && isStr(el.url) && /^https?:\/\/\S+$/i.test(el.url.trim())
+        ? { type: 'linkbox', text: el.text.trim(), url: el.url.trim() } : null;
     case 'gallery': {
       const idxs = (Array.isArray(el.indices) ? el.indices : [])
         .filter(i => typeof i === 'number' && i >= 0 && i < images.length);

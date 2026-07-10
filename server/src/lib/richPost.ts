@@ -47,6 +47,9 @@ export type PostBlock =
   | { type: 'video';     url: string; poster?: string }
   | { type: 'document';  url: string; name: string; mime?: string; size?: number }
   | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
+  // A framed, filled CTA box with a centered link inside — a single bordered
+  // header-cell table (Telegram: border="1" → is_bordered, <th> → fill).
+  | { type: 'linkbox';   text: string; url: string }
   | { type: 'divider' };
 
 export interface RichPost {
@@ -170,6 +173,14 @@ function renderBlock(b: PostBlock): string {
       if (!imgs) return '';
       return `<${tag}>${imgs}</${tag}>`;
     }
+    case 'linkbox': {
+      if (!b.text.trim()) return '';
+      const inner = isHttpUrl(b.url)
+        ? `<a href="${escapeAttr(b.url)}">${escapeHtml(b.text)}</a>`
+        : escapeHtml(b.text);
+      // border="1" draws the frame; <th align="center"> gives the fill + centering.
+      return `<table border="1"><tr><th align="center">${inner}</th></tr></table>`;
+    }
     case 'divider':
       return '<hr>';
     default:
@@ -213,6 +224,7 @@ export function blocksToPlainText(blocks: PostBlock[]): string {
         parts.push(b.rows.map(r => r.map(plain).join(' · ')).join('\n'));
         break;
       }
+      case 'linkbox': parts.push(b.url ? `${b.text} (${b.url})` : b.text); break;
       // image / video / document / gallery / divider produce no text
     }
   }
