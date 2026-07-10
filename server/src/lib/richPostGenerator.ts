@@ -16,7 +16,7 @@
  */
 
 import { env } from '../env';
-import type { PostBlock, Run } from './richPost';
+import type { ListItem, PostBlock, Run } from './richPost';
 
 export type FormatLevel = 'auto' | 'minimal' | 'article';
 
@@ -73,7 +73,7 @@ interface AiElement {
   text?: string;                 // paragraph / quote
   expandable?: boolean;          // quote
   ordered?: boolean;             // list
-  items?: string[];              // list
+  items?: (string | { text?: string; sub?: string[] })[];  // list (item may carry a nested sub-list)
   headers?: string[];            // table
   rows?: string[][];             // table
   index?: number;                // image → images[index]
@@ -82,8 +82,9 @@ interface AiElement {
 }
 
 interface AiLayout {
-  heading?: string;
-  elements?: AiElement[];
+  heading?:    string;
+  headingUrl?: string;   // optional — makes the heading a link (only if the URL is in the source)
+  elements?:   AiElement[];
 }
 
 // ─── Prompt ─────────────────────────────────────────────────────────────────────
@@ -110,7 +111,9 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
     'Extract figures buried in prose into tables/lists rather than leaving them in a wall of text. ' +
     'If the post is bilingual (two languages), KEEP BOTH versions and SEPARATE them with a {"kind":"divider"} (first language fully, then divider, then the second). ' +
     'Output STRICT JSON only, matching this shape: ' +
-    '{"heading": string, "elements": [ {"kind":"paragraph","text":"..."} | {"kind":"quote","text":"...","expandable":true} | {"kind":"list","ordered":true,"items":["..."]} | {"kind":"table","headers":["..."],"rows":[["..."]]} | {"kind":"image","index":0} | {"kind":"gallery","layout":"slideshow","indices":[0,1]} | {"kind":"divider"} ] }. ' +
+    '{"heading": string, "headingUrl"?: string, "elements": [ {"kind":"paragraph","text":"..."} | {"kind":"quote","text":"...","expandable":true} | {"kind":"list","ordered":true,"items":["..."]} | {"kind":"table","headers":["..."],"rows":[["..."]]} | {"kind":"image","index":0} | {"kind":"gallery","layout":"slideshow","indices":[0,1]} | {"kind":"divider"} ] }. ' +
+    'A list "items" entry is a string, OR an object {"text":"...","sub":["...","..."]} to nest a numbered sub-list under that item (use nesting when the source groups sub-points under a point). ' +
+    '"headingUrl" is optional — set it ONLY if the source text contains a URL that the heading should link to. ' +
     'Inline emphasis via these markers inside text (never output HTML tags): **bold**, __italic__, ~~strike~~, `mono`, ==highlight==, ||spoiler||, and links [text](url). ' +
     'Bold the key numbers, percentages, tickers and names. Highlight (==) one or two genuinely key terms per post — sparingly. Use `mono` for code, tickers, IDs or commands. ' +
     'Use links [text](url) ONLY when the source text actually contains that URL (for a source, product or handle) — never invent or guess a URL. Do not over-format: most text stays plain. ' +
@@ -160,6 +163,16 @@ async function callLayoutAI(system: string, user: string): Promise<AiLayout | nu
 
 function isStr(x: unknown): x is string { return typeof x === 'string' && x.trim().length > 0; }
 
+/** A list item may be a plain string or an object with an optional nested sub-list. */
+function toListItem(x: string | { text?: string; sub?: string[] }): ListItem | null {
+  if (isStr(x)) return { runs: parseInline(x) };
+  if (x && typeof x === 'object' && isStr(x.text)) {
+    const sub = Array.isArray(x.sub) ? x.sub.filter(isStr).map(parseInline) : [];
+    return sub.length ? { runs: parseInline(x.text), sub } : { runs: parseInline(x.text) };
+  }
+  return null;
+}
+
 function mapElement(el: AiElement, images: string[], usedImages: Set<number>): PostBlock | null {
   switch (el.kind) {
     case 'paragraph':
@@ -167,8 +180,10 @@ function mapElement(el: AiElement, images: string[], usedImages: Set<number>): P
     case 'quote':
       return isStr(el.text) ? { type: 'quote', runs: parseInline(el.text), expandable: el.expandable === true } : null;
     case 'list': {
-      const items = Array.isArray(el.items) ? el.items.filter(isStr) : [];
-      return items.length ? { type: 'list', ordered: el.ordered === true, items: items.map(parseInline) } : null;
+      const items = Array.isArray(el.items)
+        ? el.items.map(toListItem).filter((x): x is ListItem => x !== null)
+        : [];
+      return items.length ? { type: 'list', ordered: el.ordered === true, items } : null;
     }
     case 'table': {
       const headers = Array.isArray(el.headers) ? el.headers.filter(isStr) : [];
@@ -229,7 +244,11 @@ export async function generateRichBlocks(input: RichGenInput): Promise<PostBlock
     blocks = fallbackBlocks(input);
   } else {
     blocks = [];
-    if (isStr(layout.heading)) blocks.push({ type: 'heading', text: layout.heading });
+    if (isStr(layout.heading)) {
+      const link = isStr(layout.headingUrl) && /^https?:\/\/\S+$/i.test(layout.headingUrl.trim())
+        ? layout.headingUrl.trim() : undefined;
+      blocks.push({ type: 'heading', text: layout.heading, ...(link ? { link } : {}) });
+    }
     const used = new Set<number>();
     for (const el of layout.elements) {
       const b = el && typeof el === 'object' ? mapElement(el, input.images, used) : null;

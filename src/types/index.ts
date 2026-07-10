@@ -297,10 +297,13 @@ export interface Run {
   link?:    string
 }
 
+// A list item: a line of runs plus an optional nested numbered sub-list.
+export interface ListItem { runs: Run[]; sub?: Run[][] }
+
 export type PostBlock =
-  | { type: 'heading';   text: string }
+  | { type: 'heading';   text: string; link?: string }
   | { type: 'paragraph'; runs: Run[] }
-  | { type: 'list';      ordered?: boolean; items: Run[][] }
+  | { type: 'list';      ordered?: boolean; items: ListItem[] }
   | { type: 'quote';     runs: Run[]; expandable?: boolean }
   | { type: 'table';     headers: string[]; rows: string[][] }
   | { type: 'image';     url: string; prompt?: string } // prompt set = AI-generated (regeneratable)

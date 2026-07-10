@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
-import { RichPostPreview, runsToText, textToRuns } from '@/components/posts/RichPostPreview'
+import { RichPostPreview, runsToText, textToRuns, listItemsToText, textToListItems } from '@/components/posts/RichPostPreview'
 import type { PostBlock, LinkItem, ButtonStyle } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -51,7 +51,7 @@ function makeBlock(type: PostBlock['type']): PostBlock {
   switch (type) {
     case 'heading':   return { type: 'heading', text: '' }
     case 'paragraph': return { type: 'paragraph', runs: [{ t: '' }] }
-    case 'list':      return { type: 'list', ordered: false, items: [[{ t: '' }]] }
+    case 'list':      return { type: 'list', ordered: false, items: [{ runs: [{ t: '' }] }] }
     case 'quote':     return { type: 'quote', runs: [{ t: '' }], expandable: false }
     case 'table':     return { type: 'table', headers: ['', ''], rows: [['', '']] }
     case 'gallery':   return { type: 'gallery', layout: 'slideshow', urls: [] }
@@ -627,8 +627,14 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
   const [galPrompt, setGalPrompt] = useState('')
   switch (b.type) {
     case 'heading':
-      return <input value={b.text} onChange={e => onChange({ ...b, text: e.target.value })}
-        placeholder="Заголовок" className="glass-input w-full px-3 py-2 text-sm font-semibold" />
+      return (
+        <div className="space-y-1.5">
+          <input value={b.text} onChange={e => onChange({ ...b, text: e.target.value })}
+            placeholder="Заголовок" className="glass-input w-full px-3 py-2 text-sm font-semibold" />
+          <input value={b.link ?? ''} onChange={e => onChange({ ...b, link: e.target.value.trim() || undefined })}
+            placeholder="Ссылка (необязательно) — https://…" className="glass-input w-full px-3 py-1.5 text-[12px]" />
+        </div>
+      )
     case 'paragraph':
       return <MarkableTextarea value={runsToText(b.runs)} onChange={v => onChange({ ...b, runs: textToRuns(v) })} placeholder="Текст абзаца…" />
     case 'quote':
@@ -644,9 +650,10 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
     case 'list':
       return (
         <div>
-          <MarkableTextarea value={b.items.map(runsToText).join('\n')} rows={Math.max(2, b.items.length)}
-            onChange={v => onChange({ ...b, items: v.split('\n').filter(l => l.trim()).map(textToRuns) })}
-            placeholder="По пункту на строку (форматирование — как в абзаце)" />
+          <MarkableTextarea value={listItemsToText(b.items)}
+            rows={Math.max(2, b.items.reduce((n, it) => n + 1 + (it.sub?.length ?? 0), 0))}
+            onChange={v => onChange({ ...b, items: textToListItems(v) })}
+            placeholder="По пункту на строку. Отступ (Tab) в начале строки — вложенный подпункт." />
           <label className="flex items-center gap-2 mt-1.5 text-[12px] text-[#A1A1AA]">
             <input type="checkbox" checked={b.ordered === true} onChange={e => onChange({ ...b, ordered: e.target.checked })} />
             Нумерованный

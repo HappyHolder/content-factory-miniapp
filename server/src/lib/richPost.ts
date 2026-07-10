@@ -33,10 +33,14 @@ export interface Run {
 
 // ─── Blocks ─────────────────────────────────────────────────────────────────────
 
+// A list item is a line of runs plus an optional nested numbered sub-list
+// (Telegram renders <ul><li>…<ol>…</ol></li></ul> natively — verified live).
+export interface ListItem { runs: Run[]; sub?: Run[][] }
+
 export type PostBlock =
-  | { type: 'heading';   text: string }
+  | { type: 'heading';   text: string; link?: string }
   | { type: 'paragraph'; runs: Run[] }
-  | { type: 'list';      ordered?: boolean; items: Run[][] }
+  | { type: 'list';      ordered?: boolean; items: ListItem[] }
   | { type: 'quote';     runs: Run[]; expandable?: boolean }
   | { type: 'table';     headers: string[]; rows: string[][] }
   | { type: 'image';     url: string }
@@ -94,12 +98,18 @@ function renderImg(url: string): string {
 function renderBlock(b: PostBlock): string {
   switch (b.type) {
     case 'heading':
-      return `<h3>${escapeHtml(b.text)}</h3>`;
+      return b.link && isHttpUrl(b.link)
+        ? `<h3><a href="${escapeAttr(b.link)}">${escapeHtml(b.text)}</a></h3>`
+        : `<h3>${escapeHtml(b.text)}</h3>`;
     case 'paragraph':
       return `<p>${renderRuns(b.runs)}</p>`;
     case 'list': {
       const tag = b.ordered ? 'ol' : 'ul';
-      const items = b.items.map(runs => `<li>${renderRuns(runs)}</li>`).join('');
+      const items = b.items.map(it => {
+        let inner = renderRuns(it.runs);
+        if (it.sub && it.sub.length) inner += `<ol>${it.sub.map(s => `<li>${renderRuns(s)}</li>`).join('')}</ol>`;
+        return `<li>${inner}</li>`;
+      }).join('');
       return `<${tag}>${items}</${tag}>`;
     }
     case 'quote':
@@ -155,8 +165,13 @@ export function blocksToPlainText(blocks: PostBlock[]): string {
       case 'paragraph': parts.push(runsToText(b.runs)); break;
       case 'quote':     parts.push(runsToText(b.runs)); break;
       case 'list':
-        parts.push(b.items.map((it, i) =>
-          `${b.ordered ? `${i + 1}.` : '•'} ${runsToText(it)}`).join('\n'));
+        parts.push(b.items.map((it, i) => {
+          const head = `${b.ordered ? `${i + 1}.` : '•'} ${runsToText(it.runs)}`;
+          const subs = it.sub?.length
+            ? '\n' + it.sub.map((s, j) => `   ${j + 1}. ${runsToText(s)}`).join('\n')
+            : '';
+          return head + subs;
+        }).join('\n'));
         break;
       case 'table':
         if (b.headers.length) parts.push(b.headers.join(' · '));

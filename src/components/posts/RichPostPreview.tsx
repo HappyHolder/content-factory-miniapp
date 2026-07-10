@@ -1,4 +1,4 @@
-import type { PostBlock, Run } from '@/types'
+import type { ListItem, PostBlock, Run } from '@/types'
 
 /**
  * Faithful, read-only preview of a formatted post — renders PostBlock[] to look
@@ -50,6 +50,29 @@ export function textToRuns(text: string): Run[] {
   return runs.length ? runs : [{ t: text }]
 }
 
+// ─── List items ↔ plain text (one item per line; an indented line — a Tab or
+// two+ leading spaces — becomes a nested numbered sub-item of the line above) ────
+export function listItemsToText(items: ListItem[]): string {
+  const lines: string[] = []
+  for (const it of items) {
+    lines.push(runsToText(it.runs))
+    if (it.sub) for (const s of it.sub) lines.push('\t' + runsToText(s))
+  }
+  return lines.join('\n')
+}
+
+export function textToListItems(text: string): ListItem[] {
+  const items: ListItem[] = []
+  for (const raw of text.split('\n')) {
+    if (!raw.trim()) continue
+    const isSub = /^(\t| {2,})/.test(raw)
+    const runs = textToRuns(raw.trim())
+    if (isSub && items.length) (items[items.length - 1]!.sub ??= []).push(runs)
+    else items.push({ runs })
+  }
+  return items
+}
+
 // ─── Inline rendering ───────────────────────────────────────────────────────────
 
 function RunSpan({ r }: { r: Run }) {
@@ -74,19 +97,33 @@ function Runs({ runs }: { runs: Run[] }) {
 function Block({ b }: { b: PostBlock }) {
   switch (b.type) {
     case 'heading':
-      return <p className="text-[15.5px] font-bold text-white leading-snug">{b.text}</p>
+      return (
+        <p className="text-[15.5px] font-bold leading-snug">
+          {b.link
+            ? <a href={b.link} className="text-[#5AA9FF]">{b.text}</a>
+            : <span className="text-white">{b.text}</span>}
+        </p>
+      )
     case 'paragraph':
       return <p className="text-[14px] text-[#E4E4E7] leading-[1.55]"><Runs runs={b.runs} /></p>
-    case 'list':
-      return b.ordered ? (
-        <ol className="list-decimal pl-5 space-y-1 text-[14px] text-[#E4E4E7] marker:text-[#FF6A00]">
-          {b.items.map((it, i) => <li key={i}><Runs runs={it} /></li>)}
-        </ol>
-      ) : (
-        <ul className="list-disc pl-5 space-y-1 text-[14px] text-[#E4E4E7] marker:text-[#FF6A00]">
-          {b.items.map((it, i) => <li key={i}><Runs runs={it} /></li>)}
-        </ul>
+    case 'list': {
+      const ListTag = b.ordered ? 'ol' : 'ul'
+      const cls = b.ordered ? 'list-decimal' : 'list-disc'
+      return (
+        <ListTag className={`${cls} pl-5 space-y-1 text-[14px] text-[#E4E4E7] marker:text-[#FF6A00]`}>
+          {b.items.map((it, i) => (
+            <li key={i}>
+              <Runs runs={it.runs} />
+              {it.sub && it.sub.length > 0 && (
+                <ol className="list-decimal pl-5 mt-1 space-y-1 marker:text-[#FF6A00]">
+                  {it.sub.map((s, j) => <li key={j}><Runs runs={s} /></li>)}
+                </ol>
+              )}
+            </li>
+          ))}
+        </ListTag>
       )
+    }
     case 'quote':
       return (
         <blockquote className="border-l-[3px] border-[#FF6A00] pl-3 py-1 bg-white/[0.03] rounded-r-[8px] text-[13.5px] text-[#C8C8CE]">
