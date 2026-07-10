@@ -36,19 +36,30 @@ export interface RichGenInput {
 }
 
 // ─── Inline marker parsing ──────────────────────────────────────────────────────
-// Converts a plain string with **bold** and ||spoiler|| markers into Run[].
+// Uses the SAME marker vocabulary as the block editor (RichPostPreview.textToRuns),
+// so a generated post round-trips and stays hand-editable:
+//   [text](url) link · **bold** · __italic__ · ~~strike~~ · `mono` · ==highlight== · ||spoiler||
 
 export function parseInline(text: string): Run[] {
   const runs: Run[] = [];
-  // Split on **bold** and ||spoiler|| while keeping delimiters.
-  const re = /(\*\*[^*]+\*\*|\|\|[^|]+\|\|)/g;
+  const re = /(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|`[^`]+`|==[^=]+==|\|\|[^|]+\|\|)/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) runs.push({ t: text.slice(last, m.index) });
     const tok = m[0];
-    if (tok.startsWith('**')) runs.push({ t: tok.slice(2, -2), b: true });
-    else                      runs.push({ t: tok.slice(2, -2), spoiler: true });
+    if (tok[0] === '[') {
+      const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
+      if (lm) runs.push({ t: lm[1]!, link: lm[2]! });
+      else runs.push({ t: tok });
+    }
+    else if (tok.startsWith('**')) runs.push({ t: tok.slice(2, -2), b: true });
+    else if (tok.startsWith('__')) runs.push({ t: tok.slice(2, -2), i: true });
+    else if (tok.startsWith('~~')) runs.push({ t: tok.slice(2, -2), s: true });
+    else if (tok.startsWith('==')) runs.push({ t: tok.slice(2, -2), mark: true });
+    else if (tok.startsWith('||')) runs.push({ t: tok.slice(2, -2), spoiler: true });
+    else if (tok.startsWith('`'))  runs.push({ t: tok.slice(1, -1), code: true });
+    else runs.push({ t: tok });
     last = m.index + tok.length;
   }
   if (last < text.length) runs.push({ t: text.slice(last) });
@@ -100,7 +111,9 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
     'If the post is bilingual (two languages), KEEP BOTH versions and SEPARATE them with a {"kind":"divider"} (first language fully, then divider, then the second). ' +
     'Output STRICT JSON only, matching this shape: ' +
     '{"heading": string, "elements": [ {"kind":"paragraph","text":"..."} | {"kind":"quote","text":"...","expandable":true} | {"kind":"list","ordered":true,"items":["..."]} | {"kind":"table","headers":["..."],"rows":[["..."]]} | {"kind":"image","index":0} | {"kind":"gallery","layout":"slideshow","indices":[0,1]} | {"kind":"divider"} ] }. ' +
-    'Inline emphasis ONLY via markers inside text: **bold** and ||spoiler|| — bold the key numbers, percentages, tickers and names. Never output HTML tags. ' +
+    'Inline emphasis via these markers inside text (never output HTML tags): **bold**, __italic__, ~~strike~~, `mono`, ==highlight==, ||spoiler||, and links [text](url). ' +
+    'Bold the key numbers, percentages, tickers and names. Highlight (==) one or two genuinely key terms per post — sparingly. Use `mono` for code, tickers, IDs or commands. ' +
+    'Use links [text](url) ONLY when the source text actually contains that URL (for a source, product or handle) — never invent or guess a URL. Do not over-format: most text stays plain. ' +
     'Keep a table to 2-4 columns. Do not add a signature/handle line. ' +
     (ru ? 'Write any structural labels (table headers) in Russian.' : 'Write structural labels in English.');
 
