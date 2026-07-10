@@ -352,6 +352,10 @@ model Style {
   heroPreview String?
 
   published Boolean @default(false)
+  // Showcase-only: visible in the market to EVERYONE, but only an admin can
+  // apply it. Used for the internal Publium / Stepan Logos packs — a shop
+  // window so users see what the packs look like without being able to use them.
+  showcaseOnly Boolean @default(false)
   sortOrder Int     @default(0)
   createdBy String?                 // admin telegramId that created it (audit)
 

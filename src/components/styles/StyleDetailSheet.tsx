@@ -35,6 +35,10 @@ export function StyleDetailSheet({ style, owned, onClose, onPurchased }: StyleDe
   if (!style) return null
 
   const ownedNow = isStyleOwned(style, owned)
+  // Showcase-only packs (internal Publium / Stepan Logos) are visible to all but
+  // only an admin can apply them — everyone else sees a disabled shop-window CTA.
+  const isAdmin = state.user?.isAdmin ?? false
+  const showcaseLocked = !!style.showcaseOnly && !isAdmin
   const name = isRu ? style.nameRu : style.nameEn
   const desc = isRu ? style.descRu : style.descEn
   const gallery = style.heroPreview
@@ -193,7 +197,17 @@ export function StyleDetailSheet({ style, owned, onClose, onPurchased }: StyleDe
 
       {/* ── CTA ──────────────────────────────────────────────────────────────── */}
       <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-1 bg-gradient-to-t from-[#0E0E10] via-[#0E0E10] to-transparent space-y-2">
-        {ownedNow ? (
+        {showcaseLocked ? (
+          <>
+            <div className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-[14px] bg-white/[0.03] border border-white/[0.07] text-[13px] font-medium text-[#8A8A92] cursor-not-allowed select-none">
+              <Sparkles size={14} className="text-[#55555D]" />
+              {isRu ? 'Витрина — стиль недоступен для применения' : 'Showcase — this style can’t be applied'}
+            </div>
+            <p className="text-center text-[11px] text-[#55555D] pt-0.5">
+              {isRu ? 'Фирменный пак Publium — только для витрины' : 'Publium signature pack — display only'}
+            </p>
+          </>
+        ) : ownedNow ? (
           <Button variant="primary" size="md" fullWidth onClick={handleApply} disabled={busy === 'apply'}>
             {busy === 'apply'
               ? <><Loader2 size={14} className="animate-spin" /> {t('styles.applying')}</>

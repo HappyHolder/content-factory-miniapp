@@ -31,14 +31,18 @@ router.post('/list', async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    // Admins also see unpublished (internal) styles — flagged `hidden` so the
-    // client can badge them; regular users get the published catalog only.
+    // Admins see everything — unpublished (internal) styles flagged `hidden` so
+    // the client can badge them. Regular users get the published catalog PLUS
+    // showcase-only packs (visible shop-window styles they can't apply).
     const styles = await prisma.style.findMany({
-      where:   isAdmin ? {} : { published: true },
+      where:   isAdmin ? {} : { OR: [{ published: true }, { showcaseOnly: true }] },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
     res.json({
-      styles: styles.map(s => ({ ...serializeStyle(s), ...(s.published ? {} : { hidden: true }) })),
+      // `hidden` is an admin-only badge for unpublished styles. Regular users
+      // never see it — a showcase-only pack (published:false, showcaseOnly:true)
+      // is visible to them and must not read as "скрыт".
+      styles: styles.map(s => ({ ...serializeStyle(s), ...(isAdmin && !s.published ? { hidden: true } : {}) })),
       owned,
     });
   } catch (err) {

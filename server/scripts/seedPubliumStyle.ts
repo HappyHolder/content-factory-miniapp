@@ -104,6 +104,20 @@ async function main() {
     templates.push({ name: tpl.name, url: obj.url, demoSlots: tpl.demoSlots });
   }
 
+  // 1b. Carousel = a SET of slide templates: cover (intro) → item (repeated) →
+  //     outro (ending). Hand-painted dot ornament, built by buildPubliumCarousel.ts.
+  const uploadCar = async (file: string): Promise<string> => {
+    const buf = await fs.readFile(path.join(TEMPLATES_DIR, file));
+    const obj = await putObject(`styles/publium/${file}`, buf, { contentType: 'text/html; charset=utf-8' });
+    console.log(`[seed:publium]   ${file} → ${obj.url}`);
+    return obj.url;
+  };
+  const carouselTemplate: { cover: string; item: string; outro: string; previews?: string[] } = {
+    cover: await uploadCar('car-cover.html'),
+    item:  await uploadCar('car-item.html'),
+    outro: await uploadCar('car-outro.html'),
+  };
+
   // 2. Upsert the style (matched by slug).
   const baseData = {
     nameRu: 'Publium', nameEn: 'Publium',
@@ -117,10 +131,12 @@ async function main() {
     visualCoverStyle: VISUAL_COVER_STYLE,
     bgStyle: null, bgDetail: null, fontPreset: null, logoUsage: 'when_relevant',
     templates,
-    // Внутренний пак для канала самого Publium — в маркете НЕ публикуется.
-    // Виден только в админ-панели; чтобы применить к каналу: временно включить
-    // published в админке → применить из маркета → выключить обратно.
+    carouselTemplate,
+    // Витрина: фирменный пак Publium виден в маркете ВСЕМ, но применить его
+    // может только админ (showcaseOnly). published:false — это не обычный
+    // опубликованный стиль.
     published: false,
+    showcaseOnly: true,
     sortOrder: 99,
   };
 
@@ -147,6 +163,24 @@ async function main() {
   if (previews.length > 0) {
     await prisma.style.update({ where: { id: style.id }, data: { previews, heroPreview: previews[0] } });
     console.log(`[seed:publium] saved ${previews.length} previews`);
+  }
+
+  // 4. Render a full carousel SEQUENCE (cover → items → outro) for the style card.
+  const carBrand = { primaryColor: '#FF6A00', bgColor: '#0A0A0C', logoUrl: logoObj.url };
+  const carSeq = [
+    { url: carouselTemplate.cover, slots: { RUBRIC: 'О проекте', TITLE_WHITE: 'Контент. Комьюнити.', TITLE_ACCENT: 'Publium.', SUBTITLE: 'Контент, который работает на бренд. Комьюнити, которое остаётся. Publium связывает это в одну систему.' } },
+    { url: carouselTemplate.item,  slots: { RUBRIC: 'О проекте', TITLE_WHITE: 'Идея', TITLE_ACCENT: '→ готовый пост', DESC: 'Отправьте идею, ссылку или текст — Publium соберёт публикацию: текст, структуру, обложку, CTA и оформление в стиле бренда.' } },
+    { url: carouselTemplate.item,  slots: { RUBRIC: 'О проекте', TITLE_WHITE: 'В основе', TITLE_ACCENT: '— BrandKit', DESC: 'Запоминает tone of voice, стиль, цвета и правила — посты выглядят как часть настоящего бренда, а не случайная генерация.' } },
+    { url: carouselTemplate.outro, slots: { RUBRIC: 'О проекте', TITLE_WHITE: 'Telegram сегодня.', TITLE_ACCENT: 'Дальше — везде', CTA: 'Подпишись', AUTHOR: '@publium' } },
+  ];
+  const carPreviews: string[] = [];
+  for (const sl of carSeq) {
+    const u = await renderHtmlPreview({ htmlTemplateUrl: sl.url, brand: carBrand, slots: sl.slots, aspectRatio: '1:1' });
+    if (u) carPreviews.push(u);
+  }
+  if (carPreviews.length) {
+    await prisma.style.update({ where: { id: style.id }, data: { carouselTemplate: { ...carouselTemplate, previews: carPreviews } as never } });
+    console.log(`[seed:publium]   carousel previews → ${carPreviews.length}`);
   }
 
   console.log('[seed:publium] done ✓');

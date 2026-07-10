@@ -242,6 +242,9 @@ export interface MarketStyle {
   previews:         string[]
   heroPreview:      string | null
   sortOrder:        number
+  // Showcase-only: visible in the market to everyone, but only an admin can
+  // apply it (a shop window for the internal Publium / Stepan Logos packs).
+  showcaseOnly?:    boolean
   // Admin-only fields (present on /api/admin/styles/list responses).
   published?:       boolean
   // Set by /api/styles/list for admins on unpublished (internal) styles.

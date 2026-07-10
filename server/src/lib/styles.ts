@@ -31,6 +31,7 @@ export function serializeStyle(s: Style) {
     carouselTemplate: s.carouselTemplate ?? null,   // { name, url } — separate universal carousel slide
     previews:         s.previews,
     heroPreview:      s.heroPreview ?? null,
+    showcaseOnly:     s.showcaseOnly,               // visible to all, applicable by admin only
     sortOrder:        s.sortOrder,
   };
 }

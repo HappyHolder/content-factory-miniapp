@@ -111,7 +111,8 @@ async function main() {
     bgStyle: null, bgDetail: null, fontPreset: null, logoUsage: 'when_relevant',
     templates,
     carouselTemplate,
-    published: false, // admin-only: not applicable by other users
+    published: false,      // not a normal published market style
+    showcaseOnly: true,    // visible to everyone, applicable by the admin only
     sortOrder: 98,
   };
 
