@@ -712,6 +712,9 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
             <button onClick={addRow} className="text-[11px] font-medium text-[#FF6A00]">+ строка</button>
             <button onClick={addCol} className="text-[11px] font-medium text-[#FF6A00]">+ столбец</button>
           </div>
+          <p className="text-[10px] text-[#55555D] mt-1 leading-relaxed">
+            В ячейках работают маркеры: <b>**жирный**</b>, ==подсветка==, [текст](url).
+          </p>
         </div>
       )
     }

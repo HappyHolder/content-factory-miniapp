@@ -89,6 +89,40 @@ function renderRuns(runs: Run[]): string {
   return runs.map(renderRun).join('');
 }
 
+// Inline marker parser — the ONE canonical vocabulary shared by the generator,
+// the block editor (RichPostPreview.textToRuns) and table cells:
+//   [text](url) · **bold** · __italic__ · ~~strike~~ · `mono` · ==highlight== · ||spoiler||
+export function parseInline(text: string): Run[] {
+  const runs: Run[] = [];
+  const re = /(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|`[^`]+`|==[^=]+==|\|\|[^|]+\|\|)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) runs.push({ t: text.slice(last, m.index) });
+    const tok = m[0];
+    if (tok[0] === '[') {
+      const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
+      if (lm) runs.push({ t: lm[1]!, link: lm[2]! });
+      else runs.push({ t: tok });
+    }
+    else if (tok.startsWith('**')) runs.push({ t: tok.slice(2, -2), b: true });
+    else if (tok.startsWith('__')) runs.push({ t: tok.slice(2, -2), i: true });
+    else if (tok.startsWith('~~')) runs.push({ t: tok.slice(2, -2), s: true });
+    else if (tok.startsWith('==')) runs.push({ t: tok.slice(2, -2), mark: true });
+    else if (tok.startsWith('||')) runs.push({ t: tok.slice(2, -2), spoiler: true });
+    else if (tok.startsWith('`'))  runs.push({ t: tok.slice(1, -1), code: true });
+    else runs.push({ t: tok });
+    last = m.index + tok.length;
+  }
+  if (last < text.length) runs.push({ t: text.slice(last) });
+  return runs.length ? runs : [{ t: text }];
+}
+
+/** Renders a table cell string that may carry inline markers (bold/highlight/link…). */
+function renderCell(s: string): string {
+  return renderRuns(parseInline(s));
+}
+
 // ─── Block rendering ────────────────────────────────────────────────────────────
 
 function renderImg(url: string): string {
@@ -116,10 +150,10 @@ function renderBlock(b: PostBlock): string {
       return `<blockquote${b.expandable ? ' expandable' : ''}>${renderRuns(b.runs)}</blockquote>`;
     case 'table': {
       const head = b.headers.length
-        ? `<tr>${b.headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`
+        ? `<tr>${b.headers.map(h => `<th>${renderCell(h)}</th>`).join('')}</tr>`
         : '';
       const body = b.rows.map(row =>
-        `<tr>${row.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
+        `<tr>${row.map(c => `<td>${renderCell(c)}</td>`).join('')}</tr>`).join('');
       return `<table>${head}${body}</table>`;
     }
     case 'image':
@@ -173,10 +207,12 @@ export function blocksToPlainText(blocks: PostBlock[]): string {
           return head + subs;
         }).join('\n'));
         break;
-      case 'table':
-        if (b.headers.length) parts.push(b.headers.join(' · '));
-        parts.push(b.rows.map(r => r.join(' · ')).join('\n'));
+      case 'table': {
+        const plain = (c: string) => runsToText(parseInline(c));
+        if (b.headers.length) parts.push(b.headers.map(plain).join(' · '));
+        parts.push(b.rows.map(r => r.map(plain).join(' · ')).join('\n'));
         break;
+      }
       // image / video / document / gallery / divider produce no text
     }
   }

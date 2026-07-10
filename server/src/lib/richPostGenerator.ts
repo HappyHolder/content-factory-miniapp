@@ -16,7 +16,8 @@
  */
 
 import { env } from '../env';
-import type { ListItem, PostBlock, Run } from './richPost';
+import { parseInline } from './richPost';
+import type { ListItem, PostBlock } from './richPost';
 
 export type FormatLevel = 'auto' | 'minimal' | 'article';
 
@@ -35,36 +36,8 @@ export interface RichGenInput {
   lang?: 'ru' | 'en';
 }
 
-// ─── Inline marker parsing ──────────────────────────────────────────────────────
-// Uses the SAME marker vocabulary as the block editor (RichPostPreview.textToRuns),
-// so a generated post round-trips and stays hand-editable:
-//   [text](url) link · **bold** · __italic__ · ~~strike~~ · `mono` · ==highlight== · ||spoiler||
-
-export function parseInline(text: string): Run[] {
-  const runs: Run[] = [];
-  const re = /(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|`[^`]+`|==[^=]+==|\|\|[^|]+\|\|)/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) runs.push({ t: text.slice(last, m.index) });
-    const tok = m[0];
-    if (tok[0] === '[') {
-      const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
-      if (lm) runs.push({ t: lm[1]!, link: lm[2]! });
-      else runs.push({ t: tok });
-    }
-    else if (tok.startsWith('**')) runs.push({ t: tok.slice(2, -2), b: true });
-    else if (tok.startsWith('__')) runs.push({ t: tok.slice(2, -2), i: true });
-    else if (tok.startsWith('~~')) runs.push({ t: tok.slice(2, -2), s: true });
-    else if (tok.startsWith('==')) runs.push({ t: tok.slice(2, -2), mark: true });
-    else if (tok.startsWith('||')) runs.push({ t: tok.slice(2, -2), spoiler: true });
-    else if (tok.startsWith('`'))  runs.push({ t: tok.slice(1, -1), code: true });
-    else runs.push({ t: tok });
-    last = m.index + tok.length;
-  }
-  if (last < text.length) runs.push({ t: text.slice(last) });
-  return runs.length ? runs : [{ t: text }];
-}
+// Inline markers (**bold**, ==highlight==, [text](url), …) are parsed by the
+// shared parseInline() from ./richPost — one canonical vocabulary everywhere.
 
 // ─── AI element schema (what the model returns) ─────────────────────────────────
 
@@ -117,7 +90,7 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
     'Inline emphasis via these markers inside text (never output HTML tags): **bold**, __italic__, ~~strike~~, `mono`, ==highlight==, ||spoiler||, and links [text](url). ' +
     'Bold the key numbers, percentages, tickers and names. Highlight (==) one or two genuinely key terms per post — sparingly. Use `mono` for code, tickers, IDs or commands. ' +
     'Use links [text](url) ONLY when the source text actually contains that URL (for a source, product or handle) — never invent or guess a URL. Do not over-format: most text stays plain. ' +
-    'Keep a table to 2-4 columns. Do not add a signature/handle line. ' +
+    'Keep a table to 2-4 columns. Table cells (headers and rows) may use the same inline markers — e.g. **bold** the key figure or ==highlight== a verdict in a cell. Do not add a signature/handle line. ' +
     (ru ? 'Write any structural labels (table headers) in Russian.' : 'Write structural labels in English.');
 
   const user =

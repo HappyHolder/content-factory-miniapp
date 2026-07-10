@@ -138,14 +138,14 @@ function Block({ b }: { b: PostBlock }) {
             {b.headers.length > 0 && (
               <thead>
                 <tr>{b.headers.map((h, i) => (
-                  <th key={i} className="text-left font-semibold text-white px-2.5 py-1.5 border-b border-white/10 bg-white/[0.04] whitespace-nowrap">{h}</th>
+                  <th key={i} className="text-left font-semibold text-white px-2.5 py-1.5 border-b border-white/10 bg-white/[0.04] whitespace-nowrap"><Runs runs={textToRuns(h)} /></th>
                 ))}</tr>
               </thead>
             )}
             <tbody>
               {b.rows.map((row, ri) => (
                 <tr key={ri}>{row.map((c, ci) => (
-                  <td key={ci} className="px-2.5 py-1.5 border-b border-white/[0.06] align-top">{c}</td>
+                  <td key={ci} className="px-2.5 py-1.5 border-b border-white/[0.06] align-top"><Runs runs={textToRuns(c)} /></td>
                 ))}</tr>
               ))}
             </tbody>
