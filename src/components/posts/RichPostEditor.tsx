@@ -627,6 +627,11 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
   // Local prompt state for the gallery "+ AI-фото" panel (one photo at a time).
   const [galPromptOpen, setGalPromptOpen] = useState(false)
   const [galPrompt, setGalPrompt] = useState('')
+  // Shared formatting toolbar for table cells — acts on the last-focused cell input.
+  const cellTarget = useRef<{ el: HTMLInputElement; ri: number | 'h'; ci: number } | null>(null)
+  const cellLinkTarget = useRef<{ el: HTMLInputElement; ri: number | 'h'; ci: number; s: number; e: number } | null>(null)
+  const [cellLinkOpen, setCellLinkOpen] = useState(false)
+  const [cellLinkUrl, setCellLinkUrl] = useState('')
   switch (b.type) {
     case 'heading':
       return (
@@ -684,8 +689,56 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
       const addCol = () => onChange({ ...b, headers: [...norm(b.headers), ''], rows: b.rows.map(r => [...norm(r), '']) })
       const removeCol = (ci: number) =>
         onChange({ ...b, headers: norm(b.headers).filter((_, k) => k !== ci), rows: b.rows.map(r => norm(r).filter((_, k) => k !== ci)) })
+      // Formatting toolbar → wraps the selection inside the last-focused cell input.
+      const applyToCell = (t: { ri: number | 'h'; ci: number }, v: string) =>
+        t.ri === 'h' ? setHeader(t.ci, v) : setCell(t.ri, t.ci, v)
+      const wrapCell = (mk: string) => {
+        const t = cellTarget.current; if (!t) return
+        const el = t.el, s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? el.value.length
+        const sel = el.value.slice(s, e) || 'текст'
+        applyToCell(t, el.value.slice(0, s) + mk + sel + mk + el.value.slice(e))
+        requestAnimationFrame(() => { el.focus(); el.selectionStart = s + mk.length; el.selectionEnd = s + mk.length + sel.length })
+      }
+      const openCellLink = () => {
+        const t = cellTarget.current; if (!t) return
+        cellLinkTarget.current = { ...t, s: t.el.selectionStart ?? 0, e: t.el.selectionEnd ?? 0 }
+        setCellLinkUrl(''); setCellLinkOpen(true)
+      }
+      const applyCellLink = () => {
+        const url = cellLinkUrl.trim(), c = cellLinkTarget.current
+        if (!url || !c) { setCellLinkOpen(false); return }
+        const sel = c.el.value.slice(c.s, c.e) || 'ссылка'
+        const href = /^https?:\/\//i.test(url) ? url : url.startsWith('@') ? `https://t.me/${url.slice(1)}` : `https://${url}`
+        applyToCell(c, c.el.value.slice(0, c.s) + `[${sel}](${href})` + c.el.value.slice(c.e))
+        setCellLinkOpen(false); setCellLinkUrl('')
+      }
+      const FMT = [['**', Bold, 'Жирный'], ['__', Italic, 'Курсив'], ['~~', Strikethrough, 'Зачёркнутый'], ['`', Code, 'Моно'], ['==', Highlighter, 'Подсветка'], ['||', EyeOff, 'Спойлер']] as const
       return (
         <div className="space-y-1">
+          {/* Shared formatting toolbar — applies to the focused cell's selection */}
+          <div className="flex flex-wrap gap-1 items-center">
+            {FMT.map(([mk, Icon, title]) => (
+              <button key={mk} type="button" title={title} aria-label={title}
+                onMouseDown={e => e.preventDefault()} onClick={() => wrapCell(mk)}
+                className="w-7 h-7 flex items-center justify-center rounded-[8px] bg-white/[0.05] border border-white/[0.08] text-[#A1A1AA] hover:text-[#FF6A00] hover:border-[#FF6A00]/40 active:bg-[rgba(255,106,0,0.12)]">
+                <Icon size={14} />
+              </button>
+            ))}
+            <button type="button" title="Ссылка" aria-label="Ссылка"
+              onMouseDown={e => e.preventDefault()} onClick={openCellLink}
+              className="w-7 h-7 flex items-center justify-center rounded-[8px] bg-white/[0.05] border border-white/[0.08] text-[#A1A1AA] hover:text-[#FF6A00] hover:border-[#FF6A00]/40 active:bg-[rgba(255,106,0,0.12)]">
+              <Link2 size={14} />
+            </button>
+            <span className="text-[10px] text-[#55555D] ml-1">формат — к выделенному в ячейке</span>
+          </div>
+          {cellLinkOpen && (
+            <div className="flex gap-1.5">
+              <input autoFocus value={cellLinkUrl} onChange={e => setCellLinkUrl(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyCellLink() } }}
+                placeholder="https://… (ссылка на выделенный текст)" className="glass-input flex-1 px-2.5 py-1.5 text-[12px]" />
+              <button type="button" onClick={applyCellLink} className="px-3 py-1.5 rounded-[8px] bg-[#FF6A00] text-white text-[12px] font-semibold">OK</button>
+            </div>
+          )}
           {/* Per-column delete strip (aligned with the inputs below) */}
           {cols > 1 && (
             <div className="flex gap-1 items-center">
@@ -702,6 +755,7 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
             {norm(b.headers).map((h, ci) => (
               <input key={ci} value={h} placeholder={`Столбец ${ci + 1}`}
                 onChange={e => setHeader(ci, e.target.value)}
+                onFocus={e => { cellTarget.current = { el: e.currentTarget, ri: 'h', ci } }}
                 className="glass-input flex-1 min-w-0 px-2 py-1.5 text-[12px] font-semibold" />
             ))}
             <span className="w-5 shrink-0" />
@@ -711,6 +765,7 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
               {norm(row).map((c, ci) => (
                 <input key={ci} value={c}
                   onChange={e => setCell(ri, ci, e.target.value)}
+                  onFocus={e => { cellTarget.current = { el: e.currentTarget, ri, ci } }}
                   className="glass-input flex-1 min-w-0 px-2 py-1.5 text-[12px]" />
               ))}
               <button onClick={() => removeRow(ri)} disabled={b.rows.length <= 1} title="Удалить строку"
@@ -723,9 +778,6 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
             <button onClick={addRow} className="text-[11px] font-medium text-[#FF6A00]">+ строка</button>
             <button onClick={addCol} className="text-[11px] font-medium text-[#FF6A00]">+ столбец</button>
           </div>
-          <p className="text-[10px] text-[#55555D] mt-1 leading-relaxed">
-            В ячейках работают маркеры: <b>**жирный**</b>, ==подсветка==, [текст](url).
-          </p>
         </div>
       )
     }
