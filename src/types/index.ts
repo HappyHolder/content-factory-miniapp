@@ -224,6 +224,7 @@ export interface MarketStyle {
   fontPreset:       string | null
   logoUsage:        string | null
   templates:        HtmlTemplateItem[]
+  carouselTemplate?: HtmlTemplateItem | null  // one universal carousel slide, separate from rubric templates
   previews:         string[]
   heroPreview:      string | null
   sortOrder:        number
