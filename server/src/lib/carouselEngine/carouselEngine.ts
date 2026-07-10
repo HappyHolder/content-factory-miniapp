@@ -44,8 +44,18 @@ async function renderSlides(
   const urls: string[] = [];
   let itemsRendered = 0;
 
+  // The running bottom strip is offset by slide POSITION in the planned sequence,
+  // not by how many slides survived — a dropped slide must not shift the band on
+  // the ones after it.
+  const slideCount =
+    (templates.cover ? 1 : 0) + content.items.length + (templates.outro ? 1 : 0);
+  let slideIndex = 0;
+
   if (templates.cover) {
-    const url = await renderSlide({ templateHtml: templates.cover, slots: coverSlots(ctx, content), brand: ctx.brand });
+    const url = await renderSlide({
+      templateHtml: templates.cover, slots: coverSlots(ctx, content), brand: ctx.brand,
+      slideIndex: slideIndex++, slideCount,
+    });
     if (url) urls.push(url);
     else console.warn('[carouselEngine] cover slide failed — continuing without it');
   }
@@ -56,13 +66,18 @@ async function renderSlides(
       templateHtml: templates.item,
       slots:        itemSlots(ctx, content, item, i),
       brand:        ctx.brand,
+      slideIndex:   slideIndex++,
+      slideCount,
     });
     if (url) { urls.push(url); itemsRendered++; }
     else console.warn(`[carouselEngine] item slide ${i + 1} failed — skipping`);
   }
 
   if (templates.outro && urls.length < MAX_SLIDES) {
-    const url = await renderSlide({ templateHtml: templates.outro, slots: outroSlots(ctx, content), brand: ctx.brand });
+    const url = await renderSlide({
+      templateHtml: templates.outro, slots: outroSlots(ctx, content), brand: ctx.brand,
+      slideIndex: slideIndex++, slideCount,
+    });
     if (url) urls.push(url);
     else console.warn('[carouselEngine] outro slide failed — continuing without it');
   }

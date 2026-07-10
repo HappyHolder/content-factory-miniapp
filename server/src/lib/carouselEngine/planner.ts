@@ -15,6 +15,7 @@ import { MAX_ITEMS, MIN_ITEMS, type CarouselContent, type CarouselContext, type 
 
 interface AiPlan {
   carousel?:   unknown;
+  rubric?:     unknown;
   title?:      unknown;
   subtitle?:   unknown;
   outroTitle?: unknown;
@@ -36,11 +37,12 @@ function buildPrompt(ctx: CarouselContext): { system: string; user: string } {
     'If the post has fewer than ' + MIN_ITEMS + ' parallel points, return {"carousel": false} and nothing else.\n\n' +
     'When a carousel fits, return STRICT JSON:\n' +
     '{"carousel":true,' +
+    '"rubric":"1-2 word section label for THIS carousel, read from the post itself (e.g. \\"инструменты\\", \\"гайд\\", \\"подборка\\") — not the channel rubric you were given",' +
     '"title":"2-5 word headline for the intro slide",' +
     '"subtitle":"one short sentence under the headline",' +
     '"outroTitle":"2-3 word headline for the CLOSING slide — an imperative like \\"Save this list\\", never the intro headline repeated",' +
     '"cta":"one short call to action under it",' +
-    '"topTag":"1-2 word label",' +
+    '"topTag":"1-2 word label describing the format or topic; it sits next to the rubric, so it must NOT repeat it",' +
     '"tags":["up to 4 single short words"],' +
     `"items":[{"title":"1-4 words","desc":"one short sentence"}],` +
     '"position":"top|middle|end"}\n\n' +
@@ -50,7 +52,9 @@ function buildPrompt(ctx: CarouselContext): { system: string; user: string } {
     '(the slide template draws its own punctuation). Keep titles brutally short: they land in huge display type and long words break the layout.';
 
   const user =
-    (ctx.rubricName ? `Rubric: ${ctx.rubricName}\n` : '') +
+    // The channel rubric is context, never the answer: it was picked from the few
+    // rubric templates the channel owns, so a tools round-up can arrive as "Новости".
+    (ctx.rubricName ? `Channel rubric (background only — do NOT reuse it as "rubric"): ${ctx.rubricName}\n` : '') +
     `POST TEXT:\n${ctx.postText.slice(0, 3000)}\n\n` +
     'Return the JSON now.';
 
@@ -97,12 +101,18 @@ function sanitize(plan: AiPlan): CarouselContent | null {
   // says nothing. Reject the echo; outroSlots then falls back deliberately.
   const outroTitle = str(plan.outroTitle, 40);
 
+  const rubric = str(plan.rubric, 20);
+  // The rubric sits top-left and the topTag top-right on the same slide. Printing
+  // one word twice reads as a rendering bug, so drop the duplicate.
+  const topTag = str(plan.topTag, 20);
+
   return {
+    rubric,
     title,
     subtitle:   str(plan.subtitle, 90),
     outroTitle: outroTitle.toLowerCase() === title.toLowerCase() ? '' : outroTitle,
     cta:        str(plan.cta, 90),
-    topTag:     str(plan.topTag, 20),
+    topTag:     topTag.toLowerCase() === rubric.toLowerCase() ? '' : topTag,
     tags,
     items,
     position:   sanitizePosition(plan.position),

@@ -45,9 +45,17 @@ function countLabel(n: number, lang: 'ru' | 'en'): string {
   return `${n} ${word}`;
 }
 
-/** The channel's own section label. Templates draw the "//" prefix themselves. */
-function rubricLabel(ctx: CarouselContext): string {
-  if (ctx.rubricName) return ctx.rubricName.toLowerCase();
+/**
+ * The slides' section label. Templates draw the "//" prefix themselves.
+ *
+ * The carousel's own rubric wins over the channel's. The cover engine had to
+ * pick one of the channel's few rubric TEMPLATES, so a round-up of tools is
+ * classified "Новости" — right for choosing the cover art, wrong printed on a
+ * slide that says "Топ-5 плагинов".
+ */
+function rubricLabel(ctx: CarouselContext, content: CarouselContent): string {
+  const label = content.rubric || ctx.rubricName || '';
+  if (label) return label.toLowerCase();
   return ctx.lang === 'en' ? 'list' : 'подборка';
 }
 
@@ -68,7 +76,7 @@ function author(ctx: CarouselContext): string {
 export function coverSlots(ctx: CarouselContext, content: CarouselContent): SlotMap {
   const { white, accent } = splitHeadline(content.title);
   return {
-    RUBRIC:       rubricLabel(ctx),
+    RUBRIC:       rubricLabel(ctx, content),
     TOP_TAG:      content.topTag,
     COUNT:        countLabel(content.items.length, ctx.lang),
     TITLE_WHITE:  white,
@@ -87,7 +95,7 @@ export function itemSlots(
   const { white, accent } = splitHeadline(item.title);
   const total = content.items.length;
   return {
-    RUBRIC:       rubricLabel(ctx),
+    RUBRIC:       rubricLabel(ctx, content),
     COUNT:        `${pad(index + 1)} / ${pad(total)}`,
     NUM:          pad(index + 1),
     TITLE_WHITE:  white,

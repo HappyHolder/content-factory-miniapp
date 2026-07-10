@@ -815,6 +815,32 @@ function rubricSlotLabel(name: string | undefined, lang?: 'ru' | 'en'): string |
   };
   return (lang === 'en' ? en[key] : ru[key]) ?? n.toUpperCase();
 }
+
+/**
+ * Validates the section label the model derived from the post.
+ *
+ * The rubric decides which TEMPLATE a cover uses, but it must not dictate the
+ * words printed on it: a channel owns four rubrics, so a round-up of tools gets
+ * classified "Новости" and used to render "// НОВОСТЬ" over "Топ-5 плагинов".
+ * The model reads the post and names the section; this only refuses answers that
+ * would leak identity (the channel, the source outlet, a product) or blow up the
+ * layout. A refusal falls back to the rubric's own label — the old behaviour.
+ */
+function sanitizeSectionLabel(value: unknown, brand?: SlotBrandContext): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim().replace(/^[/#\s"'«»]+|["'«»\s]+$/g, '').replace(/\s+/g, ' ');
+  if (!v) return null;
+  // A section label is a couple of words; anything longer is a headline that
+  // wandered into the wrong slot and will overflow a monospace pill.
+  if (v.length > 24 || v.split(' ').length > 3) return null;
+  // Identity leaks: an @handle, a URL, the channel's own name, or a bare number.
+  if (/[@]|https?:/i.test(v) || /^\d+$/.test(v)) return null;
+  const channel = (brand?.name ?? '').trim().toLowerCase();
+  const handle  = (brand?.handle ?? '').trim().replace(/^@/, '').toLowerCase();
+  const low = v.toLowerCase();
+  if ((channel && low === channel) || (handle && low === handle)) return null;
+  return v;
+}
 /** Slot-fill JSON completion via DeepSeek's OpenAI-compatible endpoint. */
 async function fillSlotsViaDeepseek(systemPrompt: string, userPrompt: string): Promise<string | null> {
   const controller = new AbortController();
@@ -895,12 +921,11 @@ export async function fillTemplateSlots(
     'and return ONLY a JSON object mapping each slot name to a short string value.\n\n' +
     'The cover belongs to a specific CHANNEL and must read as THAT channel\'s own post — ' +
     'never as the source article\'s publication. Treat slots as two kinds:\n' +
-    '1. IDENTITY slots — author/byline/signature, rubric/section name, the channel\'s own hashtags. ' +
+    '1. IDENTITY slots — author/byline/signature, the channel\'s own hashtags. ' +
     'Fill these from the CHANNEL IDENTITY block, NOT from the post, and NEVER with the source outlet\'s name. ' +
     'An author/byline/signature slot = the channel\'s PROJECT or BRAND NAME — derive it from the channel name or its ' +
-    '"about" description; do NOT use the raw @handle (it is often arbitrary, like a username). ' +
-    'A rubric/section slot = a short label in the channel\'s own style.\n' +
-    '2. CONTENT slots — title/headline, description/subtitle, metrics, badge. Rewrite these FROM the post, ' +
+    '"about" description; do NOT use the raw @handle (it is often arbitrary, like a username).\n' +
+    '2. CONTENT slots — title/headline, description/subtitle, metrics, badge, rubric/section label. Rewrite these FROM the post, ' +
     'but in the CHANNEL\'S VOICE (first person when the channel is a personal blog) and language. ' +
     'Do NOT copy the source outlet\'s framing, byline, or branding.\n\n' +
     'Size EACH slot by how it is styled in the template HTML/CSS:\n' +
@@ -911,7 +936,11 @@ export async function fillTemplateSlots(
     'TITLE/HEADLINE (or a TITLE split into _WHITE/_ACCENT parts) = the huge headline, keep it to 2-5 short words total. If a title is split into WHITE/ACCENT, the two values MUST read left-to-right as one grammatical headline in natural word order; ACCENT is only the final key word/phrase, never a rearranged fragment; ' +
     'QUOTE/QUOTE_WHITE/QUOTE_ACCENT = a real quote or quote-like thought from the post. Preserve the quote\'s meaning and as much exact wording as fits; do NOT compress it into a slogan. Split the quote so QUOTE_WHITE carries the main phrase and QUOTE_ACCENT carries only the final 2-5 key words. Target 55-120 characters total when the template has a large quote card. ' +
     'AUTHOR/HANDLE/SIGNATURE = the channel\'s project/brand name (from name/about), NOT the raw @handle; ' +
-    'RUBRIC/SECTION/CATEGORY = the channel\'s section label; TAGS = the channel\'s hashtags.\n\n' +
+    'RUBRIC/SECTION/CATEGORY = a 1-2 word label naming WHAT KIND OF POST THIS IS, read from the post itself ' +
+    '(новость, подборка, гайд, инструменты, разбор, анонс…), written in the channel\'s own voice. ' +
+    'It is NOT the channel name, NOT the source publication, NOT a company or product name, and NOT a person. ' +
+    'When the post genuinely is news, "новость" is the right answer — but a round-up of tools is "инструменты", not "новость"; ' +
+    'TAGS = the channel\'s hashtags.\n\n' +
     'General rules:\n' +
     `- Write all values in ${langRule}. No markdown, no line breaks.\n` +
     '- Return PLAIN text only — NO decorative prefixes or symbols around values ' +
@@ -966,15 +995,23 @@ export async function fillTemplateSlots(
     return null;
   }
 
-  const fixedRubricLabel = rubricSlotLabel(brand?.rubricName, post.coverLanguage);
+  // The rubric's label is the FALLBACK, not the override: the model names the
+  // section from the post, and we keep the rubric's name only when its answer is
+  // unusable (see sanitizeSectionLabel).
+  const rubricFallback = rubricSlotLabel(brand?.rubricName, post.coverLanguage);
+  let sectionSource = 'none';
   const filled = templateHtml.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-    if (fixedRubricLabel && /^(RUBRIC|SECTION|CATEGORY)$/i.test(key)) return escapeHtmlText(fixedRubricLabel);
+    if (/^(RUBRIC|SECTION|CATEGORY)$/i.test(key)) {
+      const derived = sanitizeSectionLabel(values[key], brand);
+      sectionSource = derived ? 'post' : rubricFallback ? 'rubric' : 'none';
+      return escapeHtmlText(derived ?? rubricFallback ?? '');
+    }
     const v = values[key];
     return typeof v === 'string' ? escapeHtmlText(v)
          : typeof v === 'number' ? String(v)
          : '';
   });
-  console.log(`[aiGenerator] Filled ${slots.length} template slots via ${hasDeepseek ? 'DeepSeek' : 'Claude'}`);
+  console.log(`[aiGenerator] Filled ${slots.length} template slots via ${hasDeepseek ? 'DeepSeek' : 'Claude'} (section from ${sectionSource})`);
   return filled;
 }
 

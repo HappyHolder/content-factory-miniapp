@@ -58,6 +58,13 @@ export interface CarouselItem {
 
 /** What the planner reads out of the post text. */
 export interface CarouselContent {
+  /**
+   * The carousel's OWN section label, read from the post ("инструменты", "гайд").
+   * Preferred over the channel rubric: the cover engine must pick one of the
+   * channel's few rubric templates, so a tools round-up lands in "Новости" —
+   * correct for the cover, wrong as a caption on the slides.
+   */
+  rubric:     string;
   title:      string;      // carousel headline, 2-5 words
   subtitle:   string;
   /** The closing slide's OWN headline ("Сохрани подборку") — not the intro's repeated. */
@@ -113,3 +120,16 @@ export const MAX_ITEMS = 7;
 export const MAX_SLIDES = 10;
 /** Slide templates are authored at 1080×1080 — never inherit the channel ratio. */
 export const SLIDE_ASPECT_RATIO = '1:1' as const;
+/** Rendered slide width in px. Each slide shows a different window of the strip. */
+export const SLIDE_WIDTH = 1080;
+
+/**
+ * A slide template marks its bottom ticker with this attribute to opt into the
+ * running-strip treatment: the engine lengthens the strip and shifts it by one
+ * slide width per slide, so it reads as ONE band running under the whole
+ * carousel instead of the same clipped fragment seven times.
+ *
+ * The engine never looks for a template's class names — a pack that omits the
+ * attribute simply renders its strip as-is.
+ */
+export const STRIP_ATTR = 'data-carousel-strip';
