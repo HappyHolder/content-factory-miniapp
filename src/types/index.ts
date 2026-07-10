@@ -184,6 +184,7 @@ export interface HtmlTemplateItem {
   // template (e.g. { TITLE_WHITE: 'Bitcoin', TAG: 'crypto' }). Not used at
   // real cover-generation time (AI fills slots then).
   demoSlots?: Record<string, string>
+  preview?: string   // rendered 1:1 preview URL (used for the carousel item in the style card)
 }
 
 // A content-type rubric for a channel. The AI classifies each post into one,

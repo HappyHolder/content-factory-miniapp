@@ -135,6 +135,18 @@ async function main() {
     console.log(`[seed:stepanlogos] saved ${previews.length} previews`);
   }
 
+  // Preview for the carousel slide — shown separately in the style card.
+  const carPreview = await renderHtmlPreview({
+    htmlTemplateUrl: carObj.url,
+    brand:           { primaryColor: '#4DB8FF', bgColor: '#0F1011' },
+    slots:           carouselTemplate.demoSlots,
+    aspectRatio:     '1:1',
+  });
+  if (carPreview) {
+    await prisma.style.update({ where: { id: style.id }, data: { carouselTemplate: { ...carouselTemplate, preview: carPreview } as never } });
+    console.log('[seed:stepanlogos]   carousel preview →', carPreview);
+  }
+
   console.log('[seed:stepanlogos] done ✓');
   await prisma.$disconnect();
 }

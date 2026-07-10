@@ -151,12 +151,29 @@ export function StyleDetailSheet({ style, owned, onClose, onPurchased }: StyleDe
           <div className="flex items-center gap-2 text-[13px] text-white">
             <Check size={13} className="text-[#FF6A00]" /> {modeLabel}
           </div>
+          {style.carouselTemplate && (
+            <div className="flex items-center gap-2 text-[13px] text-white">
+              <Check size={13} className="text-[#FF6A00]" /> {isRu ? 'Карусель · универсальный слайд' : 'Carousel · universal slide'}
+            </div>
+          )}
           {style.visualCoverStyle && (
             <div className="flex items-center gap-2 text-[13px] text-white">
               <Check size={13} className="text-[#FF6A00]" /> {t('styles.aiStyleNote')}
             </div>
           )}
         </div>
+
+        {/* Carousel — shown separately from the rubric cover templates */}
+        {style.carouselTemplate?.preview && (
+          <div>
+            <p className="text-xs font-semibold text-[#55555D] uppercase tracking-wider mb-2">{isRu ? 'Карусель' : 'Carousel'}</p>
+            <img
+              src={style.carouselTemplate.preview}
+              alt={isRu ? 'Слайд карусели' : 'Carousel slide'}
+              className="h-44 rounded-[14px] border border-white/[0.08] object-cover"
+            />
+          </div>
+        )}
 
         {/* Palette */}
         {style.palette.length > 0 && (
