@@ -508,6 +508,17 @@ export function CoversForm({ channelId, initialData }: CoversFormProps) {
           { value: 'cartoon',   label: t('channelStyle.covers.bgStyleCartoon')   },
           { value: 'anime',     label: t('channelStyle.covers.bgStyleAnime')     },
           { value: 'clay',      label: t('channelStyle.covers.bgStyleClay')      },
+          { value: 'pixel',      label: t('channelStyle.covers.bgStylePixel')      },
+          { value: 'scifi',      label: t('channelStyle.covers.bgStyleScifi')      },
+          { value: 'cyberpunk',  label: t('channelStyle.covers.bgStyleCyberpunk')  },
+          { value: 'vaporwave',  label: t('channelStyle.covers.bgStyleVaporwave')  },
+          { value: 'isometric',  label: t('channelStyle.covers.bgStyleIsometric')  },
+          { value: 'minimal',    label: t('channelStyle.covers.bgStyleMinimal')    },
+          { value: 'lowpoly',    label: t('channelStyle.covers.bgStyleLowpoly')    },
+          { value: 'glitch',     label: t('channelStyle.covers.bgStyleGlitch')     },
+          { value: 'blueprint',  label: t('channelStyle.covers.bgStyleBlueprint')  },
+          { value: 'watercolor', label: t('channelStyle.covers.bgStyleWatercolor') },
+          { value: 'oil',        label: t('channelStyle.covers.bgStyleOil')        },
         ]}
       />
 

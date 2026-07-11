@@ -175,6 +175,17 @@ export type CoverBgStyle =
   | 'cartoon'
   | 'anime'
   | 'clay'
+  | 'pixel'
+  | 'scifi'
+  | 'cyberpunk'
+  | 'vaporwave'
+  | 'isometric'
+  | 'minimal'
+  | 'lowpoly'
+  | 'glitch'
+  | 'blueprint'
+  | 'watercolor'
+  | 'oil'
 
 export interface HtmlTemplateItem {
   name: string       // rubric label shown in UI, used by AI for matching

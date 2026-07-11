@@ -318,6 +318,17 @@ export async function generateImageForPost(
     cartoon:   'flat 2D cartoon illustration, bold clean shapes, vector style',
     anime:     'anime style illustration, cel shading',
     clay:      'claymation, plasticine clay model, stop-motion look, soft studio light',
+    pixel:     'pixel art, 8-bit retro game aesthetic, crisp pixelated shapes, limited palette, dithering',
+    scifi:     'sci-fi concept art, futuristic high-tech world, sleek advanced technology, holographic UI, sleek surfaces',
+    cyberpunk: 'cyberpunk aesthetic, neon-lit rainy night, blade-runner mood, high-tech low-life, glowing signage, deep shadows',
+    vaporwave: 'vaporwave / synthwave, 80s retro-futurism, magenta-cyan neon gradient, sunset grid horizon, chrome, glitchy nostalgia',
+    isometric: 'isometric 3D illustration, clean vector shapes, orthographic view, soft ambient shadows, tidy composition',
+    minimal:   'minimalist flat design, generous negative space, simple bold shapes, restrained muted palette, clean',
+    lowpoly:   'low-poly 3D, faceted geometric polygons, flat gradient shading, crystalline forms',
+    glitch:    'glitch art, datamosh, chromatic aberration, scanlines, RGB channel shift, digital distortion',
+    blueprint: 'technical blueprint schematic, white line-art on deep blue, engineering drawing, measurement grid, annotations',
+    watercolor:'watercolor painting, soft translucent washes, bleeding pigments, textured cold-press paper, loose edges',
+    oil:       'oil painting, visible impasto brushstrokes, rich layered texture, classical painterly lighting',
   };
   const detailKey = typeof vkObj?.['coverBgDetail'] === 'string' ? vkObj['coverBgDetail'] as string : 'balanced';
   const styleKey  = typeof vkObj?.['coverBgStyle']  === 'string' ? vkObj['coverBgStyle']  as string : 'auto';
