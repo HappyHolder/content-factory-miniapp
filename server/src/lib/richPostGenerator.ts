@@ -17,6 +17,7 @@
 
 import { env } from '../env';
 import { parseInline } from './richPost';
+import { replicateText } from './replicateText';
 import type { ListItem, PostBlock } from './richPost';
 
 export type FormatLevel = 'auto' | 'minimal' | 'article';
@@ -105,7 +106,29 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
 
 // ─── DeepSeek call ──────────────────────────────────────────────────────────────
 
-async function callLayoutAI(system: string, user: string): Promise<AiLayout | null> {
+/** Extracts the first {...} JSON object from a model reply (robust to fences/prose). */
+function parseLayout(raw: string): AiLayout | null {
+  const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
+  if (s < 0 || e < s) return null;
+  try { return JSON.parse(raw.slice(s, e + 1)) as AiLayout; }
+  catch { return null; }
+}
+
+/** GPT-5.6 Terra (or any LAYOUT_MODEL) via Replicate. Returns null on any failure. */
+async function layoutViaReplicate(system: string, user: string): Promise<AiLayout | null> {
+  if (!env.REPLICATE_API_TOKEN) return null;
+  const raw = await replicateText({
+    model:        env.LAYOUT_MODEL,
+    systemPrompt: system,
+    prompt:       user,
+    timeoutMs:    60_000,
+    input:        { max_completion_tokens: 4096, reasoning_effort: 'low' }, // GPT-5.6 params
+  });
+  return raw ? parseLayout(raw) : null;
+}
+
+/** DeepSeek OpenAI-compatible endpoint with forced JSON. Returns null on failure. */
+async function layoutViaDeepseek(system: string, user: string): Promise<AiLayout | null> {
   if (!env.DEEPSEEK_API_KEY) return null;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30_000);
@@ -124,14 +147,23 @@ async function callLayoutAI(system: string, user: string): Promise<AiLayout | nu
     });
     if (!res.ok) { console.error('[richPostGenerator] DeepSeek', res.status); return null; }
     const data = await res.json() as { choices?: { message?: { content?: string } }[] };
-    const raw = data.choices?.[0]?.message?.content ?? '';
-    return JSON.parse(raw) as AiLayout;
+    return parseLayout(data.choices?.[0]?.message?.content ?? '');
   } catch (err) {
     console.error('[richPostGenerator] layout AI failed:', (err as Error).message);
     return null;
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/** Primary = LAYOUT_MODEL on Replicate (Terra); falls back to DeepSeek. */
+async function callLayoutAI(system: string, user: string): Promise<AiLayout | null> {
+  if (env.LAYOUT_PROVIDER === 'replicate') {
+    const viaTerra = await layoutViaReplicate(system, user);
+    if (viaTerra) return viaTerra;
+    console.warn('[richPostGenerator] layout model unavailable — falling back to DeepSeek');
+  }
+  return layoutViaDeepseek(system, user);
 }
 
 // ─── Mapping AiLayout → PostBlock[] ─────────────────────────────────────────────

@@ -58,6 +58,11 @@ export const env = {
   DEEPSEEK_API_KEY:  process.env['DEEPSEEK_API_KEY']  ?? '',
   DEEPSEEK_BASE_URL: process.env['DEEPSEEK_BASE_URL'] ?? 'https://api.deepseek.com',
   DEEPSEEK_MODEL:    process.env['DEEPSEEK_MODEL']    ?? 'deepseek-chat',
+  // Layout/formatting model (richPostGenerator). 'replicate' → LAYOUT_MODEL
+  // (GPT-5.6 Terra) with a DeepSeek fallback; 'deepseek' → DeepSeek only. Needs
+  // REPLICATE_API_TOKEN for the replicate path; otherwise falls back to DeepSeek.
+  LAYOUT_PROVIDER: (process.env['LAYOUT_PROVIDER'] ?? 'replicate') as 'replicate' | 'deepseek',
+  LAYOUT_MODEL:    process.env['LAYOUT_MODEL'] ?? 'openai/gpt-5.6-terra',
   // Image generation — all optional; server starts fine if absent
   IMAGE_PROVIDER,
   IMAGE_MODEL:                       process.env['IMAGE_MODEL']                       ?? 'black-forest-labs/flux-schnell',

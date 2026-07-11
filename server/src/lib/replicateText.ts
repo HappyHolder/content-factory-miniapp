@@ -54,9 +54,11 @@ export interface ReplicateTextParams {
   model:        string;   // e.g. 'anthropic/claude-4.5-sonnet'
   prompt:       string;
   systemPrompt?: string;
-  maxTokens?:   number;
-  temperature?: number;
+  maxTokens?:   number;   // → input.max_tokens (omitted when undefined)
+  temperature?: number;   // → input.temperature (omitted when undefined; some models reject it)
   timeoutMs?:   number;
+  /** Extra model-specific input fields, merged last (e.g. GPT-5.6: max_completion_tokens, reasoning_effort). */
+  input?:       Record<string, unknown>;
 }
 
 /**
@@ -68,7 +70,7 @@ export async function replicateText(params: ReplicateTextParams): Promise<string
     console.warn('[replicateText] REPLICATE_API_TOKEN not set');
     return null;
   }
-  const { model, prompt, systemPrompt, maxTokens = 4096, temperature = 0.7, timeoutMs = 90_000 } = params;
+  const { model, prompt, systemPrompt, maxTokens, temperature, timeoutMs = 90_000, input: extraInput } = params;
 
   try {
     const createRes = await fetch(
@@ -83,8 +85,9 @@ export async function replicateText(params: ReplicateTextParams): Promise<string
           input: {
             prompt,
             ...(systemPrompt ? { system_prompt: systemPrompt } : {}),
-            max_tokens:  maxTokens,
-            temperature,
+            ...(maxTokens   != null ? { max_tokens: maxTokens } : {}),
+            ...(temperature != null ? { temperature } : {}),
+            ...(extraInput ?? {}),
           },
         }),
       },
