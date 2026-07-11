@@ -45,7 +45,8 @@ interface RichPostEditorProps {
 const BLOCK_LABEL: Record<PostBlock['type'], string> = {
   heading: 'Заголовок', paragraph: 'Абзац', list: 'Список', quote: 'Цитата',
   table: 'Таблица', image: 'Картинка', video: 'Видео', document: 'Файл', gallery: 'Галерея',
-  linkbox: 'Ссылка-рамка', divider: 'Разделитель',
+  linkbox: 'Ссылка-рамка', checklist: 'Чек-лист', details: 'Спойлер-секция', code: 'Код',
+  divider: 'Разделитель',
 }
 
 function makeBlock(type: PostBlock['type']): PostBlock {
@@ -57,6 +58,9 @@ function makeBlock(type: PostBlock['type']): PostBlock {
     case 'table':     return { type: 'table', headers: ['', ''], rows: [['', '']] }
     case 'gallery':   return { type: 'gallery', layout: 'slideshow', urls: [] }
     case 'linkbox':   return { type: 'linkbox', text: '', url: '' }
+    case 'checklist': return { type: 'checklist', items: [{ text: '', checked: false }] }
+    case 'details':   return { type: 'details', summary: '', body: '' }
+    case 'code':      return { type: 'code', text: '', language: '' }
     case 'document':  return { type: 'document', url: '', name: 'Файл' }
     case 'divider':   return { type: 'divider' }
     default:          return { type: 'paragraph', runs: [{ t: '' }] }
@@ -402,7 +406,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
             </button>
             {addOpen && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {(['paragraph', 'heading', 'list', 'table', 'quote', 'linkbox', 'gallery', 'divider'] as const).map(tp => (
+                {(['paragraph', 'heading', 'list', 'checklist', 'table', 'quote', 'details', 'code', 'linkbox', 'gallery', 'divider'] as const).map(tp => (
                   <button key={tp} onClick={() => add(tp)}
                     className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40">
                     {BLOCK_LABEL[tp]}
@@ -661,6 +665,43 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
             placeholder="Текст в рамке (напр. Подробнее)" className="glass-input w-full px-3 py-2 text-sm font-semibold" />
           <input value={b.url} onChange={e => onChange({ ...b, url: e.target.value.trim() })}
             placeholder="Ссылка — https://…" className="glass-input w-full px-3 py-1.5 text-[12px]" />
+        </div>
+      )
+    case 'checklist':
+      return (
+        <div className="space-y-1">
+          {b.items.map((it, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <button type="button" title={it.checked ? 'Выполнено' : 'Не выполнено'}
+                onClick={() => onChange({ ...b, items: b.items.map((x, k) => k === i ? { ...x, checked: !x.checked } : x) })}
+                className={`w-5 h-5 shrink-0 rounded-[5px] border flex items-center justify-center text-[10px] font-bold leading-none ${it.checked ? 'bg-[#FF6A00] border-[#FF6A00] text-white' : 'border-white/25 text-transparent'}`}>✓</button>
+              <input value={it.text} placeholder="Пункт"
+                onChange={e => onChange({ ...b, items: b.items.map((x, k) => k === i ? { ...x, text: e.target.value } : x) })}
+                className="glass-input flex-1 min-w-0 px-2.5 py-1.5 text-[12px]" />
+              <button type="button" onClick={() => onChange({ ...b, items: b.items.filter((_, k) => k !== i) })} disabled={b.items.length <= 1}
+                className="w-5 shrink-0 flex justify-center text-[#71717A] hover:text-[#EF4444] disabled:opacity-30 disabled:hover:text-[#71717A]"><Trash2 size={12} /></button>
+            </div>
+          ))}
+          <button type="button" onClick={() => onChange({ ...b, items: [...b.items, { text: '', checked: false }] })}
+            className="text-[11px] font-medium text-[#FF6A00]">+ пункт</button>
+        </div>
+      )
+    case 'details':
+      return (
+        <div className="space-y-1.5">
+          <input value={b.summary} onChange={e => onChange({ ...b, summary: e.target.value })}
+            placeholder="Заголовок секции (виден всегда)" className="glass-input w-full px-3 py-2 text-sm font-semibold" />
+          <MarkableTextarea value={b.body} onChange={v => onChange({ ...b, body: v })} rows={2}
+            placeholder="Содержимое — раскрывается по клику…" />
+        </div>
+      )
+    case 'code':
+      return (
+        <div className="space-y-1.5">
+          <input value={b.language ?? ''} onChange={e => onChange({ ...b, language: e.target.value.trim() || undefined })}
+            placeholder="Язык (необязательно): js, python, sql…" className="glass-input w-full px-3 py-1.5 text-[12px]" />
+          <textarea value={b.text} onChange={e => onChange({ ...b, text: e.target.value })} rows={4} spellCheck={false}
+            placeholder="Код…" className="glass-input w-full px-3 py-2 text-[12.5px] font-mono resize-none" />
         </div>
       )
     case 'list':

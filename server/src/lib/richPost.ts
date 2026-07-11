@@ -50,6 +50,12 @@ export type PostBlock =
   // A framed, filled CTA box with a centered link inside — a single bordered
   // header-cell table (Telegram: border="1" → is_bordered, <th> → fill).
   | { type: 'linkbox';   text: string; url: string }
+  // Checklist — a <ul> whose items carry checkboxes (Telegram: has_checkbox / is_checked).
+  | { type: 'checklist'; items: { text: string; checked: boolean }[] }
+  // Collapsible section with a visible header (Telegram <details><summary>).
+  | { type: 'details';   summary: string; body: string }
+  // Preformatted code block with an optional language label + copy button (<pre><code>).
+  | { type: 'code';      text: string; language?: string }
   | { type: 'divider' };
 
 export interface RichPost {
@@ -181,6 +187,22 @@ function renderBlock(b: PostBlock): string {
       // border="1" draws the frame; <th align="center"> gives the fill + centering.
       return `<table border="1"><tr><th align="center">${inner}</th></tr></table>`;
     }
+    case 'checklist': {
+      const items = b.items
+        .filter(it => it.text.trim())
+        .map(it => `<li><input type="checkbox"${it.checked ? ' checked' : ''}>${renderCell(it.text)}</li>`)
+        .join('');
+      return items ? `<ul>${items}</ul>` : '';
+    }
+    case 'details': {
+      if (!b.summary.trim() && !b.body.trim()) return '';
+      const body = b.body.trim() ? `<p>${renderRuns(parseInline(b.body))}</p>` : '';
+      return `<details><summary>${escapeHtml(b.summary)}</summary>${body}</details>`;
+    }
+    case 'code':
+      return b.text.trim()
+        ? `<pre><code${b.language ? ` class="language-${escapeAttr(b.language)}"` : ''}>${escapeHtml(b.text)}</code></pre>`
+        : '';
     case 'divider':
       return '<hr>';
     default:
@@ -225,6 +247,14 @@ export function blocksToPlainText(blocks: PostBlock[]): string {
         break;
       }
       case 'linkbox': parts.push(b.url ? `${b.text} (${b.url})` : b.text); break;
+      case 'checklist':
+        parts.push(b.items.filter(it => it.text.trim())
+          .map(it => `${it.checked ? '☑' : '☐'} ${runsToText(parseInline(it.text))}`).join('\n'));
+        break;
+      case 'details':
+        parts.push(b.summary + (b.body.trim() ? `\n${runsToText(parseInline(b.body))}` : ''));
+        break;
+      case 'code': parts.push(b.text); break;
       // image / video / document / gallery / divider produce no text
     }
   }

@@ -189,6 +189,31 @@ function Block({ b }: { b: PostBlock }) {
             : <span className="text-[13.5px] font-semibold text-white">{b.text || 'Ссылка'}</span>}
         </div>
       )
+    case 'checklist':
+      return (
+        <ul className="space-y-1 text-[14px] text-[#E4E4E7]">
+          {b.items.filter(it => it.text.trim()).map((it, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <span className={`mt-[3px] w-3.5 h-3.5 shrink-0 rounded-[4px] border flex items-center justify-center text-[9px] font-bold leading-none ${it.checked ? 'bg-[#FF6A00] border-[#FF6A00] text-white' : 'border-white/25 text-transparent'}`}>✓</span>
+              <span className={it.checked ? 'text-[#8A8A92] line-through' : ''}><Runs runs={textToRuns(it.text)} /></span>
+            </li>
+          ))}
+        </ul>
+      )
+    case 'details':
+      return (
+        <details className="rounded-[8px] bg-white/[0.03] border border-white/[0.07] px-3 py-2">
+          <summary className="text-[13.5px] font-semibold text-white cursor-pointer select-none">{b.summary || 'Секция'}</summary>
+          {b.body.trim() && <p className="mt-1.5 text-[13.5px] text-[#C8C8CE] leading-[1.5]"><Runs runs={textToRuns(b.body)} /></p>}
+        </details>
+      )
+    case 'code':
+      return (
+        <div className="rounded-[8px] overflow-hidden border border-white/[0.08] bg-[#0B0B0C]">
+          {b.language && <div className="px-3 py-1 text-[11px] text-[#66666E] border-b border-white/[0.06]">{b.language}</div>}
+          <pre className="px-3 py-2 overflow-x-auto text-[12.5px] text-[#D4D4D8] font-mono whitespace-pre">{b.text}</pre>
+        </div>
+      )
     case 'divider':
       return <div className="h-px bg-white/10 my-1.5" />
     default:

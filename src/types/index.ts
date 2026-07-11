@@ -311,6 +311,9 @@ export type PostBlock =
   | { type: 'document';  url: string; name: string; mime?: string; size?: number }
   | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
   | { type: 'linkbox';   text: string; url: string }  // framed CTA box with a centered link
+  | { type: 'checklist'; items: { text: string; checked: boolean }[] }
+  | { type: 'details';   summary: string; body: string }  // collapsible section with a header
+  | { type: 'code';      text: string; language?: string }
   | { type: 'divider' }
 
 export interface PostVariant {
