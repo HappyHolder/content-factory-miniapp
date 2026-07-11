@@ -108,6 +108,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   const documentRef = useRef<HTMLInputElement>(null)
   const panoRef = useRef<HTMLInputElement>(null)
   const [panoTarget, setPanoTarget] = useState<{ gallery: number; orientation: 'horizontal' | 'vertical'; count: number } | null>(null)
+  const [panoGen, setPanoGen] = useState<number | null>(null)
 
   const pickImage = (target: UploadTarget) => { setUploadTarget(target); fileRef.current?.click() }
   const pickVideo = (target: 'new' | number) => { setUploadTarget(target); videoRef.current?.click() }
@@ -169,6 +170,29 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
       showToast('Ошибка нарезки', 'error')
     } finally {
       setUploading(false); setPanoTarget(null)
+    }
+  }
+
+  const generatePanorama = async (gi: number, orientation: 'horizontal' | 'vertical', count: number, prompt: string) => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    if (!prompt.trim()) { showToast('Опиши, что сгенерировать', 'error'); return }
+    setPanoGen(gi)
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/generate-panorama`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, prompt, orientation, count }),
+      })
+      const data = await res.json().catch(() => ({})) as { urls?: string[]; layout?: string; error?: string }
+      if (!res.ok || !data.urls?.length) { showToast(data.error ?? 'Не удалось сгенерировать', 'error'); return }
+      const blk = blocks[gi]
+      if (blk?.type === 'gallery') {
+        patch(gi, { ...blk, urls: data.urls, layout: data.layout === 'stack' ? 'stack' : 'slideshow' })
+      }
+    } catch {
+      showToast('Ошибка генерации', 'error')
+    } finally {
+      setPanoGen(null)
     }
   }
 
@@ -429,6 +453,8 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                   onReplace={() => (b.type === 'video' ? pickVideo(i) : b.type === 'document' ? pickDocument(i) : pickImage(i))}
                   onAddGalleryPhoto={() => pickImage({ gallery: i })}
                   onSlicePanorama={(orientation, count) => pickPanorama(i, orientation, count)}
+                  onGeneratePanorama={(orientation, count, prompt) => generatePanorama(i, orientation, count, prompt)}
+                  panoGenLoading={panoGen === i}
                   onGenerateGalleryPhoto={(p: string) => generateGalleryPhoto(i, p)}
                   galleryGenLoading={galleryGenIdx === i}
                   onRegenerate={(p: string) => generateImage(p, i)}
@@ -664,11 +690,13 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
 
 // ─── Per-block editors ──────────────────────────────────────────────────────────
 
-function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGalleryPhoto, galleryGenLoading, onRegenerate, regenLoading, uploading, onSlicePanorama }: {
+function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGalleryPhoto, galleryGenLoading, onRegenerate, regenLoading, uploading, onSlicePanorama, onGeneratePanorama, panoGenLoading }: {
   b: PostBlock; onChange: (next: PostBlock) => void; onReplace?: () => void; onAddGalleryPhoto?: () => void
   onGenerateGalleryPhoto?: (prompt: string) => void; galleryGenLoading?: boolean
   onRegenerate?: (prompt: string) => void; regenLoading?: boolean; uploading?: boolean
   onSlicePanorama?: (orientation: 'horizontal' | 'vertical', count: number) => void
+  onGeneratePanorama?: (orientation: 'horizontal' | 'vertical', count: number, prompt: string) => void
+  panoGenLoading?: boolean
 }) {
   // Local prompt state for the gallery "+ AI-фото" panel (one photo at a time).
   const [galPromptOpen, setGalPromptOpen] = useState(false)
@@ -676,6 +704,7 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
   // Panorama slicer (gallery): orientation + how many pieces to cut one image into.
   const [panoOrient, setPanoOrient] = useState<'horizontal' | 'vertical'>('horizontal')
   const [panoCount, setPanoCount] = useState(3)
+  const [panoPrompt, setPanoPrompt] = useState('')
   // Shared formatting toolbar for table cells — acts on the last-focused cell input.
   const cellTarget = useRef<{ el: HTMLInputElement; ri: number | 'h'; ci: number } | null>(null)
   const cellLinkTarget = useRef<{ el: HTMLInputElement; ri: number | 'h'; ci: number; s: number; e: number } | null>(null)
@@ -940,12 +969,22 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
               <input type="number" min={2} max={8} value={panoCount}
                 onChange={e => setPanoCount(Math.min(8, Math.max(2, parseInt(e.target.value, 10) || 2)))}
                 className="glass-input w-12 px-2 py-1 text-[12px]" title="Сколько частей" />
-              <button onClick={() => onSlicePanorama?.(panoOrient, panoCount)} disabled={uploading}
+              <button onClick={() => onSlicePanorama?.(panoOrient, panoCount)} disabled={uploading || panoGenLoading}
                 className="px-2.5 py-1 rounded-[8px] bg-white/[0.06] border border-white/[0.08] text-[11px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50 flex items-center gap-1">
                 {uploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />} Загрузить и нарезать
               </button>
             </div>
-            <p className="text-[10px] text-[#55555D] leading-relaxed">Горизонт → карусель, вертикаль → стопка. Одну большую картинку режем на {panoCount} частей.</p>
+            {/* Generate the panorama with AI (nano-banana-2), then slice */}
+            <div className="flex items-start gap-1.5">
+              <textarea value={panoPrompt} onChange={e => setPanoPrompt(e.target.value)} rows={2}
+                placeholder="Или опиши панораму: «ракета стартует в звёздное небо, луна сверху, огонь снизу»"
+                className="glass-input flex-1 min-w-0 px-2.5 py-1.5 text-[12px] resize-none" />
+              <button onClick={() => onGeneratePanorama?.(panoOrient, panoCount, panoPrompt)} disabled={panoGenLoading || uploading || !panoPrompt.trim()}
+                className="shrink-0 px-2.5 py-2 rounded-[8px] bg-[#FF6A00] text-white text-[11px] font-semibold hover:bg-[#FF6A00]/90 disabled:opacity-50 flex items-center gap-1">
+                {panoGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Сгенерировать
+              </button>
+            </div>
+            <p className="text-[10px] text-[#55555D] leading-relaxed">Горизонт → карусель, вертикаль → стопка. Режем на {panoCount} частей. Генерация — nano-banana (Gemini).</p>
           </div>
           {/* thumbnails with remove */}
           {b.urls.length > 0 && (

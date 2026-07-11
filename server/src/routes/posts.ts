@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { putObject, deleteObject } from '../lib/storage';
+import { generatePanoramaImage, sliceImage } from '../lib/panoramaGenerator';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -1036,24 +1037,58 @@ router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Req
     if (!Number.isFinite(count) || count < 2) {
       count = orientation === 'vertical' ? Math.round(H / W) : Math.round(W / H);
     }
-    count = Math.min(Math.max(count, 2), 8);
 
-    const sw = Math.floor(W / count), sh = Math.floor(H / count);
-    const urls: string[] = [];
-    for (let i = 0; i < count; i++) {
-      // Last slice absorbs the rounding remainder so nothing is cropped off.
-      const region = orientation === 'vertical'
-        ? { left: 0,      top: sh * i, width: W, height: i === count - 1 ? H - sh * i : sh }
-        : { left: sw * i, top: 0,      width: i === count - 1 ? W - sw * i : sw, height: H };
-      const buf = await sharp(file.buffer).extract(region).png().toBuffer();
-      const obj = await putObject(`posts/panorama/${dbUser.id}-${Date.now()}-${i}.png`, buf, { contentType: 'image/png' });
-      urls.push(obj.url);
-    }
+    const slices = await sliceImage(file.buffer, orientation, count);
+    if (!slices.length) { res.status(400).json({ error: 'Slice failed' }); return; }
+    const urls = await Promise.all(slices.map((buf, i) =>
+      putObject(`posts/panorama/${dbUser.id}-${Date.now()}-${i}.png`, buf, { contentType: 'image/png' }).then(o => o.url)));
 
-    res.json({ urls, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count });
+    res.json({ urls, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count: slices.length });
   } catch (err) {
     console.error('[posts/slice-panorama] slice failed:', (err as Error).message);
     res.status(500).json({ error: 'Slice failed. Try again.' });
+  }
+});
+
+// ─── POST /api/posts/generate-panorama ───────────────────────────────────────
+// Generates ONE long panorama via nano-banana-2 (prompt + orientation), then
+// slices it into `count` pieces. 'horizontal' → 4:1/8:1 → slideshow carousel;
+// 'vertical' → 1:4/1:8 → stacked. Does NOT touch the DB.
+// Request: JSON { initData, prompt, orientation?, count? }
+// Response 200: { urls: string[], layout: 'slideshow' | 'stack', count }
+router.post('/generate-panorama', async (req: Request, res: Response): Promise<void> => {
+  const { initData, prompt } = req.body as { initData?: unknown; prompt?: unknown };
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (typeof prompt !== 'string' || !prompt.trim()) { res.status(400).json({ error: 'prompt is required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  const orientation = (req.body as { orientation?: unknown }).orientation === 'vertical' ? 'vertical' : 'horizontal';
+  let count = parseInt(String((req.body as { count?: unknown }).count ?? ''), 10);
+  if (!Number.isFinite(count)) count = 4;
+  count = Math.min(Math.max(count, 2), 8);
+  // Pick the extreme ratio that gives enough source dimension for `count` squares.
+  const aspectRatio = orientation === 'vertical'
+    ? (count > 4 ? '1:8' : '1:4')
+    : (count > 4 ? '8:1' : '4:1');
+
+  try {
+    const image = await generatePanoramaImage(prompt.slice(0, 1200), aspectRatio);
+    if (!image) { res.status(502).json({ error: 'Генерация не удалась. Попробуйте ещё раз.' }); return; }
+
+    const slices = await sliceImage(image, orientation, count);
+    if (!slices.length) { res.status(500).json({ error: 'Slice failed' }); return; }
+    const urls = await Promise.all(slices.map((buf, i) =>
+      putObject(`posts/panorama/${dbUser.id}-${Date.now()}-${i}.png`, buf, { contentType: 'image/png' }).then(o => o.url)));
+
+    res.json({ urls, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count: slices.length });
+  } catch (err) {
+    console.error('[posts/generate-panorama] failed:', (err as Error).message);
+    res.status(500).json({ error: 'Не удалось сгенерировать панораму. Попробуйте ещё раз.' });
   }
 });
 
