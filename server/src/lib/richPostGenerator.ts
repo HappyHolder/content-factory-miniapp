@@ -257,7 +257,10 @@ export async function generateRichBlocks(input: RichGenInput): Promise<PostBlock
     if (isStr(layout.heading)) {
       const link = isStr(layout.headingUrl) && /^https?:\/\/\S+$/i.test(layout.headingUrl.trim())
         ? layout.headingUrl.trim() : undefined;
-      blocks.push({ type: 'heading', text: layout.heading, ...(link ? { link } : {}) });
+      // The heading is plain text (display-bold already) — strip any inline markers
+      // the model left in (e.g. **bold**), so they don't render literally.
+      const text = parseInline(layout.heading).map(r => r.t).join('');
+      blocks.push({ type: 'heading', text, ...(link ? { link } : {}) });
     }
     const used = new Set<number>();
     for (const el of layout.elements) {
