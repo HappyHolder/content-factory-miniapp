@@ -111,6 +111,9 @@ model Channel {
   id     String  @id @default(cuid())
   name   String
   handle String? @unique
+  // Stable numeric Telegram chat id (e.g. "-1001234567890"). Survives channel
+  // renames — publishing prefers it over @handle so a rename never breaks it.
+  tgChatId String?
   userId String
 
   createdAt DateTime @default(now())

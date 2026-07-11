@@ -549,6 +549,17 @@ router.post('/list', async (req: Request, res: Response): Promise<void> => {
 // Response 502: Telegram API rejected the message
 // Response 500: DB error
 
+/** Turns a raw Telegram publish error into a clear, actionable Russian message. */
+function friendlyPublishError(msg: string): string {
+  if (/chat not found/i.test(msg))
+    return 'Канал не найден. Проверьте: бот @Publiumbot — администратор канала, и @username не менялся. Если переименовали канал — переподключите его в профиле.';
+  if (/not enough rights|need administrator|administrator rights|CHAT_ADMIN_REQUIRED/i.test(msg))
+    return 'У бота недостаточно прав. Добавьте @Publiumbot администратором канала с правом публикации.';
+  if (/kicked|not a member|bot was blocked/i.test(msg))
+    return 'Бот удалён из канала. Верните @Publiumbot администратором и переподключите канал.';
+  return `Telegram отклонил публикацию: ${msg}`;
+}
+
 router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   const { initData, postId } = req.body as {
     initData?: unknown;
@@ -602,9 +613,11 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     linkButtons:       unknown;           // Json? — LinkItem[] stored by draftGenerator
     title:  string;
     channel: {
-      userId: string;
-      handle: string | null;
-      name:   string;
+      id:       string;
+      userId:   string;
+      handle:   string | null;
+      name:     string;
+      tgChatId: string | null;
     };
     variants: { id: string; text: string; bannerUrl: string | null; blocks: unknown }[];
   } | null = null;
@@ -619,7 +632,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
         selectedVariantId: true,
         linkButtons:       true,
         channel: {
-          select: { userId: true, handle: true, name: true },
+          select: { id: true, userId: true, handle: true, name: true, tgChatId: true },
         },
         variants: {
           orderBy: { variantIndex: 'asc' },
@@ -660,13 +673,14 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 8. Require channel handle ────────────────────────────────────────────
-  // Channels connected through the app always have a handle (enforced by
-  // the /api/channels/connect normaliseUsername step), but guard anyway.
-  if (!post.channel.handle) {
-    res.status(500).json({ error: 'Channel has no public username — cannot publish.' });
+  // ── 8. Resolve the Telegram target ───────────────────────────────────────
+  // Prefer the stable numeric chat id (survives channel renames); fall back to
+  // @handle for channels connected before we stored the id.
+  if (!post.channel.tgChatId && !post.channel.handle) {
+    res.status(500).json({ error: 'У канала нет id и @username — переподключите его в профиле.' });
     return;
   }
+  const channelTarget = post.channel.tgChatId ?? `@${post.channel.handle}`;
 
   // ── 9. Build optional inline keyboard from stored link buttons ───────────
   // linkButtons was populated from BrandKit at draft-creation time (and edited
@@ -685,7 +699,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       // Formatted post — structured blocks → Rich Message (with internal fallback
       // to the legacy plain path inside sendRichChannelPost if the API rejects it).
       sentRef = await sendRichChannelPost({
-        chatId:      `@${post.channel.handle}`,
+        chatId:      channelTarget,
         blocks,
         title:       post.title,
         siteName:    post.channel.name || post.channel.handle || undefined,
@@ -695,7 +709,7 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
     } else {
       // Legacy posts created before formatting existed (no stored blocks).
       sentRef = await sendChannelPost({
-        chatId:      `@${post.channel.handle}`,
+        chatId:      channelTarget,
         text:        selectedVariant.text,
         bannerUrl:   selectedVariant.bannerUrl,
         title:       post.title,
@@ -709,8 +723,15 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
       ? err.message
       : (err as Error).message ?? 'Telegram API error';
     console.error('[posts/publish] Telegram send failed:', msg);
-    res.status(502).json({ error: `Telegram rejected the publish request: ${msg}` });
+    res.status(502).json({ error: friendlyPublishError(msg) });
     return;
+  }
+
+  // Self-heal: remember the numeric chat id from the successful send so future
+  // publishes go by id (rename-proof), even for channels connected before this.
+  if (!post.channel.tgChatId && sentRef?.chatId) {
+    prisma.channel.update({ where: { id: post.channel.id }, data: { tgChatId: String(sentRef.chatId) } })
+      .catch(err => console.error('[posts/publish] tgChatId backfill failed:', (err as Error).message));
   }
 
   // ── 11. Persist PUBLISHED status ─────────────────────────────────────────

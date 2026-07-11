@@ -40,7 +40,7 @@ async function publishDuePosts(): Promise<void> {
     title:             string;
     selectedVariantId: string | null;
     linkButtons:       unknown;
-    channel:           { handle: string | null; name: string };
+    channel:           { id: string; handle: string | null; name: string; tgChatId: string | null };
     variants:          { id: string; text: string; bannerUrl: string | null; blocks: unknown }[];
   }[];
 
@@ -56,7 +56,7 @@ async function publishDuePosts(): Promise<void> {
         selectedVariantId: true,
         linkButtons:       true,
         channel: {
-          select: { handle: true, name: true },
+          select: { id: true, handle: true, name: true, tgChatId: true },
         },
         variants: {
           orderBy: { variantIndex: 'asc' },
@@ -94,11 +94,12 @@ async function publishDuePosts(): Promise<void> {
       continue;
     }
 
-    // Require channel handle
-    if (!post.channel.handle) {
-      console.error(`[scheduler] Post ${post.id}: no channel handle — skipping`);
+    // Prefer the stable numeric chat id (rename-proof); fall back to @handle.
+    if (!post.channel.tgChatId && !post.channel.handle) {
+      console.error(`[scheduler] Post ${post.id}: no channel id/handle — skipping`);
       continue;
     }
+    const channelTarget = post.channel.tgChatId ?? `@${post.channel.handle}`;
 
     // Build optional inline keyboard from stored link buttons
     const replyMarkup = buildInlineKeyboard(post.linkButtons);
@@ -109,7 +110,7 @@ async function publishDuePosts(): Promise<void> {
     try {
       if (blocks) {
         sentRef = await sendRichChannelPost({
-          chatId:      `@${post.channel.handle}`,
+          chatId:      channelTarget,
           blocks,
           title:       post.title,
           siteName:    post.channel.name || post.channel.handle || undefined,
@@ -118,7 +119,7 @@ async function publishDuePosts(): Promise<void> {
         });
       } else {
         sentRef = await sendChannelPost({
-          chatId:      `@${post.channel.handle}`,
+          chatId:      channelTarget,
           text:        selectedVariant.text,
           bannerUrl:   selectedVariant.bannerUrl,
           title:       post.title,
@@ -131,6 +132,12 @@ async function publishDuePosts(): Promise<void> {
       console.error(`[scheduler] Post ${post.id}: Telegram send failed — will retry next poll:`, (err as Error).message);
       // Leave status=SCHEDULED so the next sweep retries.
       continue;
+    }
+
+    // Self-heal: remember the numeric chat id so future publishes are rename-proof.
+    if (!post.channel.tgChatId && sentRef?.chatId) {
+      prisma.channel.update({ where: { id: post.channel.id }, data: { tgChatId: String(sentRef.chatId) } })
+        .catch(e => console.error(`[scheduler] Post ${post.id}: tgChatId backfill failed:`, (e as Error).message));
     }
 
     // Mark PUBLISHED in DB — store the sent message ref for the 5-hour

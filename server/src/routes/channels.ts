@@ -226,12 +226,14 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
   const title = tgChat.title ?? handle;
   const subscribersCount = tgChat.member_count ?? 0;
 
+  const tgChatId = tgChat.id != null ? String(tgChat.id) : null;
+
   let channel: { id: string; name: string; handle: string | null };
   try {
     channel = await prisma.channel.upsert({
       where: { handle },
-      update: { name: title },
-      create: { name: title, handle, userId: dbUser.id },
+      update: { name: title, ...(tgChatId ? { tgChatId } : {}) },
+      create: { name: title, handle, userId: dbUser.id, ...(tgChatId ? { tgChatId } : {}) },
       select: { id: true, name: true, handle: true },
     });
   } catch (err) {
