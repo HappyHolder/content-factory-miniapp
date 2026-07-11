@@ -46,7 +46,7 @@ export type PostBlock =
   | { type: 'image';     url: string }
   | { type: 'video';     url: string; poster?: string }
   | { type: 'document';  url: string; name: string; mime?: string; size?: number }
-  | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
+  | { type: 'gallery';   layout: 'slideshow' | 'collage' | 'stack'; urls: string[] }
   // A framed, filled CTA box with a centered link inside — a single bordered
   // header-cell table (Telegram: border="1" → is_bordered, <th> → fill).
   | { type: 'linkbox';   text: string; url: string }
@@ -174,9 +174,12 @@ function renderBlock(b: PostBlock): string {
     case 'document':
       return '';
     case 'gallery': {
-      const tag = b.layout === 'collage' ? 'tg-collage' : 'tg-slideshow';
       const imgs = b.urls.filter(isHttpUrl).map(renderImg).join('');
       if (!imgs) return '';
+      // 'stack' = bare consecutive <img> → Telegram renders separate stacked
+      // photos (top-to-bottom), which is how a sliced vertical panorama reads.
+      if (b.layout === 'stack') return imgs;
+      const tag = b.layout === 'collage' ? 'tg-collage' : 'tg-slideshow';
       return `<${tag}>${imgs}</${tag}>`;
     }
     case 'linkbox': {

@@ -106,6 +106,8 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   const fileRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLInputElement>(null)
   const documentRef = useRef<HTMLInputElement>(null)
+  const panoRef = useRef<HTMLInputElement>(null)
+  const [panoTarget, setPanoTarget] = useState<{ gallery: number; orientation: 'horizontal' | 'vertical'; count: number } | null>(null)
 
   const pickImage = (target: UploadTarget) => { setUploadTarget(target); fileRef.current?.click() }
   const pickVideo = (target: 'new' | number) => { setUploadTarget(target); videoRef.current?.click() }
@@ -136,6 +138,36 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
     } finally {
       setUploading(false)
       setUploadTarget(null)
+    }
+  }
+
+  const pickPanorama = (gallery: number, orientation: 'horizontal' | 'vertical', count: number) => {
+    setPanoTarget({ gallery, orientation, count }); panoRef.current?.click()
+  }
+
+  const handlePanoFile = async (file: File) => {
+    const initData = getTelegramInitData()
+    if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    const t = panoTarget
+    if (!t) return
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('initData', initData)
+      form.append('image', file)
+      form.append('orientation', t.orientation)
+      form.append('count', String(t.count))
+      const res = await fetch(`${API_BASE}/api/posts/slice-panorama`, { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({})) as { urls?: string[]; layout?: string; error?: string }
+      if (!res.ok || !data.urls?.length) { showToast(data.error ?? 'Не удалось нарезать', 'error'); return }
+      const blk = blocks[t.gallery]
+      if (blk?.type === 'gallery') {
+        patch(t.gallery, { ...blk, urls: data.urls, layout: data.layout === 'stack' ? 'stack' : 'slideshow' })
+      }
+    } catch {
+      showToast('Ошибка нарезки', 'error')
+    } finally {
+      setUploading(false); setPanoTarget(null)
     }
   }
 
@@ -340,6 +372,13 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
         className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) handleDocumentFile(f); e.target.value = '' }}
       />
+      <input
+        ref={panoRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handlePanoFile(f); e.target.value = '' }}
+      />
       {/* mode toggle */}
       <div className="flex gap-1 p-1 rounded-[12px] bg-white/[0.04] border border-white/[0.06]">
         {([['preview', Eye, 'Превью'], ['edit', Pencil, 'Редактор']] as const).map(([m, Icon, label]) => (
@@ -388,6 +427,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
                   onChange={next => patch(i, next)}
                   onReplace={() => (b.type === 'video' ? pickVideo(i) : b.type === 'document' ? pickDocument(i) : pickImage(i))}
                   onAddGalleryPhoto={() => pickImage({ gallery: i })}
+                  onSlicePanorama={(orientation, count) => pickPanorama(i, orientation, count)}
                   onGenerateGalleryPhoto={(p: string) => generateGalleryPhoto(i, p)}
                   galleryGenLoading={galleryGenIdx === i}
                   onRegenerate={(p: string) => generateImage(p, i)}
@@ -623,14 +663,18 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
 
 // ─── Per-block editors ──────────────────────────────────────────────────────────
 
-function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGalleryPhoto, galleryGenLoading, onRegenerate, regenLoading, uploading }: {
+function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGalleryPhoto, galleryGenLoading, onRegenerate, regenLoading, uploading, onSlicePanorama }: {
   b: PostBlock; onChange: (next: PostBlock) => void; onReplace?: () => void; onAddGalleryPhoto?: () => void
   onGenerateGalleryPhoto?: (prompt: string) => void; galleryGenLoading?: boolean
   onRegenerate?: (prompt: string) => void; regenLoading?: boolean; uploading?: boolean
+  onSlicePanorama?: (orientation: 'horizontal' | 'vertical', count: number) => void
 }) {
   // Local prompt state for the gallery "+ AI-фото" panel (one photo at a time).
   const [galPromptOpen, setGalPromptOpen] = useState(false)
   const [galPrompt, setGalPrompt] = useState('')
+  // Panorama slicer (gallery): orientation + how many pieces to cut one image into.
+  const [panoOrient, setPanoOrient] = useState<'horizontal' | 'vertical'>('horizontal')
+  const [panoCount, setPanoCount] = useState(3)
   // Shared formatting toolbar for table cells — acts on the last-focused cell input.
   const cellTarget = useRef<{ el: HTMLInputElement; ri: number | 'h'; ci: number } | null>(null)
   const cellLinkTarget = useRef<{ el: HTMLInputElement; ri: number | 'h'; ci: number; s: number; e: number } | null>(null)
@@ -875,12 +919,32 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
         <div className="space-y-2">
           {/* layout toggle */}
           <div className="flex gap-1 p-0.5 rounded-[9px] bg-white/[0.04] border border-white/[0.06] w-fit">
-            {([['slideshow', 'Карусель'], ['collage', 'Сетка']] as const).map(([lay, label]) => (
+            {([['slideshow', 'Карусель'], ['collage', 'Сетка'], ['stack', 'Стопка']] as const).map(([lay, label]) => (
               <button key={lay} onClick={() => onChange({ ...b, layout: lay })}
                 className={cn('px-2.5 py-1 rounded-[7px] text-[11px] font-medium', b.layout === lay ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]')}>
                 {label}
               </button>
             ))}
+          </div>
+          {/* Panorama slicer — cut ONE big image into N pieces */}
+          <div className="rounded-[10px] bg-white/[0.03] border border-white/[0.06] p-2 space-y-1.5">
+            <span className="text-[11px] font-semibold text-[#A1A1AA]">Панорама — нарезать 1 картинку</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="flex gap-1 p-0.5 rounded-[8px] bg-white/[0.04] border border-white/[0.06]">
+                {([['horizontal', 'Горизонт'], ['vertical', 'Вертикаль']] as const).map(([o, l]) => (
+                  <button key={o} onClick={() => setPanoOrient(o)}
+                    className={cn('px-2 py-0.5 rounded-[6px] text-[11px]', panoOrient === o ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]')}>{l}</button>
+                ))}
+              </div>
+              <input type="number" min={2} max={8} value={panoCount}
+                onChange={e => setPanoCount(Math.min(8, Math.max(2, parseInt(e.target.value, 10) || 2)))}
+                className="glass-input w-12 px-2 py-1 text-[12px]" title="Сколько частей" />
+              <button onClick={() => onSlicePanorama?.(panoOrient, panoCount)} disabled={uploading}
+                className="px-2.5 py-1 rounded-[8px] bg-white/[0.06] border border-white/[0.08] text-[11px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50 flex items-center gap-1">
+                {uploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />} Загрузить и нарезать
+              </button>
+            </div>
+            <p className="text-[10px] text-[#55555D] leading-relaxed">Горизонт → карусель, вертикаль → стопка. Одну большую картинку режем на {panoCount} частей.</p>
           </div>
           {/* thumbnails with remove */}
           {b.urls.length > 0 && (

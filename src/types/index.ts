@@ -320,7 +320,7 @@ export type PostBlock =
   | { type: 'image';     url: string; prompt?: string } // prompt set = AI-generated (regeneratable)
   | { type: 'video';     url: string; poster?: string }
   | { type: 'document';  url: string; name: string; mime?: string; size?: number }
-  | { type: 'gallery';   layout: 'slideshow' | 'collage'; urls: string[] }
+  | { type: 'gallery';   layout: 'slideshow' | 'collage' | 'stack'; urls: string[] }
   | { type: 'linkbox';   text: string; url: string }  // framed CTA box with a centered link
   | { type: 'checklist'; items: { text: string; checked: boolean }[] }
   | { type: 'details';   summary: string; body: string }  // collapsible section with a header

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import sharp from 'sharp';
 import { putObject, deleteObject } from '../lib/storage';
 import { prisma } from '../db';
 import { env } from '../env';
@@ -1001,6 +1002,58 @@ router.post('/upload-block-image', uploadMiddleware.single('image'), async (req:
   } catch (err) {
     console.error('[posts/upload-block-image] upload failed:', (err as Error).message);
     res.status(500).json({ error: 'Upload failed. Try again.' });
+  }
+});
+
+// ─── POST /api/posts/slice-panorama ──────────────────────────────────────────
+// Slices ONE big image into N pieces for a gallery: 'horizontal' → N vertical
+// strips (a swipe carousel), 'vertical' → N horizontal strips (a stacked panorama).
+// Count is explicit or auto-derived from the aspect ratio. Returns the piece URLs
+// + the gallery layout to use. Does NOT touch the DB.
+// Request: multipart { initData, image, orientation?, count? }
+// Response 200: { urls: string[], layout: 'slideshow' | 'stack', count }
+router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Request, res: Response): Promise<void> => {
+  const initData = req.body['initData'] as unknown;
+  const file = req.file;
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (!file) { res.status(400).json({ error: 'image is required' }); return; }
+
+  let parsed;
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  const orientation = req.body['orientation'] === 'vertical' ? 'vertical' : 'horizontal';
+
+  try {
+    const meta = await sharp(file.buffer).metadata();
+    const W = meta.width ?? 0, H = meta.height ?? 0;
+    if (W < 2 || H < 2) { res.status(400).json({ error: 'Image too small' }); return; }
+
+    // Explicit count, else derive from the aspect ratio (how many squares fit).
+    let count = parseInt(String(req.body['count'] ?? ''), 10);
+    if (!Number.isFinite(count) || count < 2) {
+      count = orientation === 'vertical' ? Math.round(H / W) : Math.round(W / H);
+    }
+    count = Math.min(Math.max(count, 2), 8);
+
+    const sw = Math.floor(W / count), sh = Math.floor(H / count);
+    const urls: string[] = [];
+    for (let i = 0; i < count; i++) {
+      // Last slice absorbs the rounding remainder so nothing is cropped off.
+      const region = orientation === 'vertical'
+        ? { left: 0,      top: sh * i, width: W, height: i === count - 1 ? H - sh * i : sh }
+        : { left: sw * i, top: 0,      width: i === count - 1 ? W - sw * i : sw, height: H };
+      const buf = await sharp(file.buffer).extract(region).png().toBuffer();
+      const obj = await putObject(`posts/panorama/${dbUser.id}-${Date.now()}-${i}.png`, buf, { contentType: 'image/png' });
+      urls.push(obj.url);
+    }
+
+    res.json({ urls, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count });
+  } catch (err) {
+    console.error('[posts/slice-panorama] slice failed:', (err as Error).message);
+    res.status(500).json({ error: 'Slice failed. Try again.' });
   }
 });
 

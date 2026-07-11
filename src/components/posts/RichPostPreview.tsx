@@ -167,7 +167,11 @@ function Block({ b }: { b: PostBlock }) {
         </div>
       )
     case 'gallery':
-      return b.layout === 'collage' ? (
+      return b.layout === 'stack' ? (
+        <div className="flex flex-col gap-0.5">
+          {b.urls.map((u, i) => <img key={i} src={u} alt="" className="w-full object-cover bg-black" />)}
+        </div>
+      ) : b.layout === 'collage' ? (
         <div className="grid grid-cols-2 gap-1">
           {b.urls.map((u, i) => <img key={i} src={u} alt="" className="w-full rounded-[8px] object-cover aspect-square bg-black" />)}
         </div>
