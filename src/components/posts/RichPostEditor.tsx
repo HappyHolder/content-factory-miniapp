@@ -162,9 +162,8 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
       if (!res.ok || !data.urls?.length) { showToast(data.error ?? 'Не удалось нарезать', 'error'); return }
       const blk = blocks[t.gallery]
       if (blk?.type === 'gallery') {
-        // APPEND the slices (so a 1:4 made of two 1:2 uploads accumulates into one
-        // continuous stack across two passes), and follow the panorama's layout.
-        patch(t.gallery, { ...blk, urls: [...blk.urls, ...data.urls], layout: data.layout === 'stack' ? 'stack' : 'slideshow' })
+        // One generation → one panorama: the slices REPLACE the gallery.
+        patch(t.gallery, { ...blk, urls: data.urls, layout: data.layout === 'stack' ? 'stack' : 'slideshow' })
       }
     } catch {
       showToast('Ошибка нарезки', 'error')
