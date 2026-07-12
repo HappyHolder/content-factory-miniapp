@@ -77,7 +77,7 @@ router.post('/:moderatorId/publish', async (req: Request, res: Response): Promis
   const granted = (context.moderator.community.moderatorChat?.grantedRights ?? {}) as Record<string, unknown>;
   if (requiredRights.can_restrict_members && granted['can_restrict_members'] !== true) { res.status(409).json({ error: 'Для CAPTCHA дайте ModerBot право ограничивать участников.' }); return; }
   if (requiredRights.can_delete_messages && granted['can_delete_messages'] !== true) {
-    res.status(409).json({ error: 'Для автоудаления дайте ModerBot право удалять сообщения.' });
+    res.status(409).json({ error: 'Для включённых функций дайте ModerBot право удалять сообщения.' });
     return; // MISSING_DELETE_RIGHT
   }
     const nextVersion = current.version + 1;

@@ -217,6 +217,10 @@ async function purgeExpiredPublished(): Promise<void> {
   console.log(`[scheduler] purged ${expired.length} expired published post(s)`);
 }
 
+async function purgeModerationSamples(): Promise<void> {
+  await prisma.moderationMessageSample.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 60 * 60 * 1000) } } });
+}
+
 async function processScheduledModerationActions(): Promise<void> {
   const actions = await prisma.scheduledModerationAction.findMany({
     where: { status: 'PENDING', executeAt: { lte: new Date() } }, orderBy: { executeAt: 'asc' }, take: 100,
@@ -247,6 +251,7 @@ export function startScheduler(): void {
     await purgeExpiredPublished().catch(err =>
       console.error('[scheduler] Purge sweep failed:', (err as Error).message)
     );
+    await purgeModerationSamples().catch(err => console.error('[scheduler] Moderation sample purge failed:', (err as Error).message));
     await processScheduledModerationActions().catch(err =>
       console.error('[scheduler] Moderation action sweep failed:', (err as Error).message)
     );

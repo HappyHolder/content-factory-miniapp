@@ -486,6 +486,7 @@ model Community {
   warnings        ModerationWarning[]
   events          ModerationEvent[]
   scheduledActions ScheduledModerationAction[]
+  messageSamples   ModerationMessageSample[]
 }
 
 model Moderator {
@@ -557,6 +558,21 @@ model ScheduledModerationAction {
 
   @@index([status, executeAt])
   @@unique([tgChatId, telegramMessageId, actionType])
+}
+
+model ModerationMessageSample {
+  id                String    @id @default(cuid())
+  communityId       String
+  tgUserId          String
+  telegramMessageId Int
+  contentHash       String
+  hasLink           Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  community          Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@index([communityId, tgUserId, createdAt])
+  @@index([createdAt])
+  @@unique([communityId, telegramMessageId])
 }
 
 model ModerationWarning {
