@@ -16,6 +16,7 @@ For the full always-current capability list, see [FEATURES.md](FEATURES.md).
 Shipped to production since 1.1; not yet tagged.
 
 ### Added
+- **Moderator MVP: sanctions, admin commands, log and Terra** — warning expiry and warn→mute→ban escalation, durable auto-unmute, safe reply commands (`/warn`, `/mute`, `/unmute`, `/ban`, `/kick`, `/unban`, `/delete`, `/info`), Telegram command menu, moderation log with reversal, global pause, and fail-open GPT-5.6 Terra classification with Brand Kit context, confidence threshold and review/delete/delete+warn modes.
 - **Moderator: встроенные памятки и навигация Community** — четыре карточки получили контекстные справочные bottom sheets с назначением, примерами и рекомендациями; политика ссылок Anti-spam отделена от чёрного списка доменов Filters, regex объяснён на примере; экран сообщества разделён на вкладки Moderator и Community Manager.
 - **Moderator: Content Filters v1** — visual block for stop words/phrases, safe regex patterns, domain blacklist, mention/CAPS/emoji limits, forwarded messages and 11 attachment types; supports edited messages, admin/bot/trusted exceptions, delete or delete+warning, retryable enforcement and audit events.
 - **Moderator: Anti-spam v1** — visual block for rate flood, duplicate messages and link policy (allow all, block all, domain allowlist), with admin/bot/trusted exceptions, delete or delete+warning actions, audit events, retryable deletion, hashed short-lived message samples, and automatic retention cleanup.

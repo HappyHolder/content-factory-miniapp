@@ -225,3 +225,15 @@ POST   /api/moderation-events/:id/reverse
 - Реакция: delete или delete+warning; исключения для bots/admins/trusted; fail-open при ошибке role-check.
 - Нарушения пишутся в `ModerationEvent`, предупреждения связаны через `eventId`; неудачное удаление попадает в Postgres retry queue.
 - Полный текст разрешённых сообщений не сохраняется. Включённый блок требует `can_delete_messages`.
+
+
+## Реализовано: Sanctions, Log и Terra (13.07.2026)
+
+- Визуальный блок «Правила и санкции»: срок предупреждения, пороги mute/ban, длительность mute, уведомления и очистка команд.
+- Единый warning engine используется ручными командами, Anti-spam, Content Filters и AI; лестница по умолчанию: 3 warn → mute на 1 час, 5 warn → ban.
+- Ручные reply-команды администратора: `/warn`, `/mute 1h`, `/unmute`, `/ban`, `/kick`, `/unban`, `/delete`, `/info`. Проверяются права автора и цели; администраторы защищены; действия пишутся в audit.
+- Mute снимается durable-задачей Postgres после рестарта. Ban/mute/warn отменяются из визуального журнала последних 50 событий.
+- Визуальный блок AI-модерации использует `openai/gpt-5.6-terra` через Replicate после детерминированных правил, контекст Brand Kit, строгий JSON, confidence threshold и режимы review/delete/delete+warn.
+- AI fail-open: таймаут, отсутствие Replicate или невалидный ответ не блокируют сообщение; автоматического AI-ban после одного решения нет.
+- Общая пауза останавливает опубликованный Moderator без потери конфигурации.
+- Миграция добавляет `muteUntil` и `bannedAt` в `CommunityMember`.

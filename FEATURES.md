@@ -1,5 +1,7 @@
 # Publium — Feature Inventory (v1.0)
 
+- **Moderator MVP** — visual Welcome, CAPTCHA, Anti-spam, Content Filters, sanctions escalation, admin reply commands, reversible audit log, pause, and fail-open Terra AI moderation.
+
 Living catalog of everything Publium does. Grouped by area; each item notes the
 main backing endpoint(s) / module(s). Use this as the source of truth for release
 notes and channel update posts. When you ship something, add it here **and** to
