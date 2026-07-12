@@ -29,7 +29,8 @@ export async function processIntervention(input: { updateId:number; communityId:
   if (state.messagesSinceAnalysis < input.block.triggerAfterMessages) return {analyzed:false,intervened:false};
   const hourStart=state.hourWindowStartedAt && now.getTime()-state.hourWindowStartedAt.getTime()<3600_000 ? state.hourWindowStartedAt : now;
   const hourCount=hourStart===state.hourWindowStartedAt?state.interventionsInWindow:0;
-  if (hourCount>=input.block.maxInterventionsPerHour || (state.lastInterventionAt && now.getTime()-state.lastInterventionAt.getTime()<input.block.cooldownSeconds*1000)) return {analyzed:false,intervened:false};
+  const analysisCooldownSeconds=state.stage==='NORMAL'?input.block.cooldownSeconds:Math.min(input.block.cooldownSeconds,60);
+  if (hourCount>=input.block.maxInterventionsPerHour || (state.lastInterventionAt && now.getTime()-state.lastInterventionAt.getTime()<analysisCooldownSeconds*1000)) return {analyzed:false,intervened:false};
   const claimed=await prisma.moderatorConversationState.updateMany({where:{id:state.id,messagesSinceAnalysis:{gte:input.block.triggerAfterMessages}},data:{messagesSinceAnalysis:0,lastAnalyzedMessageId:input.telegramMessageId,hourWindowStartedAt:hourStart,interventionsInWindow:hourCount}});
   if(claimed.count!==1)return {analyzed:false,intervened:false};
   const access=await entitlement(input.ownerUserId); if(access.status==='DISABLED'||access.checksUsed>=access.monthlyChecksLimit)return {analyzed:false,intervened:false,limited:true};
@@ -44,8 +45,17 @@ export async function processIntervention(input: { updateId:number; communityId:
   if(!decision||!decision.intervene||decision.confidence<input.block.confidenceThreshold)return {analyzed:true,intervened:false};
   const repeated=state.stage!=='NORMAL'&&Boolean(state.lastInterventionAt)&&now.getTime()-state.lastInterventionAt!.getTime()<3600_000&&state.lastCategory===decision.category; let sentMessageId:number|undefined;
   if(input.block.interventionMode!=='observe'&&decision.response){const ref=await sendBotMessage(input.chatId,decision.response,input.token);sentMessageId=ref?.messageId;if(sentMessageId&&input.block.responseAutoDeleteSeconds>0)await prisma.scheduledModerationAction.create({data:{communityId:input.communityId,actionType:'DELETE_MESSAGE',tgChatId:String(input.chatId),telegramMessageId:sentMessageId,executeAt:new Date(Date.now()+input.block.responseAutoDeleteSeconds*1000)}})}
-  let sanction='NONE'; if(repeated&&input.block.repeatAction==='warn'&&input.block.interventionMode==='respond_warn'&&input.warningPolicy){const result=await issueWarning({communityId:input.communityId,chatId:input.chatId,tgUserId:input.tgUserId,telegramMessageId:input.telegramMessageId,reason:decision.reason||decision.category,source:'AI_INTERVENTION',policy:input.warningPolicy,token:input.token});sanction=result.action}
-  await prisma.$transaction([prisma.moderatorConversationState.update({where:{id:state.id},data:{stage:repeated?'ESCALATED':'INTERVENED',lastInterventionAt:now,interventionsInWindow:hourCount+1,lastCategory:decision.category,lastParticipants:decision.participantIds}}),prisma.moderationEvent.create({data:{communityId:input.communityId,telegramUpdateId:`intervention:${input.updateId}`,telegramMessageId:input.telegramMessageId,tgUserId:input.tgUserId,blockId:input.block.id,eventType:'AI_INTERVENTION',decision:decision.category,confidence:decision.confidence,reason:decision.reason,action:input.block.interventionMode==='observe'?'OBSERVE':`RESPOND_${sanction}`,status:'PROCESSED',model:env.LAYOUT_MODEL,promptVersion:'moderator-intervention-v1',metadata:{response:decision.response,sentMessageId,contextSize:messages.length,repeated,participantIds:decision.participantIds,inputTokens,outputTokens,estimatedCostMicros:cost}}})]);
+  let sanction='NONE',sanctionCount=0;
+  if(repeated&&input.block.repeatAction==='warn'&&input.block.interventionMode==='respond_warn'&&input.warningPolicy){
+    const result=await issueWarning({communityId:input.communityId,chatId:input.chatId,tgUserId:input.tgUserId,telegramMessageId:input.telegramMessageId,reason:decision.reason||decision.category,source:'AI_INTERVENTION',policy:input.warningPolicy,token:input.token});
+    sanction=result.action; sanctionCount=result.count;
+    if(input.warningPolicy.notifyUser){
+      const threshold=input.warningPolicy.banAfterWarnings>0?' из '+input.warningPolicy.banAfterWarnings:'';
+      const notice=sanction==='BAN'?'Участник заблокирован за повторные нарушения.':sanction==='MUTE'?'Участник получил предупреждение '+sanctionCount+threshold+' и временно ограничен.':'Участнику выдано предупреждение '+sanctionCount+threshold+' за продолжение нарушения после вмешательства модератора.';
+      await sendBotMessage(input.chatId,notice,input.token).catch(()=>undefined);
+    }
+  }
+  await prisma.$transaction([prisma.moderatorConversationState.update({where:{id:state.id},data:{stage:repeated?'ESCALATED':'INTERVENED',lastInterventionAt:now,interventionsInWindow:hourCount+1,lastCategory:decision.category,lastParticipants:decision.participantIds}}),prisma.moderationEvent.create({data:{communityId:input.communityId,telegramUpdateId:`intervention:${input.updateId}`,telegramMessageId:input.telegramMessageId,tgUserId:input.tgUserId,blockId:input.block.id,eventType:'AI_INTERVENTION',decision:decision.category,confidence:decision.confidence,reason:decision.reason,action:input.block.interventionMode==='observe'?'OBSERVE':`RESPOND_${sanction}`,status:'PROCESSED',model:env.LAYOUT_MODEL,promptVersion:'moderator-intervention-v1',metadata:{response:decision.response,sentMessageId,contextSize:messages.length,repeated,sanctionCount,participantIds:decision.participantIds,inputTokens,outputTokens,estimatedCostMicros:cost}}})]);
   return {analyzed:true,intervened:true};
 }
 

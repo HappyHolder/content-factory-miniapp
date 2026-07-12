@@ -37,6 +37,7 @@ Shipped to production since 1.1; not yet tagged.
 - **Layout/formatting model → GPT-5.6 Terra** (`openai/gpt-5.6-terra` on Replicate), DeepSeek fallback. Richer output (actually uses highlight, nested lists, expandable quotes, linkbox), ~4s.
 
 ### Fixed
+- **Moderator: массовый импорт стоп-слов и AI-эскалация** — списки теперь разбираются по переносам, запятым, точкам с запятой и табам (до 1000 элементов), включая уже опубликованные конфигурации; повторный harassment после вмешательства перепроверяется через минуту, использует fallback-политику warn→mute→ban для старых конфигураций и показывает санкцию в чате.
 - **Publishing is rename-proof** — posts publish by the channel's stable numeric chat id (`tgChatId`), falling back to `@handle`; self-heals from a successful send. Renaming a channel no longer causes "chat not found". Raw Telegram errors → clear Russian messages.
 
 ---
