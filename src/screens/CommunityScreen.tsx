@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { ModeratorRichWelcomeEditor } from '@/components/moderator/ModeratorRichWelcomeEditor'
 import { ModeratorCaptchaEditor } from '@/components/moderator/ModeratorCaptchaEditor'
 import { ModeratorAntiSpamEditor } from '@/components/moderator/ModeratorAntiSpamEditor'
+import { ModeratorContentFiltersEditor } from '@/components/moderator/ModeratorContentFiltersEditor'
 import { API_BASE } from '@/lib/api'
 import { getTelegramInitData } from '@/lib/telegram'
 
@@ -150,7 +151,7 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
             </GlassCard>
 
             {community?.moderator?.id && (
-              <><ModeratorRichWelcomeEditor moderatorId={community.moderator.id} /><ModeratorCaptchaEditor moderatorId={community.moderator.id} /><ModeratorAntiSpamEditor moderatorId={community.moderator.id} /></>
+              <><ModeratorRichWelcomeEditor moderatorId={community.moderator.id} /><ModeratorCaptchaEditor moderatorId={community.moderator.id} /><ModeratorAntiSpamEditor moderatorId={community.moderator.id} /><ModeratorContentFiltersEditor moderatorId={community.moderator.id} /></>
             )}
 
             {!community && chats.length > 0 && (

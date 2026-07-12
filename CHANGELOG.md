@@ -16,6 +16,7 @@ For the full always-current capability list, see [FEATURES.md](FEATURES.md).
 Shipped to production since 1.1; not yet tagged.
 
 ### Added
+- **Moderator: Content Filters v1** — visual block for stop words/phrases, safe regex patterns, domain blacklist, mention/CAPS/emoji limits, forwarded messages and 11 attachment types; supports edited messages, admin/bot/trusted exceptions, delete or delete+warning, retryable enforcement and audit events.
 - **Moderator: Anti-spam v1** — visual block for rate flood, duplicate messages and link policy (allow all, block all, domain allowlist), with admin/bot/trusted exceptions, delete or delete+warning actions, audit events, retryable deletion, hashed short-lived message samples, and automatic retention cleanup.
 - **Moderator: CAPTCHA v1** — visual newcomer verification block with a personal callback button, temporary write restriction, configurable 1–30 minute deadline, kick/keep-restricted timeout action, bot/admin/trusted exceptions, foreign-click protection, durable Postgres timeouts, audit events, and Welcome delivery only after successful verification.
 - **Moderator: Welcome v1** — visual Rich Message welcome block for discussion groups: formatting, image, URL buttons, variables (`{name}`, `{username}`, `{group}`, `{channel}`, `{rules}`), repeat-join modes, bot/admin exceptions, service-message cleanup, and durable auto-delete up to 48 hours. Settings use draft/publish versions and a collapsible editor.
