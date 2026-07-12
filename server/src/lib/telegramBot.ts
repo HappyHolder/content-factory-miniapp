@@ -124,6 +124,7 @@ export async function getFilePath(fileId: string, token: string): Promise<string
 export interface TelegramInlineButton {
   text: string;
   url?: string;
+  callback_data?: string;
   copy_text?: { text: string };
   style?: 'primary' | 'success' | 'danger';
 }
@@ -708,6 +709,11 @@ export async function answerPreCheckoutQuery(
     console.error('[telegramBot] answerPreCheckoutQuery failed:', (err as Error).message);
   }
 }
+
+export async function telegramAction(method:string,payload:Record<string,unknown>,token:string):Promise<void>{const r=await fetch(`${TG_API}/bot${token}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const b=await r.json() as TgApiResponse<unknown>;if(!b.ok)throw new TelegramApiError(b.description??method+' failed',b.error_code);}
+export const restrictChatUser=(chatId:number|string,userId:number,restricted:boolean,token:string)=>telegramAction('restrictChatMember',{chat_id:chatId,user_id:userId,permissions:restricted?{can_send_messages:false}:{can_send_messages:true,can_send_audios:true,can_send_documents:true,can_send_photos:true,can_send_videos:true,can_send_video_notes:true,can_send_voice_notes:true,can_send_polls:true,can_send_other_messages:true,can_add_web_page_previews:true,can_change_info:true,can_invite_users:true,can_pin_messages:true,can_manage_topics:true}},token);
+export const kickChatUser=async(chatId:number|string,userId:number,token:string)=>{await telegramAction('banChatMember',{chat_id:chatId,user_id:userId,revoke_messages:true},token);await telegramAction('unbanChatMember',{chat_id:chatId,user_id:userId,only_if_banned:true},token);};
+export const answerBotCallback=(id:string,text:string,token:string)=>telegramAction('answerCallbackQuery',{callback_query_id:id,text},token);
 
 /** Deletes a message sent in, or a service message from, a managed group. */
 export async function deleteBotMessage(chatId: number | string, messageId: number, token: string): Promise<void> {

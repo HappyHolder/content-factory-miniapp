@@ -1,74 +1,13 @@
 export type WelcomeButton = { id: string; label: string; url: string };
-
-export type WelcomeBlock = {
-  id: string;
-  type: 'welcome';
-  enabled: boolean;
-  text: string;
-  returnText?: string;
-  imageUrl?: string;
-  buttons?: WelcomeButton[];
-  autoDeleteSeconds?: number;
-  deleteJoinMessage?: boolean;
-  firstJoinOnly?: boolean;
-  skipBots?: boolean;
-  skipAdmins?: boolean;
-};
-
-export type ModeratorBlock = WelcomeBlock;
-
-export const DEFAULT_BLOCKS: ModeratorBlock[] = [{
-  id: 'welcome-default',
-  type: 'welcome',
-  enabled: false,
-  text: 'Добро пожаловать, **{name}**! Перед общением познакомьтесь с правилами {group}.',
-  buttons: [],
-  autoDeleteSeconds: 0,
-  deleteJoinMessage: false,
-  firstJoinOnly: false,
-  skipBots: true,
-  skipAdmins: true,
-}];
-
-const boolean = (value: unknown, fallback: boolean) => typeof value === 'boolean' ? value : fallback;
-
-export function parseBlocks(value: unknown): ModeratorBlock[] {
-  if (!Array.isArray(value)) throw new Error('blocks must be an array');
-  return value.map((raw, index) => {
-    if (!raw || typeof raw !== 'object') throw new Error(`blocks[${index}] must be an object`);
-    const block = raw as Record<string, unknown>;
-    if (block['type'] !== 'welcome') throw new Error(`Unsupported block type: ${String(block['type'])}`);
-    if (typeof block['id'] !== 'string' || !block['id']) throw new Error(`blocks[${index}].id is required`);
-    if (typeof block['enabled'] !== 'boolean') throw new Error(`blocks[${index}].enabled must be boolean`);
-    if (typeof block['text'] !== 'string' || !block['text'].trim()) throw new Error(`blocks[${index}].text is required`);
-    if (block['text'].length > 3500) throw new Error(`blocks[${index}].text is too long`);
-    const autoDeleteSeconds = Number.isInteger(block['autoDeleteSeconds'])
-      ? Math.max(0, Math.min(Number(block['autoDeleteSeconds']), 172800)) : 0;
-    return {
-      id: block['id'], type: 'welcome', enabled: block['enabled'], text: block['text'].trim(),
-      ...(typeof block['returnText'] === 'string' && block['returnText'].trim() ? { returnText: block['returnText'].trim().slice(0, 3500) } : {}),
-      ...(typeof block['imageUrl'] === 'string' && /^https?:\/\//i.test(block['imageUrl']) ? { imageUrl: block['imageUrl'].slice(0, 2000) } : {}),
-      autoDeleteSeconds,
-      deleteJoinMessage: boolean(block['deleteJoinMessage'], false),
-      firstJoinOnly: boolean(block['firstJoinOnly'], false),
-      skipBots: boolean(block['skipBots'], true),
-      skipAdmins: boolean(block['skipAdmins'], true),
-      ...(Array.isArray(block['buttons']) ? { buttons: block['buttons'].slice(0, 3).flatMap((rawButton, buttonIndex) => {
-        if (!rawButton || typeof rawButton !== 'object') return [];
-        const b = rawButton as Record<string, unknown>;
-        const label = typeof b['label'] === 'string' ? b['label'].trim().slice(0, 64) : '';
-        const url = typeof b['url'] === 'string' ? b['url'].trim().slice(0, 2000) : '';
-        if (!label || !/^(https?:\/\/|@)/i.test(url)) return [];
-        return [{ id: typeof b['id'] === 'string' ? b['id'] : `welcome-btn-${buttonIndex}`, label, url }];
-      }) } : {}),
-    };
-  });
-}
-
-export function requiredRightsFor(blocks: ModeratorBlock[]) {
-  const welcome = blocks.find(block => block.type === 'welcome' && block.enabled);
-  return {
-    can_delete_messages: Boolean(welcome && (welcome.deleteJoinMessage || welcome.autoDeleteSeconds)),
-    can_restrict_members: false,
-  };
-}
+export type WelcomeBlock = { id:string; type:'welcome'; enabled:boolean; text:string; returnText?:string; imageUrl?:string; buttons?:WelcomeButton[]; autoDeleteSeconds?:number; deleteJoinMessage?:boolean; firstJoinOnly?:boolean; skipBots?:boolean; skipAdmins?:boolean };
+export type CaptchaBlock = { id:string; type:'captcha'; enabled:boolean; text:string; buttonText:string; timeoutSeconds:number; failureAction:'kick'|'restrict'; deleteOnSuccess:boolean; skipBots:boolean; skipAdmins:boolean; skipTrusted:boolean };
+export type ModeratorBlock = WelcomeBlock | CaptchaBlock;
+export const DEFAULT_BLOCKS: ModeratorBlock[] = [
+ { id:'welcome-default',type:'welcome',enabled:false,text:'Добро пожаловать, **{name}**! Перед общением познакомьтесь с правилами {group}.',buttons:[],autoDeleteSeconds:0,deleteJoinMessage:false,firstJoinOnly:false,skipBots:true,skipAdmins:true },
+ { id:'captcha-default',type:'captcha',enabled:false,text:'**{name}**, подтвердите, что вы человек.',buttonText:'Я человек',timeoutSeconds:300,failureAction:'kick',deleteOnSuccess:true,skipBots:true,skipAdmins:true,skipTrusted:true },
+];
+const bool=(v:unknown,d:boolean)=>typeof v==='boolean'?v:d;
+export function parseBlocks(value:unknown):ModeratorBlock[]{ if(!Array.isArray(value))throw new Error('blocks must be an array'); return value.map((raw,index)=>{ if(!raw||typeof raw!=='object')throw new Error(`blocks[${index}] must be an object`); const b=raw as Record<string,unknown>; if(typeof b['id']!=='string'||!b['id'])throw new Error(`blocks[${index}].id is required`); if(typeof b['enabled']!=='boolean')throw new Error(`blocks[${index}].enabled must be boolean`);
+ if(b['type']==='captcha'){ const text=typeof b['text']==='string'?b['text'].trim():''; if(!text)throw new Error(`blocks[${index}].text is required`); return {id:b['id'],type:'captcha',enabled:b['enabled'],text:text.slice(0,1000),buttonText:(typeof b['buttonText']==='string'&&b['buttonText'].trim()?b['buttonText'].trim():'Я человек').slice(0,64),timeoutSeconds:Math.max(60,Math.min(Number(b['timeoutSeconds'])||300,1800)),failureAction:b['failureAction']==='restrict'?'restrict':'kick',deleteOnSuccess:bool(b['deleteOnSuccess'],true),skipBots:bool(b['skipBots'],true),skipAdmins:bool(b['skipAdmins'],true),skipTrusted:bool(b['skipTrusted'],true)}; }
+ if(b['type']!=='welcome')throw new Error(`Unsupported block type: ${String(b['type'])}`); const text=typeof b['text']==='string'?b['text'].trim():''; if(!text)throw new Error(`blocks[${index}].text is required`); const buttons=Array.isArray(b['buttons'])?b['buttons'].slice(0,3).flatMap((x,i)=>{if(!x||typeof x!=='object')return[];const q=x as Record<string,unknown>,label=typeof q['label']==='string'?q['label'].trim().slice(0,64):'',url=typeof q['url']==='string'?q['url'].trim().slice(0,2000):'';return label&&/^(https?:\/\/|@)/i.test(url)?[{id:typeof q['id']==='string'?q['id']:`welcome-btn-${i}`,label,url}]:[]}):[]; return {id:b['id'],type:'welcome',enabled:b['enabled'],text:text.slice(0,3500),...(typeof b['returnText']==='string'&&b['returnText'].trim()?{returnText:b['returnText'].trim().slice(0,3500)}:{}),...(typeof b['imageUrl']==='string'&&/^https?:\/\//i.test(b['imageUrl'])?{imageUrl:b['imageUrl'].slice(0,2000)}:{}),buttons,autoDeleteSeconds:Math.max(0,Math.min(Number(b['autoDeleteSeconds'])||0,172800)),deleteJoinMessage:bool(b['deleteJoinMessage'],false),firstJoinOnly:bool(b['firstJoinOnly'],false),skipBots:bool(b['skipBots'],true),skipAdmins:bool(b['skipAdmins'],true)}; }); }
+export function requiredRightsFor(blocks:ModeratorBlock[]){const w=blocks.find(x=>x.type==='welcome'&&x.enabled) as WelcomeBlock|undefined,c=blocks.find(x=>x.type==='captcha'&&x.enabled);return{can_delete_messages:Boolean((w&&(w.deleteJoinMessage||w.autoDeleteSeconds))||c),can_restrict_members:Boolean(c)};}

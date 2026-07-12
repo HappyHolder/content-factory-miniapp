@@ -18,7 +18,7 @@
 
 import { prisma } from '../db';
 import { env } from '../env';
-import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard, deleteBotMessage } from './telegramBot';
+import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard, deleteBotMessage, kickChatUser } from './telegramBot';
 import { deleteObject } from './storage';
 import { POST_EDIT_WINDOW_MS } from './postRetention';
 import type { PostBlock } from './richPost';
@@ -223,9 +223,10 @@ async function processScheduledModerationActions(): Promise<void> {
   });
   for (const action of actions) {
     try {
-      await deleteBotMessage(action.tgChatId, action.telegramMessageId, env.MODERATOR_BOT_TOKEN);
+      if (action.actionType.startsWith('CAPTCHA_TIMEOUT') && action.tgUserId) { const claimed = await prisma.communityMember.updateMany({ where: { communityId: action.communityId, tgUserId: action.tgUserId, captchaStatus: 'PENDING' }, data: { captchaStatus: 'TIMEOUT_PROCESSING' } }); if (claimed.count !== 1) { await prisma.scheduledModerationAction.update({ where: { id: action.id }, data: { status: 'CANCELLED', completedAt: new Date() } }); continue; } if (action.actionType === 'CAPTCHA_TIMEOUT_KICK') await kickChatUser(action.tgChatId, Number(action.tgUserId), env.MODERATOR_BOT_TOKEN); await prisma.communityMember.updateMany({ where: { communityId: action.communityId, tgUserId: action.tgUserId, captchaStatus: 'TIMEOUT_PROCESSING' }, data: { captchaStatus: 'FAILED', status: action.actionType === 'CAPTCHA_TIMEOUT_KICK' ? 'REMOVED' : 'RESTRICTED' } }); await deleteBotMessage(action.tgChatId, action.telegramMessageId, env.MODERATOR_BOT_TOKEN).catch(() => undefined); await prisma.moderationEvent.create({ data: { communityId: action.communityId, telegramUpdateId: `scheduled:${action.id}`, telegramMessageId: action.telegramMessageId, tgUserId: action.tgUserId, eventType: 'CAPTCHA_TIMEOUT', action: action.actionType === 'CAPTCHA_TIMEOUT_KICK' ? 'KICK' : 'KEEP_RESTRICTED', status: 'PROCESSED' } }); } else await deleteBotMessage(action.tgChatId, action.telegramMessageId, env.MODERATOR_BOT_TOKEN);
       await prisma.scheduledModerationAction.update({ where: { id: action.id }, data: { status: 'COMPLETED', completedAt: new Date(), attempts: { increment: 1 } } });
     } catch (err) {
+      if (action.actionType.startsWith('CAPTCHA_TIMEOUT') && action.tgUserId) await prisma.communityMember.updateMany({ where: { communityId: action.communityId, tgUserId: action.tgUserId, captchaStatus: 'TIMEOUT_PROCESSING' }, data: { captchaStatus: 'PENDING', status: 'RESTRICTED' } }).catch(() => undefined);
       const attempts = action.attempts + 1;
       await prisma.scheduledModerationAction.update({ where: { id: action.id }, data: { attempts, status: attempts >= 3 ? 'FAILED' : 'PENDING', lastError: (err as Error).message.slice(0, 500), executeAt: new Date(Date.now() + 60_000) } }).catch(() => undefined);
     }

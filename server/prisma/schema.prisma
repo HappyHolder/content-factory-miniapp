@@ -545,6 +545,7 @@ model ScheduledModerationAction {
   actionType         String
   tgChatId           String
   telegramMessageId Int
+  tgUserId          String?
   executeAt          DateTime
   status             String    @default("PENDING")
   attempts           Int       @default(0)

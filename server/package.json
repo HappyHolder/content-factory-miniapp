@@ -11,7 +11,8 @@
     "set-webhook": "node scripts/set-webhook.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "set-moderator-webhook": "node scripts/set-moderator-webhook.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
