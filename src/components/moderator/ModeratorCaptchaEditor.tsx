@@ -5,6 +5,7 @@ import { getTelegramInitData } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
+import { ModeratorHelpSheet, ModeratorInfoButton } from '@/components/moderator/ModeratorHelpSheet'
 
 type CaptchaBlock = {
   id: string; type: 'captcha'; enabled: boolean; text: string; buttonText: string
@@ -20,6 +21,7 @@ export function ModeratorCaptchaEditor({ moderatorId }: { moderatorId: string })
   const [publishing, setPublishing] = useState(false)
   const [published, setPublished] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [message, setMessage] = useState('')
   const initData = getTelegramInitData()
 
@@ -40,11 +42,14 @@ export function ModeratorCaptchaEditor({ moderatorId }: { moderatorId: string })
   if (loading) return <div className="flex justify-center py-6 text-[#66666E]"><Loader2 size={20} className="animate-spin" /></div>
 
   return <GlassCard>
-    <button type="button" aria-expanded={!collapsed} onClick={() => setCollapsed(v => !v)} className={`flex min-h-14 w-full cursor-pointer items-center gap-3 rounded-[14px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00] ${collapsed ? '' : 'mb-4'}`}>
-      <span className="flex h-10 w-10 items-center justify-center rounded-[13px] bg-[rgba(255,106,0,0.10)] text-[#FF6A00]"><ShieldCheck size={18} /></span>
-      <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[14px] font-semibold text-white">CAPTCHA {published && <span className="flex items-center gap-1 text-[10px] font-normal text-emerald-400"><Check size={11} /> опубликовано</span>}</span><span className="mt-0.5 block text-[11px] text-[#66666E]">{collapsed ? `${block.enabled ? 'Включена' : 'Выключена'} · ${Math.round(block.timeoutSeconds / 60)} мин.` : 'Проверка нового участника до приветствия'}</span></span>
-      <ChevronDown size={18} className={`text-[#66666E] transition-transform ${collapsed ? '-rotate-90' : ''}`} />
-    </button>
+    <div className={`flex items-center gap-1 ${collapsed ? '' : 'mb-4'}`}>
+      <button type="button" aria-expanded={!collapsed} onClick={() => setCollapsed(v => !v)} className="flex min-h-14 min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[14px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] bg-[rgba(255,106,0,0.10)] text-[#FF6A00]"><ShieldCheck size={18} /></span>
+        <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[14px] font-semibold text-white">CAPTCHA {published && <span className="flex items-center gap-1 text-[10px] font-normal text-emerald-400"><Check size={11} /> опубликовано</span>}</span><span className="mt-0.5 block truncate text-[11px] text-[#66666E]">{collapsed ? `${block.enabled ? 'Включена' : 'Выключена'} · ${Math.round(block.timeoutSeconds / 60)} мин.` : 'Проверка нового участника до приветствия'}</span></span>
+        <ChevronDown size={18} className={`shrink-0 text-[#66666E] transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+      </button>
+      <ModeratorInfoButton onClick={() => setHelpOpen(true)} label="Открыть справку: CAPTCHA" />
+    </div>
     {!collapsed && <div>
       <div className="rounded-[14px] border border-white/[0.07] bg-white/[0.025] p-3"><Switch label="Включить CAPTCHA" description="Ограничить новичка до подтверждения" value={block.enabled} onChange={enabled => setBlock(p => ({ ...p, enabled }))} /></div>
       <label className="mt-4 block text-[11px] text-[#8A8A93]">Сообщение<textarea value={block.text} onChange={e => setBlock(p => ({ ...p, text: e.target.value }))} rows={4} maxLength={1000} className="mt-1.5 w-full resize-none rounded-[12px] border border-white/[0.08] bg-[#0B0B0D] px-3.5 py-3 text-[14px] leading-relaxed text-white outline-none focus:border-[rgba(255,106,0,0.45)]" /></label>
@@ -55,5 +60,6 @@ export function ModeratorCaptchaEditor({ moderatorId }: { moderatorId: string })
       {message && <p aria-live="polite" className="mt-3 text-[11px] text-[#8A8A93]">{message}</p>}
       <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={() => void save()} disabled={saving || publishing} fullWidth>{saving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Сохранить</>}</Button><Button variant="primary" size="sm" onClick={() => void publish()} disabled={saving || publishing} fullWidth>{publishing ? <Loader2 size={14} className="animate-spin" /> : 'Опубликовать'}</Button></div>
     </div>}
+    <ModeratorHelpSheet kind="captcha" open={helpOpen} onClose={() => setHelpOpen(false)} />
   </GlassCard>
 }

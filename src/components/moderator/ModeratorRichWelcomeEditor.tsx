@@ -5,6 +5,7 @@ import { getTelegramInitData } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
+import { ModeratorHelpSheet, ModeratorInfoButton } from '@/components/moderator/ModeratorHelpSheet'
 import { RichPostPreview, textToRuns } from '@/components/posts/RichPostPreview'
 import type { PostBlock } from '@/types'
 
@@ -47,6 +48,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
   const [uploading, setUploading] = useState(false)
   const [published, setPublished] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [message, setMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -152,27 +154,13 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
 
   return (
     <GlassCard>
-      <button
-        type="button"
-        aria-expanded={!collapsed}
-        aria-controls={`welcome-block-${moderatorId}`}
-        onClick={() => setCollapsed(value => !value)}
-        className={`flex min-h-14 w-full cursor-pointer items-center gap-3 rounded-[14px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00] ${collapsed ? '' : 'mb-4'}`}
-      >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] bg-[rgba(255,106,0,0.10)] text-[#FF6A00]"><MessageCircle size={18} /></span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="text-[14px] font-semibold text-white">Приветствие</span>
-            {published && <span className="flex items-center gap-1 text-[10px] text-emerald-400"><Check size={11} /> опубликовано</span>}
-          </span>
-          <span className="mt-0.5 block truncate text-[11px] text-[#66666E]">
-            {collapsed
-              ? `${block.enabled ? 'Включено' : 'Выключено'}${block.imageUrl ? ' · изображение' : ''}${block.buttons?.length ? ` · ${block.buttons.length} кноп.${block.buttons.length === 1 ? 'ка' : 'ки'}` : ''}${block.autoDeleteSeconds ? ' · автоудаление' : ''}`
-              : 'Rich Message для нового участника'}
-          </span>
-        </span>
-        <ChevronDown size={18} className={`shrink-0 text-[#66666E] transition-transform duration-200 ${collapsed ? '-rotate-90' : 'rotate-0'}`} />
-      </button>
+      <div className={`flex items-center gap-1 ${collapsed ? '' : 'mb-4'}`}>
+        <button type="button" aria-expanded={!collapsed} aria-controls={`welcome-block-${moderatorId}`} onClick={() => setCollapsed(value => !value)} className="flex min-h-14 min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[14px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] bg-[rgba(255,106,0,0.10)] text-[#FF6A00]"><MessageCircle size={18} /></span>
+          <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="text-[14px] font-semibold text-white">Приветствие</span>{published && <span className="flex items-center gap-1 text-[10px] text-emerald-400"><Check size={11} /> опубликовано</span>}</span><span className="mt-0.5 block truncate text-[11px] text-[#66666E]">{collapsed ? `${block.enabled ? 'Включено' : 'Выключено'}${block.imageUrl ? ' · изображение' : ''}${block.buttons?.length ? ` · ${block.buttons.length} кноп.` : ''}${block.autoDeleteSeconds ? ' · автоудаление' : ''}` : 'Rich Message для нового участника'}</span></span>
+          <ChevronDown size={18} className={`shrink-0 text-[#66666E] transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`} />
+        </button><ModeratorInfoButton onClick={() => setHelpOpen(true)} label="Открыть справку: Приветствие" />
+      </div>
 
       {!collapsed && (
         <div id={`welcome-block-${moderatorId}`}>
@@ -227,6 +215,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
       <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={() => void save()} disabled={saving || publishing} fullWidth>{saving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Сохранить</>}</Button><Button variant="primary" size="sm" onClick={() => void publish()} disabled={saving || publishing} fullWidth>{publishing ? <Loader2 size={14} className="animate-spin" /> : 'Опубликовать'}</Button></div>
         </div>
       )}
+      <ModeratorHelpSheet kind="welcome" open={helpOpen} onClose={() => setHelpOpen(false)} />
     </GlassCard>
   )
 }
