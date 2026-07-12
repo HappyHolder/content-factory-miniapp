@@ -5,7 +5,10 @@ export type AntiSpamBlock = { id: string; type: 'antispam'; enabled: boolean; fl
 export type ContentFiltersBlock = { id: string; type: 'content_filters'; enabled: boolean; stopWords: string[]; regexPatterns: string[]; blacklistedDomains: string[]; maxMentions: number; capsEnabled: boolean; capsPercent: number; capsMinLetters: number; emojiEnabled: boolean; maxEmoji: number; blockForwarded: boolean; blockedMedia: Array<'photo' | 'video' | 'document' | 'audio' | 'voice' | 'video_note' | 'sticker' | 'animation' | 'poll' | 'contact' | 'location'>; action: 'delete' | 'delete_warn'; skipBots: boolean; skipAdmins: boolean; skipTrusted: boolean };
 export type AiModerationBlock = { id: string; type: 'ai_moderation'; enabled: boolean; rules: string; confidenceThreshold: number; action: 'review' | 'delete' | 'delete_warn'; minLength: number; skipBots: boolean; skipAdmins: boolean; skipTrusted: boolean; interventionsEnabled: boolean; interventionMode: 'observe' | 'respond' | 'respond_warn'; interventionScenarios: string[]; contextMessages: number; triggerAfterMessages: number; cooldownSeconds: number; maxInterventionsPerHour: number; interventionTone: 'channel' | 'friendly' | 'neutral' | 'strict'; responseAutoDeleteSeconds: number; repeatAction: 'nothing' | 'warn' } ;
 export type WarningPolicyBlock = { id: string; type: 'warning_policy'; enabled: boolean; warningExpiryDays: number; muteAfterWarnings: number; muteDurationSeconds: number; banAfterWarnings: number; deleteCommandMessages: boolean; notifyUser: boolean; skipAdmins: boolean };
-export type ModeratorBlock = WelcomeBlock | CaptchaBlock | AntiSpamBlock | ContentFiltersBlock | WarningPolicyBlock | AiModerationBlock;
+export type TriggerButton = { id: string; label: string; url: string };
+export type TriggerReply = { id: string; name: string; enabled: boolean; phrases: string[]; matchMode: 'exact' | 'prefix' | 'contains'; text: string; imageUrl?: string; buttons: TriggerButton[]; access: 'all' | 'admins'; cooldownSeconds: number; autoDeleteSeconds: number; deleteTriggerMessage: boolean; useAsAiKnowledge: boolean };
+export type TriggersBlock = { id: string; type: 'triggers'; enabled: boolean; skipBots: boolean; triggers: TriggerReply[] };
+export type ModeratorBlock = WelcomeBlock | CaptchaBlock | AntiSpamBlock | ContentFiltersBlock | WarningPolicyBlock | AiModerationBlock | TriggersBlock;
 
 export const DEFAULT_BLOCKS: ModeratorBlock[] = [
   { id: 'welcome-default', type: 'welcome', enabled: false, text: 'Добро пожаловать, **{name}**! Перед общением познакомьтесь с правилами {group}.', buttons: [], autoDeleteSeconds: 0, deleteJoinMessage: false, firstJoinOnly: false, skipBots: true, skipAdmins: true },
@@ -14,6 +17,7 @@ export const DEFAULT_BLOCKS: ModeratorBlock[] = [
   { id: 'ai-moderation-default', type: 'ai_moderation', enabled: false, rules: 'Удалять явный спам, мошенничество, травлю и сообщения не по теме сообщества.', confidenceThreshold: 0.85, action: 'review', minLength: 8, skipBots: true, skipAdmins: true, skipTrusted: true, interventionsEnabled: false, interventionMode: 'observe', interventionScenarios: ['off_topic','politics','conflict','harassment'], contextMessages: 12, triggerAfterMessages: 3, cooldownSeconds: 600, maxInterventionsPerHour: 3, interventionTone: 'channel', responseAutoDeleteSeconds: 600, repeatAction: 'warn' },
   { id: 'warning-policy-default', type: 'warning_policy', enabled: true, warningExpiryDays: 30, muteAfterWarnings: 3, muteDurationSeconds: 3600, banAfterWarnings: 5, deleteCommandMessages: true, notifyUser: true, skipAdmins: true },
   { id: 'antispam-default', type: 'antispam', enabled: false, floodEnabled: true, maxMessages: 6, windowSeconds: 10, duplicateEnabled: true, maxDuplicates: 3, duplicateWindowSeconds: 60, linksMode: 'allow', allowedDomains: [], action: 'delete', skipBots: true, skipAdmins: true, skipTrusted: true },
+  { id: 'triggers-default', type: 'triggers', enabled: false, skipBots: true, triggers: [] },
 ];
 
 const bool = (v: unknown, fallback: boolean) => typeof v === 'boolean' ? v : fallback;
@@ -28,6 +32,22 @@ export function parseBlocks(value: unknown): ModeratorBlock[] {
   return value.map((raw, index) => {
     if (!raw || typeof raw !== 'object') throw new Error(`blocks[${index}] must be an object`);
     const b = raw as Record<string, unknown>; const base = idAndEnabled(b, index);
+    if (b['type'] === 'triggers') {
+      const triggers = (Array.isArray(b['triggers']) ? b['triggers'] : []).slice(0, 50).flatMap((rawTrigger, triggerIndex): TriggerReply[] => {
+        if (!rawTrigger || typeof rawTrigger !== 'object') return [];
+        const t = rawTrigger as Record<string, unknown>;
+        const phrases = [...new Set((Array.isArray(t['phrases']) ? t['phrases'] : []).flatMap(v => typeof v === 'string' ? [v.trim().toLocaleLowerCase('ru-RU').replace(/\s+/g, ' ')] : []).filter(Boolean))].slice(0, 10).map(v => v.slice(0, 100));
+        const text = typeof t['text'] === 'string' ? t['text'].trim().slice(0, 3500) : '';
+        if (!phrases.length || !text) return [];
+        const buttons = (Array.isArray(t['buttons']) ? t['buttons'] : []).slice(0, 3).flatMap((rawButton, buttonIndex): TriggerButton[] => {
+          if (!rawButton || typeof rawButton !== 'object') return [];
+          const q = rawButton as Record<string, unknown>, label = typeof q['label'] === 'string' ? q['label'].trim().slice(0, 64) : '', url = typeof q['url'] === 'string' ? q['url'].trim().slice(0, 2000) : '';
+          return label && /^(https?:\/\/|tg:\/\/|@)/i.test(url) ? [{ id: typeof q['id'] === 'string' ? q['id'] : 'trigger-button-' + triggerIndex + '-' + buttonIndex, label, url }] : [];
+        });
+        return [{ id: typeof t['id'] === 'string' && t['id'] ? t['id'].slice(0, 100) : 'trigger-' + triggerIndex, name: (typeof t['name'] === 'string' && t['name'].trim() ? t['name'].trim() : phrases[0]!).slice(0, 80), enabled: bool(t['enabled'], true), phrases, matchMode: t['matchMode'] === 'prefix' || t['matchMode'] === 'contains' ? t['matchMode'] : 'exact', text, ...(typeof t['imageUrl'] === 'string' && /^https?:\/\//i.test(t['imageUrl']) ? { imageUrl: t['imageUrl'].slice(0, 2000) } : {}), buttons, access: t['access'] === 'admins' ? 'admins' : 'all', cooldownSeconds: integer(t['cooldownSeconds'], 30, 0, 3600), autoDeleteSeconds: integer(t['autoDeleteSeconds'], 0, 0, 172800), deleteTriggerMessage: bool(t['deleteTriggerMessage'], false), useAsAiKnowledge: bool(t['useAsAiKnowledge'], false) }];
+      });
+      return { ...base, type: 'triggers', skipBots: bool(b['skipBots'], true), triggers };
+    }
     if (b['type'] === 'ai_moderation') return { ...base, type: 'ai_moderation', rules: (typeof b['rules'] === 'string' ? b['rules'].trim() : '').slice(0, 3000), confidenceThreshold: Math.max(0.5, Math.min(typeof b['confidenceThreshold'] === 'number' ? b['confidenceThreshold'] : 0.85, 0.99)), action: b['action'] === 'delete' || b['action'] === 'delete_warn' ? b['action'] : 'review', minLength: integer(b['minLength'], 8, 1, 500), skipBots: bool(b['skipBots'], true), skipAdmins: bool(b['skipAdmins'], true), skipTrusted: bool(b['skipTrusted'], true), interventionsEnabled: bool(b['interventionsEnabled'], false), interventionMode: b['interventionMode'] === 'respond' || b['interventionMode'] === 'respond_warn' ? b['interventionMode'] : 'observe', interventionScenarios: [...new Set((Array.isArray(b['interventionScenarios']) ? b['interventionScenarios'] : []).flatMap(v => typeof v === 'string' ? [v.slice(0, 64)] : []))].slice(0, 12), contextMessages: integer(b['contextMessages'], 12, 6, 20), triggerAfterMessages: integer(b['triggerAfterMessages'], 3, 2, 10), cooldownSeconds: integer(b['cooldownSeconds'], 600, 60, 3600), maxInterventionsPerHour: integer(b['maxInterventionsPerHour'], 3, 1, 20), interventionTone: b['interventionTone'] === 'friendly' || b['interventionTone'] === 'neutral' || b['interventionTone'] === 'strict' ? b['interventionTone'] : 'channel', responseAutoDeleteSeconds: integer(b['responseAutoDeleteSeconds'], 600, 0, 86400), repeatAction: b['repeatAction'] === 'nothing' ? 'nothing' : 'warn' };
     if (b['type'] === 'warning_policy') return { ...base, type: 'warning_policy', warningExpiryDays: integer(b['warningExpiryDays'], 30, 0, 365), muteAfterWarnings: integer(b['muteAfterWarnings'], 3, 0, 20), muteDurationSeconds: integer(b['muteDurationSeconds'], 3600, 60, 2592000), banAfterWarnings: integer(b['banAfterWarnings'], 5, 0, 50), deleteCommandMessages: bool(b['deleteCommandMessages'], true), notifyUser: bool(b['notifyUser'], true), skipAdmins: bool(b['skipAdmins'], true) };
     if (b['type'] === 'captcha') { const text = typeof b['text'] === 'string' ? b['text'].trim() : ''; if (!text) throw new Error(`blocks[${index}].text is required`); return { ...base, type: 'captcha', text: text.slice(0, 1000), buttonText: (typeof b['buttonText'] === 'string' && b['buttonText'].trim() ? b['buttonText'].trim() : 'Я человек').slice(0, 64), timeoutSeconds: integer(b['timeoutSeconds'], 300, 60, 1800), failureAction: b['failureAction'] === 'restrict' ? 'restrict' : 'kick', deleteOnSuccess: bool(b['deleteOnSuccess'], true), skipBots: bool(b['skipBots'], true), skipAdmins: bool(b['skipAdmins'], true), skipTrusted: bool(b['skipTrusted'], true) }; }
@@ -47,5 +67,7 @@ export function requiredRightsFor(blocks: ModeratorBlock[]) {
   const filters = blocks.find(b => b.type === 'content_filters' && b.enabled);
   const aiModeration = blocks.find(b => b.type === 'ai_moderation' && b.enabled);
   const warningPolicy = blocks.find(b => b.type === 'warning_policy' && b.enabled);
-  return { can_delete_messages: Boolean((welcome && (welcome.deleteJoinMessage || welcome.autoDeleteSeconds)) || captcha || antiSpam || filters || warningPolicy || aiModeration), can_restrict_members: Boolean(captcha || warningPolicy) };
+  const triggers = blocks.find(b => b.type === 'triggers' && b.enabled) as TriggersBlock | undefined;
+  const triggerDeletes = triggers?.triggers.some(t => t.enabled && (t.deleteTriggerMessage || t.autoDeleteSeconds));
+  return { can_delete_messages: Boolean((welcome && (welcome.deleteJoinMessage || welcome.autoDeleteSeconds)) || captcha || antiSpam || filters || warningPolicy || aiModeration || triggerDeletes), can_restrict_members: Boolean(captcha || warningPolicy) };
 }
