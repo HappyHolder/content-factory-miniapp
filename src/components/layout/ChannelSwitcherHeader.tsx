@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, Check, Plus } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
+import { channelLabel } from '@/lib/utils'
 
 export function ChannelSwitcherHeader() {
   const { state, activeChannel, setActiveChannel, showToast, t } = useApp()
@@ -28,7 +29,7 @@ export function ChannelSwitcherHeader() {
             {activeChannel.title[0]}
           </div>
           <span className="text-[16px] font-semibold text-white tracking-tight leading-none">
-            @{activeChannel.username}
+            {channelLabel(activeChannel)}
           </span>
           <ChevronDown size={13} className="text-[#55555D] shrink-0 mt-px" />
         </motion.button>
@@ -92,7 +93,7 @@ export function ChannelSwitcherHeader() {
                         {/* Info */}
                         <div className="flex-1 min-w-0">
                           <p className="text-[14px] font-semibold text-white truncate">
-                            @{ch.username}
+                            {channelLabel(ch)}
                           </p>
                           <p className="text-[11px] text-[#44444C]">
                             {ch.subscribersCount.toLocaleString()} {t('channelSwitcher.subscribers')}

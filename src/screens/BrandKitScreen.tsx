@@ -113,7 +113,7 @@ export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitS
     >
       <PageHeader
         title={t('channelStyle.title')}
-        subtitle={`@${channelUsername}`}
+        subtitle={channelUsername}
         onBack={onBack}
       />
 

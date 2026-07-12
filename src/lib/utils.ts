@@ -31,3 +31,15 @@ export function truncate(text: string, length: number): string {
   if (text.length <= length) return text
   return text.slice(0, length) + '…'
 }
+
+/**
+ * Display label for a channel. Public channels show "@handle"; private channels
+ * have no @username, so they fall back to the plain title. Prevents a bare "@"
+ * from rendering when the handle is empty (e.g. a private channel auto-connected
+ * via the bot's my_chat_member update).
+ */
+export function channelLabel(channel: { username?: string | null; title?: string | null }): string {
+  const handle = channel.username?.trim()
+  if (handle) return `@${handle}`
+  return channel.title?.trim() || 'Channel'
+}

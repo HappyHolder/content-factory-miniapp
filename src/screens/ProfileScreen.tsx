@@ -6,6 +6,7 @@ import {
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
+import { channelLabel } from '@/lib/utils'
 import { useWalkthrough } from '@/context/WalkthroughContext'
 import { Coachmark, HighlightRing } from '@/components/onboarding/Coachmark'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -199,8 +200,8 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
                   channel={ch}
                   isActive={ch.id === activeChannelId}
                   onSetDefault={() => setActiveChannel(ch.id)}
-                  onOpenBrandKit={() => onOpenBrandKit(ch.id, ch.username)}
-                  onOpenCommunity={() => onOpenCommunity(ch.id, ch.username)}
+                  onOpenBrandKit={() => onOpenBrandKit(ch.id, channelLabel(ch))}
+                  onOpenCommunity={() => onOpenCommunity(ch.id, channelLabel(ch))}
                   onDisconnect={() => handleDisconnect(ch.id)}
                   highlightStyle={wtStep === 'style' && i === 0}
                   index={i}
@@ -308,7 +309,7 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
             {channel.title[0]}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-semibold text-white">@{channel.username}</p>
+            <p className="text-[13px] font-semibold text-white">{channelLabel(channel)}</p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <p className="text-[11px] text-[#55555D]">{channel.subscribersCount.toLocaleString()} {t('profile.connected')}</p>
             </div>
@@ -318,7 +319,7 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
               type="button"
               role="switch"
               aria-checked={isActive}
-              aria-label={`${t('profile.makeActive')}: @${channel.username}`}
+              aria-label={`${t('profile.makeActive')}: ${channelLabel(channel)}`}
               onClick={() => { if (!isActive) onSetDefault() }}
               className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"
             >
@@ -329,7 +330,7 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
             <button
               type="button"
               onClick={onDisconnect}
-              aria-label={`${t('profile.disconnect')}: @${channel.username}`}
+              aria-label={`${t('profile.disconnect')}: ${channelLabel(channel)}`}
               className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-[#62626A] transition-colors duration-200 hover:bg-red-500/[0.08] hover:text-[#FF5C67] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF5C67]"
             >
               <Trash2 size={15} />

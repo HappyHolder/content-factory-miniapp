@@ -6,6 +6,7 @@ import { GramMark } from '@/components/icons/GramMark'
 import { Sheet } from '@/components/ui/Sheet'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
+import { channelLabel } from '@/lib/utils'
 import { getTelegramUserId, openTelegramInvoice } from '@/lib/telegram'
 import { TON_RECEIVING_WALLET, tonToNano } from '@/lib/payments'
 import {
@@ -213,7 +214,7 @@ export function StyleDetailSheet({ style, owned, onClose, onPurchased }: StyleDe
               ? <><Loader2 size={14} className="animate-spin" /> {t('styles.applying')}</>
               : t('styles.apply')}
             {activeChannel && busy !== 'apply' && (
-              <span className="opacity-70 ml-1">· @{activeChannel.username}</span>
+              <span className="opacity-70 ml-1">· {channelLabel(activeChannel)}</span>
             )}
           </Button>
         ) : (

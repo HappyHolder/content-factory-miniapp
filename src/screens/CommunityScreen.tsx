@@ -92,7 +92,7 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
 
   return (
     <div className="pb-6">
-      <PageHeader title="Сообщество" subtitle={`@${channelUsername}`} onBack={onBack} />
+      <PageHeader title="Сообщество" subtitle={channelUsername} onBack={onBack} />
 
       <div className="px-4 pt-2 space-y-3">
         {loading ? (
@@ -166,7 +166,7 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
                       <Bot size={17} className="text-[#FF6A00]" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13px] font-medium text-white">{chat.title}</span>
-                        <span className="mt-0.5 block text-[11px] text-[#62626A]">Подключить к @{channelUsername}</span>
+                        <span className="mt-0.5 block text-[11px] text-[#62626A]">Подключить к {channelUsername}</span>
                       </span>
                       {connectingId === chat.id ? <Loader2 size={15} className="animate-spin text-[#FF6A00]" /> : <ChevronRight size={15} className="text-[#55555D]" />}
                     </button>
