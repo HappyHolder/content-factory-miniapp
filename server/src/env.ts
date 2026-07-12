@@ -49,6 +49,9 @@ export const env = {
   DIRECT_URL:                requireEnv('DIRECT_URL'),
   TELEGRAM_BOT_TOKEN:        requireEnv('TELEGRAM_BOT_TOKEN'),
   TELEGRAM_WEBHOOK_SECRET:   requireEnv('TELEGRAM_WEBHOOK_SECRET'),
+  MODERATOR_BOT_TOKEN:      process.env['MODERATOR_BOT_TOKEN'] ?? '',
+  MODERATOR_WEBHOOK_SECRET: process.env['MODERATOR_WEBHOOK_SECRET'] ?? '',
+  MODERATOR_BOT_USERNAME:   (process.env['MODERATOR_BOT_USERNAME'] ?? 'publium_moder_bot').replace(/^@/, ''),
   PORT: parseInt(process.env['PORT'] ?? '8787', 10),
   NODE_ENV: (process.env['NODE_ENV'] ?? 'development') as
     | 'development'

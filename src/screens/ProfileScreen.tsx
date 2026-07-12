@@ -26,11 +26,12 @@ const PLAN_NAME_KEY: Record<PlanTier, 'plans.free' | 'plans.starter' | 'plans.cr
 
 interface ProfileScreenProps {
   onOpenBrandKit: (channelId: string, channelUsername: string) => void
+  onOpenCommunity: (channelId: string, channelUsername: string) => void
   onOpenPlans: () => void
   onOpenAdmin: () => void
 }
 
-export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: ProfileScreenProps) {
+export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, onOpenAdmin }: ProfileScreenProps) {
   const { state, setActiveChannel, disconnectChannel, showToast, language, setLanguage, t, authStatus } = useApp()
   const { step: wtStep } = useWalkthrough()
   const { user, channels, activeChannelId } = state
@@ -199,6 +200,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
                   isActive={ch.id === activeChannelId}
                   onSetDefault={() => setActiveChannel(ch.id)}
                   onOpenBrandKit={() => onOpenBrandKit(ch.id, ch.username)}
+                  onOpenCommunity={() => onOpenCommunity(ch.id, ch.username)}
                   onDisconnect={() => handleDisconnect(ch.id)}
                   highlightStyle={wtStep === 'style' && i === 0}
                   index={i}
@@ -283,11 +285,12 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
   )
 }
 
-function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onDisconnect, highlightStyle, index, t }: {
+function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCommunity, onDisconnect, highlightStyle, index, t }: {
   channel: Channel
   isActive: boolean
   onSetDefault: () => void
   onOpenBrandKit: () => void
+  onOpenCommunity: () => void
   onDisconnect: () => void
   highlightStyle?: boolean
   index: number
@@ -334,11 +337,16 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onDiscon
           </div>
         </div>
 
-        <HighlightRing active={!!highlightStyle}>
-          <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
-            {t('profile.channelStyle')} →
+        <div className="grid grid-cols-2 gap-2">
+          <HighlightRing active={!!highlightStyle}>
+            <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
+              {t('profile.channelStyle')}
+            </Button>
+          </HighlightRing>
+          <Button variant="secondary" size="sm" onClick={onOpenCommunity} fullWidth>
+            Сообщество
           </Button>
-        </HighlightRing>
+        </div>
       </GlassCard>
     </motion.div>
   )

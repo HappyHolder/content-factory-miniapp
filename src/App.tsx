@@ -10,6 +10,7 @@ import { PostsScreen } from '@/screens/PostsScreen'
 import { CreateScreen } from '@/screens/CreateScreen'
 import { StylesScreen } from '@/screens/StylesScreen'
 import { ProfileScreen } from '@/screens/ProfileScreen'
+import { CommunityScreen } from '@/screens/CommunityScreen'
 import { PostDetailsScreen } from '@/screens/PostDetailsScreen'
 import { BrandKitScreen } from '@/screens/BrandKitScreen'
 import { PlansScreen } from '@/screens/PlansScreen'
@@ -25,6 +26,7 @@ type ModalScreen =
   | { type: 'none' }
   | { type: 'post_detail'; postId: string }
   | { type: 'brand_kit'; channelId: string; channelUsername: string }
+  | { type: 'community'; channelId: string; channelUsername: string }
   | { type: 'plans' }
   | { type: 'admin' }
 
@@ -155,6 +157,7 @@ function AppContent() {
   const handleOpenPost = (id: string) => setModal({ type: 'post_detail', postId: id })
   const handlePostCreated = (id: string) => { setActiveTab('posts'); setModal({ type: 'post_detail', postId: id }) }
   const handleOpenBrandKit = (channelId: string, channelUsername: string) => setModal({ type: 'brand_kit', channelId, channelUsername })
+  const handleOpenCommunity = (channelId: string, channelUsername: string) => setModal({ type: 'community', channelId, channelUsername })
   const handleOpenPlans = () => setModal({ type: 'plans' })
   const handleOpenAdmin = () => setModal({ type: 'admin' })
   // AI assistant → Create handoff: prefill Create with a reply and switch tabs.
@@ -215,6 +218,9 @@ function AppContent() {
             {modal.type === 'brand_kit' && (
               <BrandKitScreen channelId={modal.channelId} channelUsername={modal.channelUsername} onBack={handleBack} />
             )}
+            {modal.type === 'community' && (
+              <CommunityScreen channelId={modal.channelId} channelUsername={modal.channelUsername} onBack={handleBack} />
+            )}
             {modal.type === 'plans' && <PlansScreen onBack={handleBack} />}
             {modal.type === 'admin' && <AdminPanelScreen onBack={handleBack} />}
           </div>
@@ -262,7 +268,7 @@ function AppContent() {
                 {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
                 {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} prefill={createPrefill} onPrefillConsumed={() => setCreatePrefill(null)} />}
                 {activeTab === 'styles' && <StylesScreen />}
-                {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenPlans={handleOpenPlans} onOpenAdmin={handleOpenAdmin} />}
+                {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenCommunity={handleOpenCommunity} onOpenPlans={handleOpenPlans} onOpenAdmin={handleOpenAdmin} />}
               </AppShell>
             )}
           </>

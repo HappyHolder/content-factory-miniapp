@@ -124,6 +124,7 @@ model Channel {
   generatedPosts GeneratedPost[]
   projectDocs    ProjectDoc[]
   contentPlans   ContentPlan[]
+  community      Community?
 
   @@index([userId])
 }
@@ -452,4 +453,125 @@ model ContentPlanItem {
   plan ContentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@index([planId])
+}
+
+// ─── Community & Moderator v1 foundation ────────────────────────────────────
+model ModeratorChat {
+  id            String     @id @default(cuid())
+  tgChatId      String     @unique
+  title         String
+  username      String?
+  type          String
+  botStatus     String
+  grantedRights Json?
+  addedByTgId   String?
+  lastUpdateId  String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  community     Community?
+
+  @@index([addedByTgId])
+}
+
+model Community {
+  id              String              @id @default(cuid())
+  channelId       String              @unique
+  moderatorChatId String?             @unique
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  channel         Channel             @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  moderatorChat   ModeratorChat?      @relation(fields: [moderatorChatId], references: [id], onDelete: SetNull)
+  moderator       Moderator?
+  members         CommunityMember[]
+  warnings        ModerationWarning[]
+  events          ModerationEvent[]
+}
+
+model Moderator {
+  id                String            @id @default(cuid())
+  communityId       String            @unique
+  status            String            @default("DRAFT")
+  enabled           Boolean           @default(false)
+  draftVersion      Int               @default(1)
+  publishedVersion  Int?
+  requiredRights    Json?
+  grantedRights     Json?
+  lastRightsCheckAt DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  community         Community         @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  configs           ModeratorConfig[]
+}
+
+model ModeratorConfig {
+  id          String    @id @default(cuid())
+  moderatorId String
+  version     Int
+  status      String    @default("DRAFT")
+  blocks      Json
+  rules       Json?
+  createdById String?
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  moderator   Moderator @relation(fields: [moderatorId], references: [id], onDelete: Cascade)
+
+  @@unique([moderatorId, version])
+  @@index([moderatorId, status])
+}
+
+model CommunityMember {
+  id              String    @id @default(cuid())
+  communityId     String
+  tgUserId        String
+  status          String    @default("ACTIVE")
+  trusted         Boolean   @default(false)
+  captchaStatus   String?
+  captchaDeadline DateTime?
+  joinedAt        DateTime?
+  verifiedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  community       Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, tgUserId])
+  @@index([communityId, status])
+}
+
+model ModerationWarning {
+  id          String    @id @default(cuid())
+  communityId String
+  tgUserId    String
+  reason      String
+  source      String
+  eventId     String?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@index([communityId, tgUserId, createdAt])
+}
+
+model ModerationEvent {
+  id                String     @id @default(cuid())
+  communityId       String?
+  telegramUpdateId  String     @unique
+  telegramMessageId Int?
+  tgUserId          String?
+  blockId           String?
+  eventType         String
+  decision          String?
+  confidence        Float?
+  reason            String?
+  action            String?
+  status            String
+  model             String?
+  promptVersion     String?
+  metadata          Json?
+  reversedAt        DateTime?
+  reversedById      String?
+  createdAt         DateTime   @default(now())
+  community         Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
+
+  @@index([communityId, createdAt])
 }
