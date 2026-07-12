@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Bot, Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket, Trash2
+  Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket, Trash2
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { useWalkthrough } from '@/context/WalkthroughContext'
 import { Coachmark, HighlightRing } from '@/components/onboarding/Coachmark'
+import { PageHeader } from '@/components/layout/PageHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
@@ -38,6 +39,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
   const isPaidPlan = true // all plans are paid (no free tier)
   const [langSheetOpen,    setLangSheetOpen]    = useState(false)
   const [connectSheetOpen, setConnectSheetOpen] = useState(false)
+  const [settingsOpen,     setSettingsOpen]     = useState(false)
 
   const langLabel = language === 'ru' ? t('language.russian') : t('language.english')
   const planNameKey = PLAN_NAME_KEY[subscription.planTier]
@@ -73,7 +75,21 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
 
   return (
     <div>
-      <div className="px-4 pt-3 space-y-2.5">
+      <PageHeader
+        title={t('nav.profile')}
+        right={
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            onClick={() => setSettingsOpen(true)}
+            aria-label={t('profile.appSettings')}
+            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-[#8A8A93] transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"
+          >
+            <Settings size={17} />
+          </motion.button>
+        }
+      />
+
+      <div className="px-4 space-y-2.5">
 
         {/* Account card */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
@@ -193,85 +209,6 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
           </div>
         </motion.div>
 
-        {/* Settings list */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.22 }}>
-          <GlassCard padding="none" className="overflow-hidden divide-y divide-white/6">
-
-            {user.isAdmin && (
-              <button
-                onClick={onOpenAdmin}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
-              >
-                <div className="w-7 h-7 rounded-[8px] bg-[rgba(255,106,0,0.12)] flex items-center justify-center">
-                  <Ticket size={13} className="text-[#FF6A00]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-white">{t('admin.panelTitle')}</p>
-                  <p className="text-[11px] text-[#55555D]">{t('admin.panelSubtitle')}</p>
-                </div>
-                <ChevronRight size={13} className="text-[#44444C]" />
-              </button>
-            )}
-
-            <button
-              onClick={() => showToast(t('profile.botSettings') + ' — coming soon')}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
-            >
-              <div className="w-7 h-7 rounded-[8px] bg-white/[0.05] flex items-center justify-center">
-                <Bot size={13} className="text-[#66666E]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-white">{t('profile.botSettings')}</p>
-                <p className="text-[11px] text-[#55555D]">{t('profile.botSettingsSubtitle')}</p>
-              </div>
-              <ChevronRight size={13} className="text-[#44444C]" />
-            </button>
-
-            <button
-              onClick={() => setLangSheetOpen(true)}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
-            >
-              <div className="w-7 h-7 rounded-[8px] bg-white/[0.05] flex items-center justify-center">
-                <Globe size={13} className="text-[#66666E]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-white">{t('profile.language')}</p>
-                <p className="text-[11px] text-[#55555D]">{langLabel}</p>
-              </div>
-              <ChevronRight size={13} className="text-[#44444C]" />
-            </button>
-
-            <button
-              onClick={() => showToast(t('profile.appSettings') + ' — coming soon')}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
-            >
-              <div className="w-7 h-7 rounded-[8px] bg-white/[0.05] flex items-center justify-center">
-                <Settings size={13} className="text-[#66666E]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-white">{t('profile.appSettings')}</p>
-                <p className="text-[11px] text-[#55555D]">{t('profile.appSettingsSubtitle')}</p>
-              </div>
-              <ChevronRight size={13} className="text-[#44444C]" />
-            </button>
-
-            <button
-              onClick={() => showToast(t('profile.support') + ' — coming soon')}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
-            >
-              <div className="w-7 h-7 rounded-[8px] bg-white/[0.05] flex items-center justify-center">
-                <HelpCircle size={13} className="text-[#66666E]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-white">{t('profile.support')}</p>
-                <p className="text-[11px] text-[#55555D]">{t('profile.supportSubtitle')}</p>
-              </div>
-              <ChevronRight size={13} className="text-[#44444C]" />
-            </button>
-
-          </GlassCard>
-        </motion.div>
-
         <div className="pb-2 text-center">
           <p className="text-[11px] text-[#66666E]">Publium v0.1.0</p>
         </div>
@@ -282,6 +219,36 @@ export function ProfileScreen({ onOpenBrandKit, onOpenPlans, onOpenAdmin }: Prof
         open={connectSheetOpen}
         onClose={() => setConnectSheetOpen(false)}
       />
+
+      <Sheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title={t('profile.appSettings')}
+      >
+        <div className="overflow-hidden rounded-[16px] border border-white/[0.07] bg-white/[0.025] divide-y divide-white/[0.06]">
+          {user.isAdmin && (
+            <SettingsRow
+              icon={Ticket}
+              title={t('admin.panelTitle')}
+              subtitle={t('admin.panelSubtitle')}
+              accent
+              onClick={() => { setSettingsOpen(false); onOpenAdmin() }}
+            />
+          )}
+          <SettingsRow
+            icon={Globe}
+            title={t('profile.language')}
+            subtitle={langLabel}
+            onClick={() => { setSettingsOpen(false); setLangSheetOpen(true) }}
+          />
+          <SettingsRow
+            icon={HelpCircle}
+            title={t('profile.support')}
+            subtitle={t('profile.supportSubtitle')}
+            onClick={() => showToast(t('profile.support') + ' — coming soon')}
+          />
+        </div>
+      </Sheet>
 
       {/* Language picker sheet */}
       <Sheet
@@ -343,31 +310,62 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onDiscon
               <p className="text-[11px] text-[#55555D]">{channel.subscribersCount.toLocaleString()} {t('profile.connected')}</p>
             </div>
           </div>
-          {isActive && (
-            <span className="shrink-0 text-[10px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)] px-1.5 py-px rounded-full">
-              {t('profile.active')}
-            </span>
-          )}
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isActive}
+              aria-label={`${t('profile.makeActive')}: @${channel.username}`}
+              onClick={() => { if (!isActive) onSetDefault() }}
+              className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"
+            >
+              <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 ${isActive ? 'bg-[#FF6A00]' : 'bg-[#343439]'}`}>
+                <span className={`absolute left-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-200 ${isActive ? 'translate-x-4' : 'translate-x-0'}`} />
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onDisconnect}
+              aria-label={`${t('profile.disconnect')}: @${channel.username}`}
+              className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-[#62626A] transition-colors duration-200 hover:bg-red-500/[0.08] hover:text-[#FF5C67] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF5C67]"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
         </div>
 
-        <div className="flex gap-1.5">
-          {!isActive && (
-            <Button variant="ghost" size="sm" onClick={onSetDefault} className="flex-1">
-              {t('profile.makeActive')}
-            </Button>
-          )}
-          <div className="flex-1">
-            <HighlightRing active={!!highlightStyle}>
-              <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
-                {t('profile.channelStyle')} →
-              </Button>
-            </HighlightRing>
-          </div>
-          <Button variant="danger" size="sm" onClick={onDisconnect}>
-            <Trash2 size={13} />
+        <HighlightRing active={!!highlightStyle}>
+          <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
+            {t('profile.channelStyle')} →
           </Button>
-        </div>
+        </HighlightRing>
       </GlassCard>
     </motion.div>
+  )
+}
+
+
+function SettingsRow({ icon: Icon, title, subtitle, onClick, accent = false }: {
+  icon: React.ElementType
+  title: string
+  subtitle: string
+  onClick: () => void
+  accent?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-14 w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors duration-200 hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#FF6A00]"
+    >
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] ${accent ? 'bg-[rgba(255,106,0,0.12)] text-[#FF6A00]' : 'bg-white/[0.05] text-[#777780]'}`}>
+        <Icon size={14} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium text-white">{title}</span>
+        <span className="mt-0.5 block text-[11px] text-[#62626A]">{subtitle}</span>
+      </span>
+      <ChevronRight size={14} className="text-[#45454D]" />
+    </button>
   )
 }
