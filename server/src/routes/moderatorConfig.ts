@@ -69,7 +69,13 @@ router.post('/:moderatorId/publish', async (req: Request, res: Response): Promis
   try { blocks = parseBlocks(current.blocks); } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid blocks' }); return;
   }
-  const nextVersion = current.version + 1;
+  const requiredRights = requiredRightsFor(blocks);
+  const granted = (context.moderator.community.moderatorChat?.grantedRights ?? {}) as Record<string, unknown>;
+  if (requiredRights.can_delete_messages && granted['can_delete_messages'] !== true) {
+    res.status(409).json({ error: 'Для автоудаления дайте ModerBot право удалять сообщения.' });
+    return; // MISSING_DELETE_RIGHT
+  }
+    const nextVersion = current.version + 1;
   const result = await prisma.$transaction(async tx => {
     await tx.moderatorConfig.updateMany({ where: { moderatorId: context.moderator.id, status: 'PUBLISHED' }, data: { status: 'ARCHIVED' } });
     const published = await tx.moderatorConfig.update({

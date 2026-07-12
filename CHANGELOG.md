@@ -16,6 +16,7 @@ For the full always-current capability list, see [FEATURES.md](FEATURES.md).
 Shipped to production since 1.1; not yet tagged.
 
 ### Added
+- **Moderator: Welcome v1** — visual Rich Message welcome block for discussion groups: formatting, image, URL buttons, variables (`{name}`, `{username}`, `{group}`, `{channel}`, `{rules}`), repeat-join modes, bot/admin exceptions, service-message cleanup, and durable auto-delete up to 48 hours. Settings use draft/publish versions and a collapsible editor.
 - **Rich inline formatting everywhere** — the generator (and editor) now use the full marker set: `**bold**`, `__italic__`, `~~strike~~`, `` `mono` ``, `==highlight==`, `||spoiler||`, `[links](url)`. Same vocabulary in generation, the block editor and table cells.
 - **Nested lists** — a list item can carry a nested numbered sub-list (Tab-indent in the editor).
 - **Heading links** — a heading can be a clickable link.

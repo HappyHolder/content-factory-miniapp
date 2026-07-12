@@ -18,7 +18,7 @@
 
 import { prisma } from '../db';
 import { env } from '../env';
-import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard } from './telegramBot';
+import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard, deleteBotMessage } from './telegramBot';
 import { deleteObject } from './storage';
 import { POST_EDIT_WINDOW_MS } from './postRetention';
 import type { PostBlock } from './richPost';
@@ -217,6 +217,21 @@ async function purgeExpiredPublished(): Promise<void> {
   console.log(`[scheduler] purged ${expired.length} expired published post(s)`);
 }
 
+async function processScheduledModerationActions(): Promise<void> {
+  const actions = await prisma.scheduledModerationAction.findMany({
+    where: { status: 'PENDING', executeAt: { lte: new Date() } }, orderBy: { executeAt: 'asc' }, take: 100,
+  });
+  for (const action of actions) {
+    try {
+      await deleteBotMessage(action.tgChatId, action.telegramMessageId, env.MODERATOR_BOT_TOKEN);
+      await prisma.scheduledModerationAction.update({ where: { id: action.id }, data: { status: 'COMPLETED', completedAt: new Date(), attempts: { increment: 1 } } });
+    } catch (err) {
+      const attempts = action.attempts + 1;
+      await prisma.scheduledModerationAction.update({ where: { id: action.id }, data: { attempts, status: attempts >= 3 ? 'FAILED' : 'PENDING', lastError: (err as Error).message.slice(0, 500), executeAt: new Date(Date.now() + 60_000) } }).catch(() => undefined);
+    }
+  }
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 export function startScheduler(): void {
@@ -230,6 +245,9 @@ export function startScheduler(): void {
     );
     await purgeExpiredPublished().catch(err =>
       console.error('[scheduler] Purge sweep failed:', (err as Error).message)
+    );
+    await processScheduledModerationActions().catch(err =>
+      console.error('[scheduler] Moderation action sweep failed:', (err as Error).message)
     );
   };
 

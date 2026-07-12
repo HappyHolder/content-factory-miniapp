@@ -16,12 +16,18 @@ type WelcomeBlock = {
   text: string
   imageUrl?: string
   buttons?: WelcomeButton[]
+  returnText?: string
+  autoDeleteSeconds?: number
+  deleteJoinMessage?: boolean
+  firstJoinOnly?: boolean
+  skipBots?: boolean
+  skipAdmins?: boolean
 }
 
 const DEFAULT_BLOCK: WelcomeBlock = {
   id: 'welcome-default', type: 'welcome', enabled: false,
   text: 'Добро пожаловать, **{name}**! Перед общением познакомьтесь с правилами сообщества.',
-  buttons: [],
+  buttons: [], autoDeleteSeconds: 0, deleteJoinMessage: false, firstJoinOnly: false, skipBots: true, skipAdmins: true,
 }
 
 const MARKERS = [
@@ -138,9 +144,10 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
   }
 
   if (loading) return <div className="flex justify-center py-8 text-[#66666E]"><Loader2 size={20} className="animate-spin" /></div>
+  const previewText = block.text.replace(/\{name\}/g, 'Степан').replace(/\{username\}/g, '@stepan').replace(/\{group\}/g, 'Publium Chat').replace(/\{channel\}/g, '@publium').replace(/\{rules\}/g, 'https://t.me/publium')
   const previewBlocks: PostBlock[] = [
     ...(block.imageUrl ? [{ type: 'image' as const, url: block.imageUrl }] : []),
-    { type: 'paragraph', runs: textToRuns(block.text.split('{name}').join('Степан')) },
+    { type: 'paragraph', runs: textToRuns(previewText) },
   ]
 
   return (
@@ -160,7 +167,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
           </span>
           <span className="mt-0.5 block truncate text-[11px] text-[#66666E]">
             {collapsed
-              ? `${block.enabled ? 'Включено' : 'Выключено'}${block.imageUrl ? ' · изображение' : ''}${block.buttons?.length ? ` · ${block.buttons.length} кноп.${block.buttons.length === 1 ? 'ка' : 'ки'}` : ''}`
+              ? `${block.enabled ? 'Включено' : 'Выключено'}${block.imageUrl ? ' · изображение' : ''}${block.buttons?.length ? ` · ${block.buttons.length} кноп.${block.buttons.length === 1 ? 'ка' : 'ки'}` : ''}${block.autoDeleteSeconds ? ' · автоудаление' : ''}`
               : 'Rich Message для нового участника'}
           </span>
         </span>
@@ -186,6 +193,33 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
       <div className="mt-4 space-y-2">
         <div className="flex items-center justify-between"><span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#66666E]">Кнопки</span>{(block.buttons?.length ?? 0) < 3 && <button type="button" onClick={addButton} className="flex min-h-9 items-center gap-1 text-[11px] text-[#FF6A00]"><Plus size={13} /> Добавить</button>}</div>
         {(block.buttons ?? []).map(button => <div key={button.id} className="grid grid-cols-[1fr_1.4fr_36px] gap-2"><input value={button.label} onChange={e => patchButton(button.id, { label: e.target.value })} placeholder="Правила" className="min-w-0 rounded-[10px] border border-white/[0.08] bg-white/[0.035] px-3 text-[12px] text-white outline-none" /><input value={button.url} onChange={e => patchButton(button.id, { url: e.target.value })} placeholder="https://…" className="min-w-0 rounded-[10px] border border-white/[0.08] bg-white/[0.035] px-3 text-[12px] text-white outline-none" /><button type="button" aria-label="Удалить кнопку" onClick={() => removeButton(button.id)} className="flex h-10 w-9 items-center justify-center rounded-[9px] text-[#62626A] hover:bg-red-500/10 hover:text-red-400"><Trash2 size={14} /></button></div>)}
+      </div>
+
+      <details className="group mt-4 rounded-[14px] border border-white/[0.08] bg-white/[0.025]">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-3.5 text-[12px] font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]">
+          Поведение <ChevronDown size={15} className="text-[#66666E] transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-3 border-t border-white/[0.07] p-3">
+          <label className="block text-[11px] text-[#8A8A93]">Автоудаление приветствия
+            <select value={block.autoDeleteSeconds ?? 0} onChange={e => setBlock(prev => ({ ...prev, autoDeleteSeconds: Number(e.target.value) }))} className="mt-1.5 min-h-11 w-full rounded-[11px] border border-white/[0.08] bg-[#171719] px-3 text-[13px] text-white outline-none focus:border-[rgba(255,106,0,0.45)]">
+              <option value={0}>Не удалять</option><option value={60}>Через 1 минуту</option><option value={300}>Через 5 минут</option><option value={900}>Через 15 минут</option><option value={3600}>Через 1 час</option><option value={86400}>Через 24 часа</option><option value={172800}>Через 48 часов</option>
+            </select>
+          </label>
+          <Switch label="Удалять сообщение о входе" description="Скрыть системное «вступил(а) в группу»" value={block.deleteJoinMessage ?? false} onChange={deleteJoinMessage => setBlock(prev => ({ ...prev, deleteJoinMessage }))} />
+          <label className="block text-[11px] text-[#8A8A93]">Повторный вход
+            <select value={block.firstJoinOnly ? 'first' : block.returnText ? 'return' : 'always'} onChange={e => setBlock(prev => ({ ...prev, firstJoinOnly: e.target.value === 'first', returnText: e.target.value === 'return' ? (prev.returnText || 'С возвращением, **{name}**!') : undefined }))} className="mt-1.5 min-h-11 w-full rounded-[11px] border border-white/[0.08] bg-[#171719] px-3 text-[13px] text-white outline-none focus:border-[rgba(255,106,0,0.45)]">
+              <option value="always">Обычное приветствие</option><option value="first">Только при первом входе</option><option value="return">Отдельный текст</option>
+            </select>
+          </label>
+          {block.returnText !== undefined && !block.firstJoinOnly && <textarea value={block.returnText} onChange={e => setBlock(prev => ({ ...prev, returnText: e.target.value }))} rows={3} maxLength={3500} aria-label="Текст при повторном входе" className="w-full resize-none rounded-[11px] border border-white/[0.08] bg-[#0B0B0D] px-3 py-2.5 text-[13px] text-white outline-none focus:border-[rgba(255,106,0,0.45)]" />}
+          <Switch label="Не приветствовать ботов" value={block.skipBots ?? true} onChange={skipBots => setBlock(prev => ({ ...prev, skipBots }))} />
+          <Switch label="Не приветствовать админов" value={block.skipAdmins ?? true} onChange={skipAdmins => setBlock(prev => ({ ...prev, skipAdmins }))} />
+        </div>
+      </details>
+
+      <div className="mt-4">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#66666E]">Переменные</p>
+        <div className="flex flex-wrap gap-1.5">{['{name}', '{username}', '{group}', '{channel}', '{rules}'].map(token => <button key={token} type="button" onClick={() => setBlock(prev => ({ ...prev, text: prev.text + ' ' + token }))} className="min-h-9 cursor-pointer rounded-[9px] border border-white/[0.08] bg-white/[0.035] px-2.5 font-mono text-[11px] text-[#A0A0A8] hover:border-[rgba(255,106,0,0.3)] hover:text-white">{token}</button>)}</div>
       </div>
 
       <div className="mt-5"><p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#66666E]">Предпросмотр</p><RichPostPreview blocks={previewBlocks} channelName="Модератор" />{(block.buttons ?? []).filter(b => b.label && b.url).map(b => <div key={b.id} className="mt-1.5 rounded-[9px] border border-[#2E7CF6]/30 bg-[#2E7CF6]/10 px-3 py-2 text-center text-[12px] text-[#7FB0FF]">{b.label}</div>)}</div>

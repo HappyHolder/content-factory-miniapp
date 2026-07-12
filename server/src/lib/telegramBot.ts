@@ -709,6 +709,19 @@ export async function answerPreCheckoutQuery(
   }
 }
 
+/** Deletes a message sent in, or a service message from, a managed group. */
+export async function deleteBotMessage(chatId: number | string, messageId: number, token: string): Promise<void> {
+  const url = `${TG_API}/bot${token}/deleteMessage`;
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, message_id: messageId }) });
+  } catch (err) {
+    throw new TelegramApiError(`Network error calling deleteMessage: ${(err as Error).message}`);
+  }
+  const body = (await res.json()) as TgApiResponse<unknown>;
+  if (!body.ok) throw new TelegramApiError(body.description ?? 'deleteMessage returned not-ok', body.error_code);
+}
+
 /**
  * Returns the membership/role info for a user in a chat.
  * chatId should be in the form "@username".

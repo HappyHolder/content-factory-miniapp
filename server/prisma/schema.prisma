@@ -485,6 +485,7 @@ model Community {
   members         CommunityMember[]
   warnings        ModerationWarning[]
   events          ModerationEvent[]
+  scheduledActions ScheduledModerationAction[]
 }
 
 model Moderator {
@@ -529,12 +530,32 @@ model CommunityMember {
   captchaDeadline DateTime?
   joinedAt        DateTime?
   verifiedAt      DateTime?
+  joinCount       Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   community       Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
 
   @@unique([communityId, tgUserId])
   @@index([communityId, status])
+}
+
+model ScheduledModerationAction {
+  id                String    @id @default(cuid())
+  communityId       String
+  actionType         String
+  tgChatId           String
+  telegramMessageId Int
+  executeAt          DateTime
+  status             String    @default("PENDING")
+  attempts           Int       @default(0)
+  lastError          String?
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  community          Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@index([status, executeAt])
+  @@unique([tgChatId, telegramMessageId, actionType])
 }
 
 model ModerationWarning {
