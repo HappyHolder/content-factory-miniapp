@@ -175,7 +175,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
       </button>
 
       {!collapsed && (
-        <div id={`welcome-block-${moderatorId}`} className="space-y-0">
+        <div id={`welcome-block-${moderatorId}`}>
       <div className="rounded-[14px] border border-white/[0.07] bg-white/[0.025] p-3"><Switch label="Включить приветствие" description="Отправлять при вступлении" value={block.enabled} onChange={enabled => setBlock(prev => ({ ...prev, enabled }))} /></div>
 
       <div className="mt-4 flex flex-wrap gap-1 rounded-t-[12px] border border-b-0 border-white/[0.08] bg-white/[0.035] p-1.5">
