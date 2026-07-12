@@ -4,7 +4,8 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { getBotIdFromToken, getChatMember, TelegramApiError } from '../lib/telegramBot';
+import { getBotIdFromToken, getChatMember, sendBotMessage, TelegramApiError } from '../lib/telegramBot';
+import { parseBlocks } from '../moderator/config';
 
 const router = Router();
 
@@ -25,7 +26,12 @@ type MyChatMemberUpdate = {
 type ModeratorUpdate = {
   update_id: number;
   my_chat_member?: MyChatMemberUpdate;
-  message?: { message_id: number; chat: { id: number }; from?: { id: number } };
+  message?: {
+    message_id: number;
+    chat: { id: number; type?: string };
+    from?: { id: number };
+    new_chat_members?: { id: number; first_name: string; username?: string; is_bot?: boolean }[];
+  };
 };
 
 const REQUIRED_BASE_RIGHTS = { can_delete_messages: true, can_restrict_members: true };
@@ -76,8 +82,70 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // Until the moderation engine is explicitly published, ignore all chat
-  // content. The foundation webhook only records the bot membership lifecycle.
+  const joined = update.message?.new_chat_members?.filter(member => !member.is_bot) ?? [];
+  if (update.message && joined.length > 0) {
+    const updateId = String(update.update_id);
+    const community = await prisma.community.findFirst({
+      where: { moderatorChat: { tgChatId: String(update.message.chat.id) }, moderator: { enabled: true, publishedVersion: { not: null } } },
+      include: { moderator: true },
+    });
+    if (!community?.moderator?.publishedVersion) {
+      res.status(200).json({ ok: true, ignored: true });
+      return;
+    }
+
+    try {
+      await prisma.moderationEvent.create({
+        data: {
+          communityId: community.id,
+          telegramUpdateId: updateId,
+          telegramMessageId: update.message.message_id,
+          eventType: 'MEMBER_JOINED',
+          status: 'RECEIVED',
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        res.status(200).json({ ok: true, duplicate: true });
+        return;
+      }
+      console.error('[moderator/welcome] audit create failed:', (err as Error).message);
+      res.status(200).json({ ok: true, stored: false });
+      return;
+    }
+
+    try {
+      const config = await prisma.moderatorConfig.findUnique({
+        where: { moderatorId_version: { moderatorId: community.moderator.id, version: community.moderator.publishedVersion } },
+      });
+      const welcome = parseBlocks(config?.blocks ?? []).find(block => block.type === 'welcome' && block.enabled);
+      if (!welcome) {
+        await prisma.moderationEvent.update({ where: { telegramUpdateId: updateId }, data: { status: 'SKIPPED', reason: 'WELCOME_DISABLED' } });
+        res.status(200).json({ ok: true, skipped: true });
+        return;
+      }
+      for (const member of joined) {
+        const name = member.first_name.trim().slice(0, 128) || 'участник';
+        await sendBotMessage(update.message.chat.id, welcome.text.split('{name}').join(name), env.MODERATOR_BOT_TOKEN);
+      }
+      await prisma.moderationEvent.update({
+        where: { telegramUpdateId: updateId },
+        data: { status: 'PROCESSED', action: 'WELCOME_SENT', metadata: { memberCount: joined.length, blockId: welcome.id } },
+      });
+      res.status(200).json({ ok: true });
+      return;
+    } catch (err) {
+      console.error('[moderator/welcome] execution failed:', (err as Error).message);
+      await prisma.moderationEvent.update({
+        where: { telegramUpdateId: updateId },
+        data: { status: 'FAILED', reason: (err as Error).message.slice(0, 500) },
+      }).catch(() => undefined);
+      res.status(200).json({ ok: true, executed: false });
+      return;
+    }
+  }
+
+  // Until more blocks are published, ignore all ordinary chat content.
   if (!update.my_chat_member) {
     res.status(200).json({ ok: true, ignored: true });
     return;
