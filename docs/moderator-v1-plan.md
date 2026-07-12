@@ -1,0 +1,167 @@
+# Publium Moderator v1
+
+Статус: архитектура и состав MVP зафиксированы 12.07.2026.
+
+## Продуктовая архитектура
+
+- `@PubliumBot` — основной бот, Mini App и весь интерфейс настройки.
+- `@PubliumModerBot` — отдельный исполнитель в группе обсуждений.
+- Оба бота используют единые backend, базу и журнал, но отдельные токены, webhook-маршруты и secrets.
+- Конфигурация передаётся через backend; bot-to-bot — только для служебных сценариев.
+- Командного интерфейса как у Rose нет: политика собирается визуально из блоков.
+- Moderator наследует тематику, аудиторию, правила, тон и стиль канала.
+
+```text
+Пользователь → Канал → Сообщество → Moderator / Community Manager
+```
+
+Вход в «Сообщество» расположен в карточке канала рядом со «Стилем канала». Позже здесь же появятся Community Manager, события, розыгрыши и награды Stars/TON.
+
+## Граница MVP
+
+В первую версию входят: подключение группы и ModerBot; расчёт минимальных прав; draft/published конфигурация; приветствие; button CAPTCHA; антифлуд; фильтр слов, ссылок и типов контента; warnings и лестница санкций; AI-модерация; журнал; отмена warn/mute/ban; исключения и общий тумблер паузы.
+
+Не входят: Community Manager, федерации, AntiRaid, сложные CAPTCHA, promote/demote, темы, массовый purge, импорт Rose, командный интерфейс и автоматический AI-ban после одного сообщения.
+
+## Пользовательский путь
+
+1. Пользователь открывает «Сообщество» из карточки канала.
+2. Publium находит или предлагает выбрать группу обсуждений.
+3. Пользователь выбирает стартовый набор защиты.
+4. Backend рассчитывает права и открывает ссылку добавления `@PubliumModerBot`.
+5. Publium проверяет присутствие, статус администратора и права бота.
+6. Создаётся конфигурация для пары «канал + группа».
+7. Пользователь собирает блоки в черновике.
+8. ModerBot исполняет только опубликованную версию.
+
+Состояния: не подключён, ожидает добавления, не хватает прав, подключён, приостановлен, бот удалён, группа недоступна.
+
+## Блочная модель
+
+```ts
+type ModerationBlockType =
+  | 'welcome'
+  | 'captcha'
+  | 'antiflood'
+  | 'content_filter'
+  | 'ai_filter'
+  | 'warning_policy'
+```
+
+Блок содержит тип, состояние, порядок, триггер, условия, действие, ответ и исключения. Действия: allow, delete, warn, временное ограничение, kick, ban или review. Исключения: владельцы, администраторы, trusted users, пользователи, домены, каналы и боты.
+
+### Блоки v1
+
+- **Приветствие:** rich message, изображение, имя, правила, CAPTCHA, автоудаление.
+- **CAPTCHA:** временное ограничение, одна кнопка, тайм-аут, действие, запоминание проверенных.
+- **Антифлуд:** N сообщений за T секунд, повторы, удаление, эскалация warn → mute.
+- **Фильтр:** слова, фразы, URL, инвайты, allowlist, медиа, файлы, forwards, каналы, упоминания и команды.
+- **AI-фильтр:** токсичность, агрессия, реклама, мошенничество, спам, оффтоп, тематика, правила и пользовательское условие.
+- **Warnings:** лимит, expiry, история и лестница санкций.
+
+Безопасная AI-политика по умолчанию:
+
+```text
+Высокая уверенность → удалить + warn
+Средняя уверенность → review
+Низкая уверенность → allow
+```
+
+## Права ModerBot
+
+| Возможность | Право |
+| --- | --- |
+| Удаление сообщений | `can_delete_messages` |
+| CAPTCHA, mute, kick, ban | `can_restrict_members` |
+| Join requests (позже) | `can_invite_users` |
+| Закрепление правил | `can_pin_messages` |
+
+Лишние права не запрашиваются. Без нужного права блок нельзя опубликовать. При потере права Moderator переходит в degraded state и пишет понятную ошибку в журнал.
+
+## AI-модели
+
+MVP использует `openai/gpt-5.6-terra` через Replicate с `reasoning_effort: none/low`, низкой verbosity и строгим JSON. Детерминированные правила выполняются первыми.
+
+```text
+Целевая схема: правила → Luna → при низкой уверенности Terra → действие/журнал
+```
+
+В модель передаются только необходимые правила и минимальный контекст. Обязательны rate limits, бюджет канала, кэш спама, timeout, circuit breaker и безопасная деградация. Ошибка AI ведёт к allow/review, но не к санкции.
+
+## Данные
+
+Новые Prisma-сущности:
+
+- `Community` — канал и группа обсуждений.
+- `Moderator` — статус, версии и права.
+- `ModeratorConfig` — immutable draft/published версии и JSON блоков.
+- `CommunityMember` — trusted/CAPTCHA-состояние.
+- `ModerationWarning` — предупреждения, сроки и отмена.
+- `ModerationEvent` — аудит решения и действия.
+
+События содержат Telegram update/message ID, пользователя, блок, решение, confidence, reason code, действие, статус, model/prompt version и отмену. Updates дедуплицируются по `update_id`.
+
+## Backend
+
+```text
+server/src/moderator/
+  types.ts config.ts rights.ts evaluator.ts executor.ts eventLog.ts
+  memberState.ts warningEngine.ts captcha.ts modelRouter.ts
+  promptBuilder.ts schemas.ts blocks/
+```
+
+`evaluator` решает, `executor` вызывает Telegram, `eventLog` пишет аудит, `warningEngine` эскалирует, `modelRouter` выбирает модель. Блоки не вызывают Telegram и БД напрямую.
+
+Отдельный `POST /api/moderator/webhook` использует отдельный secret, дедуплицирует update и быстро отвечает `200`. Тяжёлая обработка идёт через Postgres-backed очередь, а не память процесса.
+
+Основные API:
+
+```text
+GET    /api/channels/:channelId/community
+POST   /api/channels/:channelId/community/connect
+POST   /api/communities/:id/moderator
+GET    /api/moderators/:id
+PATCH  /api/moderators/:id/draft
+POST   /api/moderators/:id/publish
+POST   /api/moderators/:id/pause
+POST   /api/moderators/:id/check-rights
+GET    /api/moderators/:id/events
+POST   /api/moderation-events/:id/reverse
+```
+
+Все маршруты валидируют Telegram initData, владельца канала и принадлежность Community.
+
+## Frontend и журнал
+
+Новые экраны: `CommunityScreen`, `ModeratorScreen`, `ModeratorConnectScreen`, `ModeratorBlockEditorScreen`, `ModerationLogScreen`, `CommunityRulesScreen`. Шестая нижняя вкладка не добавляется.
+
+Журнал показывает событие, участника, блок, причину, AI confidence, действие и ответ Telegram. Доступны отмена warn/mute/ban, исключение и отметка ложного срабатывания. Удалённое сообщение нельзя восстановить как исходное, поэтому используется «Отметить ошибкой».
+
+## Безопасность
+
+- Разные bot tokens и webhook secrets; секреты не логируются.
+- Владелец и администраторы исключены по умолчанию.
+- Перед санкцией проверяются цель и актуальные права.
+- Разрешённые сообщения полностью не сохраняются.
+- Retention спорных/удалённых сообщений — ориентир 30 дней.
+- AI-журнал хранит модель, prompt version и confidence.
+
+## Этапы реализации
+
+1. **Фундамент:** миграция, второй бот, webhook, канал/группа, дедупликация, журнал.
+2. **Интерфейс:** вход из карточки, экран сообщества, подключение и права.
+3. **Движок:** draft/published, welcome, filter, antiflood, права.
+4. **Новички:** CAPTCHA, участники, warnings, expiry, санкции.
+5. **AI:** Terra adapter, Brand Kit context, JSON schema, thresholds и лимиты.
+6. **Журнал:** фильтры, детали, отмена, allowlist и ошибки прав.
+7. **Hardening:** тесты, тестовая группа, метрики, feature flag и rollout.
+
+## Проверка и метрики
+
+Обязательные сценарии: join/CAPTCHA success/timeout, flood, разрешённая/запрещённая ссылка, warning escalation, AI off-topic, спорное сообщение, потеря прав, повторный update, timeout Replicate и отмена санкции.
+
+Метрики: активные сообщества, срабатывания, warn/mute/ban, AI cost/latency, review rate, отмены, ошибки Telegram, права и CAPTCHA conversion. Главный показатель качества — доля решений, отменённых или исправленных администратором.
+
+## Definition of Done
+
+Владелец без Telegram-команд может подключить группу и ModerBot, выдать минимальные права, собрать и опубликовать блоки, проверять новичков, удалять спам, вести санкции, включить Terra, увидеть объяснение, отменить санкцию и приостановить Moderator. При недоступности AI детерминированная защита продолжает работать.
