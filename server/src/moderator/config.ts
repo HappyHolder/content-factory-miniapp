@@ -1,9 +1,12 @@
+export type WelcomeButton = { id: string; label: string; url: string };
+
 export type WelcomeBlock = {
   id: string;
   type: 'welcome';
   enabled: boolean;
   text: string;
-  buttonText?: string;
+  imageUrl?: string;
+  buttons?: WelcomeButton[];
 };
 
 export type ModeratorBlock = WelcomeBlock;
@@ -32,7 +35,17 @@ export function parseBlocks(value: unknown): ModeratorBlock[] {
       type: 'welcome',
       enabled: block['enabled'],
       text: block['text'].trim(),
-      ...(typeof block['buttonText'] === 'string' ? { buttonText: block['buttonText'].slice(0, 64) } : {}),
+      ...(typeof block['imageUrl'] === 'string' && /^https?:\/\//i.test(block['imageUrl']) ? { imageUrl: block['imageUrl'].slice(0, 2000) } : {}),
+      ...(Array.isArray(block['buttons']) ? {
+        buttons: block['buttons'].slice(0, 3).flatMap((rawButton, buttonIndex) => {
+          if (!rawButton || typeof rawButton !== 'object') return [];
+          const b = rawButton as Record<string, unknown>;
+          const label = typeof b['label'] === 'string' ? b['label'].trim().slice(0, 64) : '';
+          const url = typeof b['url'] === 'string' ? b['url'].trim().slice(0, 2000) : '';
+          if (!label || !/^(https?:\/\/|@)/i.test(url)) return [];
+          return [{ id: typeof b['id'] === 'string' ? b['id'] : 'welcome-btn-' + buttonIndex, label, url }];
+        }),
+      } : {}),
     };
   });
 }

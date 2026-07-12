@@ -4,7 +4,8 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { getBotIdFromToken, getChatMember, sendBotMessage, TelegramApiError } from '../lib/telegramBot';
+import { buildInlineKeyboard, getBotIdFromToken, getChatMember, sendRichMessage, TelegramApiError } from '../lib/telegramBot';
+import { blocksToRichHtml, parseInline, type PostBlock } from '../lib/richPost';
 import { parseBlocks } from '../moderator/config';
 
 const router = Router();
@@ -126,7 +127,15 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       }
       for (const member of joined) {
         const name = member.first_name.trim().slice(0, 128) || 'участник';
-        await sendBotMessage(update.message.chat.id, welcome.text.split('{name}').join(name), env.MODERATOR_BOT_TOKEN);
+        const text = welcome.text.split('{name}').join(name);
+        const blocks: PostBlock[] = [
+          ...(welcome.imageUrl ? [{ type: 'image' as const, url: welcome.imageUrl }] : []),
+          { type: 'paragraph', runs: parseInline(text) },
+        ];
+        const keyboard = buildInlineKeyboard((welcome.buttons ?? []).map(button => ({
+          label: button.label, buttonLabel: button.label, url: button.url, kind: 'url',
+        })));
+        await sendRichMessage(update.message.chat.id, blocksToRichHtml(blocks), env.MODERATOR_BOT_TOKEN, keyboard);
       }
       await prisma.moderationEvent.update({
         where: { telegramUpdateId: updateId },
