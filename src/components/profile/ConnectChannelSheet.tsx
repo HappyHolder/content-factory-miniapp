@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Loader2, ShieldCheck, MessageSquare, AtSign } from 'lucide-react'
+import { Loader2, ShieldCheck, MessageSquare, AtSign, Lock } from 'lucide-react'
 import { Sheet } from '@/components/ui/Sheet'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
@@ -91,6 +91,12 @@ export function ConnectChannelSheet({ open, onClose }: ConnectChannelSheetProps)
             className="glass-input w-full px-4 py-3 text-sm rounded-[14px] placeholder:text-[#44444C]"
             style={{ background: 'rgba(255,255,255,0.04)' }}
           />
+        </div>
+
+        {/* ── Private-channel hint ── */}
+        <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-[12px] bg-white/[0.03] border border-white/[0.06]">
+          <Lock size={13} className="text-[#55555D] shrink-0 mt-0.5" />
+          <p className="text-[12px] text-[#8A8A93] leading-relaxed">{t('connectChannel.privateNote')}</p>
         </div>
 
         {/* ── Error message ── */}

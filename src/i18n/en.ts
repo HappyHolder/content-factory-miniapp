@@ -246,6 +246,7 @@ export const en = {
     permStep:        'Give it permission to post messages',
     inputStep:       'Enter your channel username',
     placeholder:     '@yourchannel or t.me/yourchannel',
+    privateNote:     'Private channel? Just add @Publiumbot as an admin with post rights — it connects itself, no username needed.',
     connect:         'Connect channel',
     connecting:      'Connecting…',
     noInitData:      'Open the app inside Telegram to connect a channel',

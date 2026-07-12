@@ -4,9 +4,9 @@ import { prisma } from '../db';
 import { env } from '../env';
 import fs from 'fs';
 import path from 'path';
-import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerPreCheckoutQuery, TelegramWebAppKeyboard } from '../lib/telegramBot';
+import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerPreCheckoutQuery, getBotIdFromToken, TelegramWebAppKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel, type DraftPost } from '../lib/draftGenerator';
-import { isPostsLimitReached, applyMonthlyQuotaReset, canUseHtmlCovers } from '../lib/subscriptionLimits';
+import { isPostsLimitReached, applyMonthlyQuotaReset, canUseHtmlCovers, TIER_LIMITS } from '../lib/subscriptionLimits';
 import { isPaidTier, grantSubscription } from '../lib/payments';
 import { grantStylePurchase } from '../lib/styles';
 import { fetchArticle } from '../lib/urlContentExtractor';
@@ -110,10 +110,26 @@ interface TgPreCheckoutQuery {
   invoice_payload: string;
 }
 
+/**
+ * ChatMemberUpdated (my_chat_member): fired when THIS bot's membership/rights in a
+ * chat change — e.g. a channel admin promotes the bot. `from` is the user who made
+ * the change (the channel owner), `new_chat_member` carries the bot's new role.
+ */
+interface TgChatMemberUpdated {
+  chat: { id: number; type: string; title?: string; username?: string };
+  from?: { id: number };
+  new_chat_member: {
+    status: 'creator' | 'administrator' | 'member' | 'restricted' | 'left' | 'kicked';
+    user?: { id: number; is_bot?: boolean };
+    can_post_messages?: boolean;
+  };
+}
+
 interface TelegramUpdate {
   update_id: number;
   message?: TgMessage;
   pre_checkout_query?: TgPreCheckoutQuery;
+  my_chat_member?: TgChatMemberUpdated;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -197,6 +213,102 @@ async function sendDraftNotification(chatId: number, draft: DraftPost | null): P
     }
   } catch (err) {
     console.error('[bot/webhook] sendDraftNotification failed:', (err as Error).message);
+  }
+}
+
+/**
+ * Auto-connects a channel when this bot is promoted to admin in it.
+ *
+ * This is the ONLY way to attach a *private* channel: private channels have no
+ * @username, so the username-based /api/channels/connect flow can't reach them.
+ * When a channel admin adds @Publiumbot as admin, Telegram delivers a
+ * `my_chat_member` update carrying the channel's numeric chat id and the user who
+ * made the change — enough to bind the channel to that user's account with no
+ * typing. Works for public channels too (they just also have a @handle).
+ *
+ * Guards:
+ *   • Only `channel` chats — groups/supergroups belong to the moderator bot.
+ *   • Only the change concerning OUR bot, promoted to admin with post rights.
+ *   • The promoting user (`from`) must be a registered Publium user; only they —
+ *     an admin who could add the bot — can bind the channel.
+ *   • Never hijacks a channel already owned by another account.
+ *   • Never auto-deletes on demotion/removal (that would cascade-delete the
+ *     channel's posts, brand kit and plans). Removal is simply ignored.
+ */
+async function autoConnectChannelFromMembership(evt: TgChatMemberUpdated): Promise<void> {
+  const { chat } = evt;
+  if (chat.type !== 'channel') return;
+
+  const member = evt.new_chat_member;
+  const botId = getBotIdFromToken(env.TELEGRAM_BOT_TOKEN);
+  if (member.user?.id !== botId) return;
+
+  const isAdmin = member.status === 'administrator' || member.status === 'creator';
+  if (!isAdmin || member.can_post_messages === false) return;
+
+  const adderTgId = evt.from?.id;
+  if (!adderTgId) return;
+
+  const dbUser = await prisma.user
+    .findUnique({ where: { telegramId: String(adderTgId) }, select: { id: true } })
+    .catch(() => null);
+  if (!dbUser) return; // whoever added the bot hasn't onboarded into Publium yet
+
+  const tgChatId = String(chat.id);
+  const title    = chat.title ?? chat.username ?? 'Channel';
+  const handle   = chat.username ? chat.username.toLowerCase() : null;
+
+  // Already known? Refresh it (idempotent for Telegram's retries), but never
+  // steal a channel bound to a different account.
+  const existing = await prisma.channel
+    .findFirst({
+      where: { OR: [{ tgChatId }, ...(handle ? [{ handle }] : [])] },
+      select: { id: true, userId: true },
+    })
+    .catch(() => null);
+
+  if (existing) {
+    if (existing.userId !== dbUser.id) return;
+    await prisma.channel
+      .update({ where: { id: existing.id }, data: { name: title, tgChatId, ...(handle ? { handle } : {}) } })
+      .catch(err => console.error('[bot/webhook] channel refresh failed:', (err as Error).message));
+    return;
+  }
+
+  // Enforce the subscription tier's channel limit.
+  const sub = await prisma.subscription
+    .findUnique({ where: { userId: dbUser.id }, select: { tier: true } })
+    .catch(() => null);
+  const tier         = (sub?.tier ?? 'FREE') as keyof typeof TIER_LIMITS;
+  const channelLimit = TIER_LIMITS[tier].channelLimit;
+  const channelCount = await prisma.channel.count({ where: { userId: dbUser.id } }).catch(() => 0);
+  if (channelCount >= channelLimit) {
+    await trySendReply(
+      adderTgId,
+      `⚠️ Бот добавлен в «${title}», но ваш тариф ${tier} позволяет подключить до ${channelLimit} канал(ов). Повысьте тариф в приложении, чтобы подключить этот канал.`,
+    );
+    return;
+  }
+
+  const channel = await prisma.channel
+    .create({ data: { name: title, handle, tgChatId, userId: dbUser.id }, select: { id: true } })
+    .catch(err => { console.error('[bot/webhook] channel auto-connect failed:', (err as Error).message); return null; });
+  if (!channel) return;
+
+  await prisma.brandKit
+    .upsert({ where: { channelId: channel.id }, update: {}, create: { channelId: channel.id } })
+    .catch(err => console.error('[bot/webhook] brandKit create failed:', (err as Error).message));
+
+  // Best-effort confirmation DM (fails silently if the user never messaged the bot).
+  try {
+    await sendBotMessage(
+      adderTgId,
+      `✅ Канал «${title}» подключён к Publium. Откройте приложение, чтобы публиковать в него.`,
+      env.TELEGRAM_BOT_TOKEN,
+      openAppKeyboard(),
+    );
+  } catch (err) {
+    console.error('[bot/webhook] connect confirmation failed:', (err as Error).message);
   }
 }
 
@@ -290,6 +402,17 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       } catch (err) {
         console.error('[bot/webhook] successful_payment grant failed:', (err as Error).message);
       }
+    }
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // ── Bot promoted to admin in a channel → auto-connect it (incl. private) ──
+  if (update.my_chat_member) {
+    try {
+      await autoConnectChannelFromMembership(update.my_chat_member);
+    } catch (err) {
+      console.error('[bot/webhook] auto-connect handler failed:', (err as Error).message);
     }
     res.status(200).json({ ok: true });
     return;
