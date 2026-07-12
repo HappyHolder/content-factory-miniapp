@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check, Ticket, Loader2, Star, Sparkles } from 'lucide-react'
+import { BrainCircuit, Check, Ticket, Loader2, Star, Sparkles } from 'lucide-react'
 import { GramMark } from '@/components/icons/GramMark'
 import { useTonConnectUI } from '@tonconnect/ui-react'
 import { beginCell } from '@ton/core'
@@ -78,6 +78,9 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
   const [redeeming, setRedeeming] = useState(false)
   const [payTier, setPayTier] = useState<PaidTier | null>(null)
   const [paying, setPaying] = useState(false)
+  const [aiModerator, setAiModerator] = useState<{status:string;monthlyChecksLimit:number;checksUsed:number;inputTokensUsed:number;outputTokensUsed:number;estimatedCostMicros:number}|null>(null)
+  useEffect(() => { const initData=getTelegramInitData(); if(!initData)return; fetch(`${API_BASE}/api/moderator/ai-entitlement?initData=${encodeURIComponent(initData)}`).then(async r=>{const d=await r.json() as {entitlement?:typeof aiModerator};if(r.ok&&d.entitlement)setAiModerator(d.entitlement)}).catch(()=>undefined) }, [])
+
   // LOW (base models) / HIGH (premium models). HIGH is preview-only for now —
   // the purchase path is wired in a later phase (see docs/low-high-plan.md).
   const [variant, setVariant] = useState<'low' | 'high'>(currentModelTier === 'high' ? 'high' : 'low')
@@ -266,6 +269,8 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
             <p className="mt-2 text-[11px] text-[#55555D] text-center">{t('plans.highHint')}</p>
           )}
         </div>
+
+        <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} className="relative overflow-hidden rounded-[18px] border border-[rgba(255,106,0,0.24)] bg-[#111114] p-4 shadow-[0_0_30px_rgba(255,106,0,0.06)]"><div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[rgba(255,106,0,0.09)] blur-3xl"/><div className="relative"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] bg-[rgba(255,106,0,0.12)] text-[#FF6A00]"><BrainCircuit size={19}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-[16px] font-bold text-white">AI-модерация</h2><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase text-emerald-300">Тестовый период</span></div><p className="mt-1 text-[11px] leading-relaxed text-[#777780]">Terra понимает контекст беседы, мягко вмешивается и помогает живым администраторам.</p></div></div><div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-[11px] bg-white/[0.035] p-2.5"><p className="text-[9px] uppercase text-[#55555D]">Цена</p><p className="mt-1 text-[13px] font-semibold text-white">Бесплатно</p></div><div className="rounded-[11px] bg-white/[0.035] p-2.5"><p className="text-[9px] uppercase text-[#55555D]">Проверки</p><p className="mt-1 text-[13px] font-semibold text-white">{aiModerator?`${aiModerator.checksUsed} / ${aiModerator.monthlyChecksLimit}`:'—'}</p></div><div className="rounded-[11px] bg-white/[0.035] p-2.5"><p className="text-[9px] uppercase text-[#55555D]">Себестоимость</p><p className="mt-1 text-[13px] font-semibold text-white">{aiModerator?`${(aiModerator.estimatedCostMicros/1_000_000).toFixed(2)}`:'—'}</p></div></div><ul className="mt-4 space-y-2">{['Контекстные AI-вмешательства','Антиспам и смысловые нарушения','Журнал, confidence и отмена санкций','До 5 000 Terra-проверок в месяц на тесте'].map(item=><li key={item} className="flex items-center gap-2 text-[12px] text-[#A1A1AA]"><span className="flex h-4 w-4 items-center justify-center rounded-full bg-[rgba(255,106,0,0.12)] text-[#FF6A00]"><Check size={9}/></span>{item}</li>)}</ul><div className="mt-4 rounded-[11px] border border-white/[0.06] bg-white/[0.025] px-3 py-2.5 text-center text-[11px] font-medium text-[#A1A1AA]">Активно бесплатно, пока мы калибруем качество и экономику</div></div></motion.div>
 
         {PLAN_CONFIG.map((plan, i) => {
           const isHigh     = variant === 'high' && plan.tier !== 'free'

@@ -6,6 +6,7 @@ import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { answerBotCallback, banChatUser, buildInlineKeyboard, deleteBotMessage, getBotIdFromToken, getChatMember, restrictChatUser, sendBotMessage, unbanChatUser, sendRichMessage, TelegramApiError, type TelegramInlineKeyboard } from '../lib/telegramBot';
 import { blocksToRichHtml, parseInline, type PostBlock } from '../lib/richPost';
+import { processIntervention, reserveModeratorAiCheck, simulateIntervention } from '../moderator/interventionEngine';
 import { moderateWithTerra } from '../moderator/modelRouter';
 import { issueWarning } from '../moderator/warningEngine';
 import { handleManualCommand } from '../moderator/manualCommands';
@@ -42,7 +43,7 @@ async function authenticate(initData: unknown) {
 function authError(res: Response, err: unknown) { const m = err instanceof Error ? err.message : ''; if (m === 'INIT_DATA_REQUIRED') res.status(400).json({ error: 'initData is required' }); else if (m === 'USER_NOT_FOUND') res.status(401).json({ error: 'User not found. Re-open Publium.' }); else res.status(401).json({ error: 'Invalid Telegram authorization' }); }
 
 async function publishedContext(tgChatId: string) {
-  const community = await prisma.community.findFirst({ where: { moderatorChat: { tgChatId }, moderator: { enabled: true, publishedVersion: { not: null } } }, include: { moderatorChat: true, channel: { select: { name: true, handle: true, brandKit: true } }, moderator: true } });
+  const community = await prisma.community.findFirst({ where: { moderatorChat: { tgChatId }, moderator: { enabled: true, publishedVersion: { not: null } } }, include: { moderatorChat: true, channel: { select: { name: true, handle: true, userId: true, brandKit: true } }, moderator: true } });
   if (!community?.moderator?.publishedVersion) return null;
   const config = await prisma.moderatorConfig.findUnique({ where: { moderatorId_version: { moderatorId: community.moderator.id, version: community.moderator.publishedVersion } } });
   const blocks = parseBlocks(config?.blocks ?? []);
@@ -136,6 +137,8 @@ async function handleAiModeration(update: ModeratorUpdate, message: TgMessage, r
   if (!ctx || !block || text.length < block.minLength) return false;
   if ((block.skipBots && message.from.is_bot) || (block.skipAdmins && await isAdminCached(message.chat.id, message.from.id))) return false;
   if (block.skipTrusted) { const member = await prisma.communityMember.findUnique({ where: { communityId_tgUserId: { communityId: ctx.community.id, tgUserId: String(message.from.id) } }, select: { trusted: true } }); if (member?.trusted) return false; }
+  if (block.interventionsEnabled) { const result = await processIntervention({ updateId: update.update_id, communityId: ctx.community.id, ownerUserId: ctx.community.channel.userId, chatId: message.chat.id, tgUserId: String(message.from.id), telegramMessageId: message.message_id, text, block, warningPolicy: ctx.warningPolicy, channelContext: { channel: ctx.community.channel.name, handle: ctx.community.channel.handle, brandKit: ctx.community.channel.brandKit }, token: env.MODERATOR_BOT_TOKEN }); res.json({ ok: true, aiIntervention: result }); return true; }
+  const allowed = await reserveModeratorAiCheck(ctx.community.channel.userId, Math.ceil((text.length + block.rules.length + JSON.stringify(ctx.community.channel.brandKit ?? {}).length) / 4)); if (!allowed) return false;
   const decision = await moderateWithTerra({ text, rules: block.rules, channelContext: { channel: ctx.community.channel.name, handle: ctx.community.channel.handle, brandKit: ctx.community.channel.brandKit }, model: env.LAYOUT_MODEL });
   if (!decision || !decision.violation || decision.confidence < block.confidenceThreshold) return false;
   const audit = await prisma.moderationEvent.create({ data: { communityId: ctx.community.id, telegramUpdateId: String(update.update_id), telegramMessageId: message.message_id, tgUserId: String(message.from.id), blockId: block.id, eventType: 'AI_MODERATION_TRIGGERED', decision: decision.category, confidence: decision.confidence, reason: decision.reason, action: block.action.toUpperCase(), status: 'RECEIVED', model: env.LAYOUT_MODEL, promptVersion: 'moderator-terra-v1' } });
@@ -229,6 +232,10 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     res.status(200).json({ ok: true, executed: false });
   }
 });
+
+router.get('/ai-entitlement', async (req,res)=>{let auth;try{auth=await authenticate(req.query['initData'])}catch(e){authError(res,e);return}const now=new Date(),reset=new Date(now);reset.setMonth(reset.getMonth()+1);const entitlement=await prisma.aiModeratorEntitlement.upsert({where:{userId:auth.user.id},create:{userId:auth.user.id,status:'TRIAL',quotaResetAt:reset},update:{}});res.json({entitlement})});
+
+router.post('/moderators/:moderatorId/simulate-intervention',async(req,res)=>{const{initData,conversation}=req.body as{initData?:unknown;conversation?:unknown};let auth;try{auth=await authenticate(initData)}catch(e){authError(res,e);return}if(typeof conversation!=='string'||conversation.trim().length<10){res.status(400).json({error:'Добавьте пример диалога'});return}const moderator=await prisma.moderator.findFirst({where:{id:req.params['moderatorId'],community:{channel:{userId:auth.user.id}}},include:{community:{include:{channel:{include:{brandKit:true}}}}}});if(!moderator){res.status(404).json({error:'Moderator not found'});return}const draft=await prisma.moderatorConfig.findUnique({where:{moderatorId_version:{moderatorId:moderator.id,version:moderator.draftVersion}}}),block=parseBlocks(draft?.blocks??[]).find(b=>b.type==='ai_moderation') as AiModerationBlock|undefined;if(!block){res.status(409).json({error:'Сначала сохраните AI-модерацию'});return}const allowed=await reserveModeratorAiCheck(auth.user.id,Math.ceil(conversation.length/4),100);if(!allowed){res.status(429).json({error:'Месячный лимит AI-модерации исчерпан'});return}const decision=await simulateIntervention({conversation:conversation.trim(),rules:block.rules,scenarios:block.interventionScenarios,tone:block.interventionTone,channelContext:{channel:moderator.community.channel.name,handle:moderator.community.channel.handle,brandKit:moderator.community.channel.brandKit}});if(!decision){res.status(502).json({error:'Terra не вернула решение'});return}res.json({decision})});
 
 router.post('/moderators/:moderatorId/pause', async (req, res) => { const { initData, enabled } = req.body as { initData?: unknown; enabled?: unknown }; let auth; try { auth = await authenticate(initData); } catch (e) { authError(res, e); return; } if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be boolean' }); return; } const moderator = await prisma.moderator.findFirst({ where: { id: req.params['moderatorId'], community: { channel: { userId: auth.user.id } } } }); if (!moderator) { res.status(404).json({ error: 'Moderator not found' }); return; } const updated = await prisma.moderator.update({ where: { id: moderator.id }, data: { enabled, status: enabled ? 'ACTIVE' : 'PAUSED' } }); res.json({ moderator: updated }); });
 

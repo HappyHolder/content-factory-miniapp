@@ -16,6 +16,7 @@
  *     duplicate. This is acceptable at MVP scale.
  */
 
+import { cleanupInterventionContext } from '../moderator/interventionEngine';
 import { prisma } from '../db';
 import { env } from '../env';
 import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard, deleteBotMessage, kickChatUser, restrictChatUser } from './telegramBot';
@@ -262,6 +263,7 @@ export function startScheduler(): void {
 
   // Recurring sweep
   setInterval(() => {
+    cleanupInterventionContext().catch(() => undefined);
     sweep().catch(err => console.error('[scheduler] Sweep failed:', (err as Error).message));
   }, INTERVAL_MS);
 }

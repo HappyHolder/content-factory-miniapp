@@ -91,6 +91,7 @@ model User {
   sourceInputs   SourceInput[]
   generationJobs GenerationJob[]
   subscription   Subscription?
+  aiModeratorEntitlement AiModeratorEntitlement?
   chatMessages   ChatMessage[]
 }
 
@@ -314,6 +315,53 @@ model Subscription {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model AiModeratorEntitlement {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  status              String   @default("TRIAL")
+  monthlyChecksLimit  Int      @default(5000)
+  checksUsed          Int      @default(0)
+  inputTokensUsed     Int      @default(0)
+  outputTokensUsed    Int      @default(0)
+  estimatedCostMicros Int      @default(0)
+  quotaResetAt        DateTime?
+  trialEndsAt         DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ModeratorConversationMessage {
+  id                String    @id @default(cuid())
+  communityId       String
+  tgUserId          String
+  telegramMessageId Int
+  text              String
+  createdAt         DateTime  @default(now())
+  expiresAt         DateTime
+  community         Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, telegramMessageId])
+  @@index([communityId, createdAt])
+  @@index([expiresAt])
+}
+
+model ModeratorConversationState {
+  id                    String    @id @default(cuid())
+  communityId           String    @unique
+  stage                 String    @default("NORMAL")
+  messagesSinceAnalysis Int       @default(0)
+  lastAnalyzedMessageId Int?
+  lastInterventionAt    DateTime?
+  hourWindowStartedAt   DateTime?
+  interventionsInWindow Int       @default(0)
+  lastCategory          String?
+  lastParticipants      Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  community             Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+}
+
 // ─── Styles market ──────────────────────────────────────────────────────────────
 // A Style is a ready-made cover-style PACK curated by us. The user buys (or gets
 // for free) a style and "applies" it to a channel — the engine then pours the
@@ -487,6 +535,8 @@ model Community {
   events          ModerationEvent[]
   scheduledActions ScheduledModerationAction[]
   messageSamples   ModerationMessageSample[]
+  conversationMessages ModeratorConversationMessage[]
+  conversationState ModeratorConversationState?
 }
 
 model Moderator {

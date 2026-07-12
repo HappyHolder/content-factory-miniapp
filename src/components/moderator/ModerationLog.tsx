@@ -5,7 +5,7 @@ import { getTelegramInitData } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
 
 type Event = { id: string; tgUserId?: string | null; eventType: string; decision?: string | null; reason?: string | null; action?: string | null; status: string; reversedAt?: string | null; createdAt: string }
-const labels: Record<string, string> = { MANUAL_COMMAND: 'Ручное действие', ANTISPAM_TRIGGERED: 'Антиспам', CONTENT_FILTER_TRIGGERED: 'Фильтр контента', CONTENT_FILTER_EDITED: 'Фильтр изменения', CAPTCHA_PASSED: 'CAPTCHA пройдена', CAPTCHA_TIMEOUT: 'CAPTCHA: время истекло', SANCTION_EXPIRED: 'Санкция завершена', MEMBER_JOINED: 'Новый участник' }
+const labels: Record<string, string> = { AI_INTERVENTION: 'AI-вмешательство', MANUAL_COMMAND: 'Ручное действие', ANTISPAM_TRIGGERED: 'Антиспам', CONTENT_FILTER_TRIGGERED: 'Фильтр контента', CONTENT_FILTER_EDITED: 'Фильтр изменения', CAPTCHA_PASSED: 'CAPTCHA пройдена', CAPTCHA_TIMEOUT: 'CAPTCHA: время истекло', SANCTION_EXPIRED: 'Санкция завершена', MEMBER_JOINED: 'Новый участник' }
 
 export function ModerationLog({ communityId }: { communityId: string }) {
   const [events, setEvents] = useState<Event[]>([]), [loading, setLoading] = useState(false), [collapsed, setCollapsed] = useState(true), [busyId, setBusyId] = useState<string | null>(null), [error, setError] = useState('')
