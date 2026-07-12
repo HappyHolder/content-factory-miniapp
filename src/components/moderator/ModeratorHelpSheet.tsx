@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { CircleHelp, Lightbulb, Settings2 } from 'lucide-react'
 import { Sheet } from '@/components/ui/Sheet'
 
@@ -58,7 +59,8 @@ export function ModeratorInfoButton({ onClick, label }: { onClick: () => void; l
 
 export function ModeratorHelpSheet({ kind, open, onClose }: { kind: ModeratorHelpKind; open: boolean; onClose: () => void }) {
   const help = HELP[kind]
-  return (
+  if (typeof document === 'undefined') return null
+  return createPortal(
     <Sheet open={open} onClose={onClose} title={help.title} height="80">
       <div className="space-y-3 pb-[max(12px,env(safe-area-inset-bottom))]">
         <div className="flex gap-3 rounded-[16px] border border-[rgba(255,106,0,0.18)] bg-[rgba(255,106,0,0.08)] p-3.5">
@@ -77,6 +79,7 @@ export function ModeratorHelpSheet({ kind, open, onClose }: { kind: ModeratorHel
           </section>
         ))}
       </div>
-    </Sheet>
+    </Sheet>,
+    document.body,
   )
 }
