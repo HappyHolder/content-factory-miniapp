@@ -11,9 +11,25 @@ For the full always-current capability list, see [FEATURES.md](FEATURES.md).
 
 ---
 
-## [Unreleased]
-_Work in progress — next up: richer inline formatting in generation (inline links,
-highlight, italic, mono), nested lists, link headings._
+## [Unreleased] — toward 1.2
+
+Shipped to production since 1.1; not yet tagged.
+
+### Added
+- **Rich inline formatting everywhere** — the generator (and editor) now use the full marker set: `**bold**`, `__italic__`, `~~strike~~`, `` `mono` ``, `==highlight==`, `||spoiler||`, `[links](url)`. Same vocabulary in generation, the block editor and table cells.
+- **Nested lists** — a list item can carry a nested numbered sub-list (Tab-indent in the editor).
+- **Heading links** — a heading can be a clickable link.
+- **Table cell formatting** — inline markers work inside cells (+ a shared formatting toolbar for the focused cell). Cell background color is NOT possible (Telegram strips it).
+- **«Ссылка-рамка» (linkbox)** — a framed, filled CTA box with a centered link, rendered as a bordered single-cell table (`<table border="1"><th>`).
+- **Checklists, collapsible «спойлер-секции» (`<details>`), and code blocks** — three manual editor blocks.
+- **11 cover styles** — pixel, sci-fi, cyberpunk, vaporwave, isometric, minimal, low-poly, glitch, blueprint, watercolor, oil.
+- **Panoramas** — a post-image split into stacked/carousel slides. Upload → slice, OR **generate via `google/nano-banana-2`** (Gemini, the one Replicate model doing true 1:4 / 4:1 / 1:8 / 8:1) → auto-slice + upscale to 1080. Gallery gains a `stack` layout.
+
+### Changed
+- **Layout/formatting model → GPT-5.6 Terra** (`openai/gpt-5.6-terra` on Replicate), DeepSeek fallback. Richer output (actually uses highlight, nested lists, expandable quotes, linkbox), ~4s.
+
+### Fixed
+- **Publishing is rename-proof** — posts publish by the channel's stable numeric chat id (`tgChatId`), falling back to `@handle`; self-heals from a successful send. Renaming a channel no longer causes "chat not found". Raw Telegram errors → clear Russian messages.
 
 ---
 
