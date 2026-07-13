@@ -23,6 +23,28 @@ type ModeratorUpdate = { update_id: number; my_chat_member?: MyChatMemberUpdate;
 const REQUIRED_BASE_RIGHTS = { can_delete_messages: true, can_restrict_members: true };
 const DEFAULT_WARNING_POLICY = DEFAULT_BLOCKS.find(block => block.type === 'warning_policy') as WarningPolicyBlock;
 
+function russianCount(value: number, one: string, few: string, many: string): string {
+  const lastTwo = value % 100, last = value % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${value} ${many}`;
+  if (last === 1) return `${value} ${one}`;
+  if (last >= 2 && last <= 4) return `${value} ${few}`;
+  return `${value} ${many}`;
+}
+
+function moderationDuration(seconds: number): string {
+  if (seconds % 86_400 === 0) return russianCount(seconds / 86_400, 'день', 'дня', 'дней');
+  if (seconds % 3_600 === 0) return russianCount(seconds / 3_600, 'час', 'часа', 'часов');
+  return russianCount(Math.max(1, Math.round(seconds / 60)), 'минуту', 'минуты', 'минут');
+}
+
+function warningNotice(action: 'NONE' | 'WARN' | 'MUTE' | 'BAN', count: number, policy?: WarningPolicyBlock): string {
+  if (!policy?.notifyUser || action === 'NONE' || count < 1) return '';
+  const threshold = policy.banAfterWarnings > 0 ? ` из ${policy.banAfterWarnings}` : '';
+  if (action === 'BAN') return `⛔ Пользователь заблокирован после ${russianCount(count, 'предупреждения', 'предупреждений', 'предупреждений')}.`;
+  if (action === 'MUTE') return `🔇 Предупреждение ${count}${threshold}. Пользователь не сможет писать ${moderationDuration(policy.muteDurationSeconds)}.`;
+  return `⚠️ Предупреждение ${count}${threshold}.`;
+}
+
 const safeEqual = (a: string, b: string) => Boolean(a && b && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)));
 const rightsOf = (m: TgAdmin): Record<string, boolean> => ({ can_delete_messages: m.can_delete_messages === true, can_restrict_members: m.can_restrict_members === true, can_invite_users: m.can_invite_users === true, can_pin_messages: m.can_pin_messages === true });
 const adminCache = new Map<string, { value: boolean; expiresAt: number }>();
@@ -124,11 +146,13 @@ async function handleContentFilters(update: ModeratorUpdate, message: TgMessage,
   const categoryResponse = match.category?.responseMode === 'custom' ? match.category.responseText.trim() : '';
   const legacyResponse = !match.category && action === 'delete_warn' ? '{username}, сообщение удалено фильтром сообщества.' : '';
   const responseTemplate = categoryResponse || legacyResponse;
-  if (responseTemplate) {
+  const notice = warningNotice(sanctionAction as 'NONE' | 'WARN' | 'MUTE' | 'BAN', warningCount, ctx.warningPolicy);
+  if (responseTemplate || notice) {
     if (!warningCount && responseTemplate.includes('{warnings}')) warningCount = await activeWarningCount(ctx.community.id, String(message.from.id));
     const label = message.from.username ? '@' + message.from.username : message.from.first_name;
     const banAfter = ctx.warningPolicy?.banAfterWarnings ?? 5;
-    const responseText = responseTemplate.replace(/\{(name|username|reason|warnings|ban_after)\}/g, (_, key: string) => ({ name: message.from?.first_name ?? 'Участник', username: label, reason: match.category?.name ?? match.reason, warnings: String(warningCount), ban_after: String(banAfter) }[key] ?? ''));
+    const customText = responseTemplate.replace(/\{(name|username|reason|warnings|ban_after)\}/g, (_, key: string) => ({ name: message.from?.first_name ?? 'Участник', username: label, reason: match.category?.name ?? match.reason, warnings: String(warningCount), ban_after: String(banAfter) }[key] ?? ''));
+    const responseText = [customText, notice].filter(Boolean).join('\n\n');
     const ref = await sendBotMessage(message.chat.id, responseText.slice(0, 1000), env.MODERATOR_BOT_TOKEN).catch(() => null);
     if (ref?.messageId && match.category?.autoDeleteSeconds) await prisma.scheduledModerationAction.upsert({ where: { tgChatId_telegramMessageId_actionType: { tgChatId: String(message.chat.id), telegramMessageId: ref.messageId, actionType: 'DELETE_MESSAGE' } }, create: { communityId: ctx.community.id, actionType: 'DELETE_MESSAGE', tgChatId: String(message.chat.id), telegramMessageId: ref.messageId, executeAt: new Date(Date.now() + match.category.autoDeleteSeconds * 1000) }, update: { executeAt: new Date(Date.now() + match.category.autoDeleteSeconds * 1000), status: 'PENDING', attempts: 0 } });
   }
