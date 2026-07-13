@@ -4,6 +4,10 @@
 Объект: Moderator, Community API, Telegram webhooks, персональные боты, Terra, санкции, журнал и production-инфраструктура.
 Метод: ручной code review, проверка ownership endpoint, анализ trust boundaries, безопасные production HTTP-пробы, поиск секретов, dependency advisories и production builds.
 
+## Результат устранения (13.07.2026)
+
+Все 12 находок закрыты в security patch v1.2.1. Реализация и release gate: [moderator-security-remediation-v1.2.1.md](moderator-security-remediation-v1.2.1.md).
+
 ## Итог
 
 - Критических уязвимостей, позволяющих без Telegram-авторизации захватить чужой Moderator или получить bot token, не найдено.

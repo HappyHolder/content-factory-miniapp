@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, ListFilter, Loader2, Plus, Save, Trash2 } from 'lucide-react'
 import { API_BASE } from '@/lib/api'
-import { getTelegramInitData } from '@/lib/telegram'
+import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
@@ -37,7 +37,7 @@ export function ModeratorContentFiltersEditor({ moderatorId }: { moderatorId: st
 
   useEffect(() => {
     if (!initData) { setLoading(false); return }
-    fetch(API_BASE + '/api/moderator-config/' + moderatorId + '/draft?initData=' + encodeURIComponent(initData)).then(async response => {
+    moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/draft').then(async response => {
       const data = await response.json() as { draft?: { blocks?: FiltersBlock[] }; moderator?: { publishedVersion?: number | null }; error?: string }
       if (!response.ok) throw new Error(data.error || 'Не удалось загрузить фильтры')
       const found = data.draft?.blocks?.find(x => x.type === 'content_filters')
@@ -62,7 +62,7 @@ export function ModeratorContentFiltersEditor({ moderatorId }: { moderatorId: st
     setSaving(true); setMessage('')
     const next = { ...block, stopWords: [], textCategories: block.textCategories.map(category => ({ ...category, name: category.name.trim(), terms: list(category.terms.join('\n')), responseText: category.responseText.trim() })), regexPatterns: list(patterns), blacklistedDomains: list(domains) }
     try {
-      const response = await fetch(API_BASE + '/api/moderator-config/' + moderatorId + '/draft', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData, blocks: [next] }) })
+      const response = await moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/draft', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blocks: [next] }) })
       const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error || 'Не удалось сохранить')
       setBlock(next); setMessage('Черновик сохранён'); return true
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось сохранить'); return false }
@@ -73,7 +73,7 @@ export function ModeratorContentFiltersEditor({ moderatorId }: { moderatorId: st
     if (!initData || publishing) return
     setPublishing(true); if (!await save()) { setPublishing(false); return }
     try {
-      const response = await fetch(API_BASE + '/api/moderator-config/' + moderatorId + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData }) })
+      const response = await moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
       const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error || 'Не удалось опубликовать')
       setPublished(true); setMessage('Категории фильтрации опубликованы')
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось опубликовать') }

@@ -8,7 +8,7 @@ import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
-import { getTelegramInitData, getTelegramUserId, openTelegramInvoice } from '@/lib/telegram'
+import { getTelegramInitData, getTelegramUserId, moderatorFetch, openTelegramInvoice } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { PLAN_PRICING, PLAN_PRICING_HIGH, TON_RECEIVING_WALLET, tierToServer, tonToNano } from '@/lib/payments'
 import type { PlanTier } from '@/types'
@@ -79,7 +79,7 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
   const [payTier, setPayTier] = useState<PaidTier | null>(null)
   const [paying, setPaying] = useState(false)
   const [aiModerator, setAiModerator] = useState<{status:string;monthlyChecksLimit:number;checksUsed:number;inputTokensUsed:number;outputTokensUsed:number;estimatedCostMicros:number}|null>(null)
-  useEffect(() => { const initData=getTelegramInitData(); if(!initData)return; fetch(`${API_BASE}/api/moderator/ai-entitlement?initData=${encodeURIComponent(initData)}`).then(async r=>{const d=await r.json() as {entitlement?:typeof aiModerator};if(r.ok&&d.entitlement)setAiModerator(d.entitlement)}).catch(()=>undefined) }, [])
+  useEffect(() => { const initData=getTelegramInitData(); if(!initData)return; moderatorFetch(`${API_BASE}/api/moderator/ai-entitlement`).then(async r=>{const d=await r.json() as {entitlement?:typeof aiModerator};if(r.ok&&d.entitlement)setAiModerator(d.entitlement)}).catch(()=>undefined) }, [])
 
   // LOW (base models) / HIGH (premium models). HIGH is preview-only for now —
   // the purchase path is wired in a later phase (see docs/low-high-plan.md).

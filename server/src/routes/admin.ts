@@ -16,7 +16,7 @@ const router = Router();
 // brandkits uploader.
 const uploadHtml = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 500 * 1024 },
+  limits:  { fileSize: 500 * 1024 , files: 1, fields: 20, parts: 25, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ok = file.mimetype === 'text/html' || file.originalname.endsWith('.html');
     ok ? cb(null, true) : cb(new Error('Only .html files are accepted.'));

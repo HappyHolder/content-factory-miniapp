@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { TIER_LIMITS, applyMonthlyQuotaReset, applyTierExpiry } from '../lib/subscriptionLimits';
+import { issueModeratorSession } from '../lib/moderatorSession';
 
 const router = Router();
 
@@ -225,4 +226,21 @@ router.post('/active-channel', async (req: Request, res: Response): Promise<void
   res.json({ ok: true });
 });
 
+// Exchanges fresh Telegram credentials for a short-lived bearer used only by Moderator.
+// initData is never accepted in Moderator query strings or mutation bodies.
+router.post('/moderator-session', async (req: Request, res: Response): Promise<void> => {
+  const { initData } = req.body as { initData?: unknown };
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN, { maxAgeSeconds: 10 * 60, maxFutureSkewSeconds: 30 });
+  } catch (error) {
+    res.status(401).json({ error: error instanceof Error ? error.message : 'Invalid initData' }); return;
+  }
+  const telegramId = String(parsed.user.id);
+  const user = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
+  if (!user) { res.status(401).json({ error: 'User not found. Re-open Publium.' }); return; }
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(issueModeratorSession(telegramId));
+});
 export default router;

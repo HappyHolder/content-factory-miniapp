@@ -26,6 +26,10 @@ if (AI_PROVIDER === 'deepseek' && !process.env['DEEPSEEK_API_KEY']) {
   );
 }
 
+if (process.env['NODE_ENV'] === 'production' && Buffer.byteLength(process.env['MANAGED_BOT_ENCRYPTION_KEY'] ?? '', 'utf8') < 32) {
+  throw new Error('[env] MANAGED_BOT_ENCRYPTION_KEY must contain at least 32 random bytes in production.');
+}
+
 const IMAGE_PROVIDER = (process.env['IMAGE_PROVIDER'] ?? 'none') as 'none' | 'replicate';
 
 // Deep-research backend for the AI content manager. 'opus' uses the Anthropic

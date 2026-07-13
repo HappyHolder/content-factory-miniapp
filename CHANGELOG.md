@@ -17,6 +17,18 @@ No unreleased changes yet.
 
 ---
 
+## [1.2.1] — 2026-07-13
+
+Security hardening release: all 12 findings from the Moderator v1.2 audit are closed.
+
+### Security
+- **Moderator audit remediation (3 high, 6 medium, 3 low)** — command capability checks and fail-closed target roles; deterministic AI-sanction targets; Multer 2.2.0 plus multipart/edge limits; short-lived bearer sessions with no `initData` in Moderator URLs; rate limits and atomic Terra quotas; live executor-rights checks; isolated regex timeout; mandatory dedicated encryption key with versioned community-bound AAD; 30/90-day retention; production CORS/CSP/HSTS; non-root multi-stage API container with resource limits; expected-username correlation for personal bots.
+
+### Tests
+- Added a repeatable security smoke gate for safe/catastrophic regex behavior, Multer version, non-root runtime, CSP and request-body limits; both production builds and production dependency audits remain release gates.
+
+---
+
 ## [1.2.0] — 2026-07-13
 
 Everything below is live in production. This release adds the Community entry

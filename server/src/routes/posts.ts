@@ -41,7 +41,7 @@ import { generatePostVariants } from '../lib/aiGenerator';
 // ─── Multer for image uploads ─────────────────────────────────────────────────
 const uploadMiddleware = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits:  { fileSize: 10 * 1024 * 1024 , files: 1, fields: 20, parts: 25, fieldSize: 64 * 1024 }, // 10 MB
   fileFilter: (_req, file, cb) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error('Unsupported file type'));
@@ -52,7 +52,7 @@ const uploadMiddleware = multer({
 // we send it in a Rich Message, and URL-based sends are limited to ~20 MB.
 const uploadVideoMiddleware = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 20 * 1024 * 1024 }, // 20 MB (Telegram URL fetch limit)
+  limits:  { fileSize: 20 * 1024 * 1024 , files: 1, fields: 20, parts: 25, fieldSize: 64 * 1024 }, // 20 MB (Telegram URL fetch limit)
   fileFilter: (_req, file, cb) => {
     const allowed = ['video/mp4', 'video/webm', 'video/quicktime'];
     allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error('Unsupported video type — use MP4'));
@@ -64,7 +64,7 @@ const uploadVideoMiddleware = multer({
 // conservative at 20 MB, so we cap here too.
 const uploadDocumentMiddleware = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 20 * 1024 * 1024 },
+  limits:  { fileSize: 20 * 1024 * 1024 , files: 1, fields: 20, parts: 25, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     const name = file.originalname.toLowerCase();
     const blocked = /\.(exe|msi|bat|cmd|sh|ps1|scr|com|js|jar)$/i.test(name);

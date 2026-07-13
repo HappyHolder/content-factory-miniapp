@@ -41,6 +41,7 @@ const MAX_AGE_SECONDS = 86_400;
 export function validateAndParseTelegramInitData(
   initData: string,
   botToken: string,
+  options: { maxAgeSeconds?: number; maxFutureSkewSeconds?: number } = {},
 ): ParsedInitData {
   if (!initData || typeof initData !== 'string') {
     throw new Error('initData must be a non-empty string');
@@ -89,7 +90,12 @@ export function validateAndParseTelegramInitData(
   }
   const authDate = parseInt(authDateRaw, 10);
   const ageSeconds = Math.floor(Date.now() / 1000) - authDate;
-  if (ageSeconds > MAX_AGE_SECONDS) {
+  const maxAgeSeconds = options.maxAgeSeconds ?? MAX_AGE_SECONDS;
+  const maxFutureSkewSeconds = options.maxFutureSkewSeconds ?? 30;
+  if (!Number.isFinite(authDate) || ageSeconds < -maxFutureSkewSeconds) {
+    throw new Error('initData auth_date is in the future');
+  }
+  if (ageSeconds > maxAgeSeconds) {
     throw new Error('initData has expired');
   }
 

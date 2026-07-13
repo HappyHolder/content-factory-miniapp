@@ -1,20 +1,28 @@
-# Publium edge — automatic HTTPS (Let's Encrypt) for {$DOMAIN}.
-# Serves the SPA, proxies the API, and serves uploaded/generated files.
+# Publium edge — automatic HTTPS, security headers, SPA and API proxy.
 {$DOMAIN} {
 	encode zstd gzip
 
-	# Backend API.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src https:; frame-ancestors 'self' https://web.telegram.org https://*.telegram.org; form-action 'self'"
+		-X-Powered-By
+	}
+
+	# Backend API. The edge rejects oversized bodies before they reach Node/multer.
 	handle /api/* {
+		request_body {
+			max_size 32MB
+		}
 		reverse_proxy api:8787
 	}
 
 	# Uploaded & generated files (covers, logos, templates).
-	# /uploads/covers/x.jpg  ->  /srv/uploads/covers/x.jpg (mounted volume, read-only).
 	handle /uploads/* {
 		root * /srv
-		# Neutralize uploaded HTML/SVG so it can never execute in the publium.ru
-		# origin (stored XSS). These are only fetched server-side by the cover
-		# renderer; they never need to run in a browser.
+		# Active formats are downloads/plain text and cannot execute in the app origin.
 		@active path *.html *.htm *.xhtml *.svg
 		header @active Content-Type "text/plain; charset=utf-8"
 		header @active Content-Disposition attachment

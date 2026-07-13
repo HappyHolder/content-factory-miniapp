@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bold, Check, ChevronDown, Code, EyeOff, Highlighter, ImagePlus, Italic, Link2, Loader2, MessageCircle, Plus, Save, Strikethrough, Trash2, X } from 'lucide-react'
 import { API_BASE } from '@/lib/api'
-import { getTelegramInitData } from '@/lib/telegram'
+import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
@@ -56,7 +56,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
 
   useEffect(() => {
     if (!initData) { setLoading(false); return }
-    fetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft?initData=${encodeURIComponent(initData)}`)
+    moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft`)
       .then(async res => {
         const data = await res.json() as { draft?: { blocks?: WelcomeBlock[] }; moderator?: { publishedVersion?: number | null }; error?: string }
         if (!res.ok) throw new Error(data.error ?? 'Не удалось загрузить настройки')
@@ -98,7 +98,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
     setUploading(true); setMessage('')
     try {
       const form = new FormData(); form.append('initData', initData); form.append('image', file)
-      const res = await fetch(`${API_BASE}/api/posts/upload-block-image`, { method: 'POST', body: form })
+      const res = await moderatorFetch(`${API_BASE}/api/posts/upload-block-image`, { method: 'POST', body: form })
       const data = await res.json() as { url?: string; error?: string }
       if (!res.ok || !data.url) throw new Error(data.error ?? 'Не удалось загрузить изображение')
       setBlock(prev => ({ ...prev, imageUrl: data.url }))
@@ -119,9 +119,9 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
     if (!initData || !block.text.trim()) return false
     setSaving(true); setMessage('')
     try {
-      const res = await fetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft`, {
+      const res = await moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData, blocks: [{ ...block, text: block.text.trim() }] }),
+        body: JSON.stringify({ blocks: [{ ...block, text: block.text.trim() }] }),
       })
       const data = await res.json() as { error?: string }
       if (!res.ok) throw new Error(data.error ?? 'Не удалось сохранить')
@@ -135,8 +135,8 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
     setPublishing(true)
     if (!await save()) { setPublishing(false); return }
     try {
-      const res = await fetch(`${API_BASE}/api/moderator-config/${moderatorId}/publish`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData }),
+      const res = await moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/publish`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
       })
       const data = await res.json() as { error?: string }
       if (!res.ok) throw new Error(data.error ?? 'Не удалось опубликовать')

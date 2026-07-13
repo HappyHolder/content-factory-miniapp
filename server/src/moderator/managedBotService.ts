@@ -29,10 +29,12 @@ export async function completeManagedBot(update: ManagedBotUpdate): Promise<{ ow
   const target = pending ?? existing;
   if (!target) return null;
   try {
+    const actualUsername = update.bot.username?.toLowerCase();
+    if (!target.expectedUsername || !actualUsername || actualUsername !== target.expectedUsername.toLowerCase()) throw new Error('MANAGED_BOT_USERNAME_MISMATCH');
     const token = await getManagedBotToken(update.bot.id, env.TELEGRAM_BOT_TOKEN);
     const identity = await getBotIdentity(token);
     const webhookSecret = target.webhookSecret ?? newWebhookSecret();
-    const encrypted = encryptManagedBotToken(token);
+    const encrypted = encryptManagedBotToken(token, target.communityId);
     let nonCriticalError: string | null = null;
     await setBotName(target.displayName, token).catch(error => { nonCriticalError = (error as Error).message.slice(0, 500); });
     await setBotDescription(target.displayName, token).catch(error => { nonCriticalError = (error as Error).message.slice(0, 500); });
@@ -59,7 +61,7 @@ export async function completeManagedBot(update: ManagedBotUpdate): Promise<{ ow
 }
 
 export async function incomingManagedBot(botId: string, secret: string | undefined): Promise<{ token: string; numericBotId: number } | null> {
-  const bot = await prisma.managedModeratorBot.findUnique({ where: { tgBotId: botId }, select: { tgBotId: true, webhookSecret: true, tokenCipher: true, tokenIv: true, tokenTag: true } });
+  const bot = await prisma.managedModeratorBot.findUnique({ where: { tgBotId: botId }, select: { tgBotId: true, webhookSecret: true, communityId: true, tokenCipher: true, tokenIv: true, tokenTag: true, tokenKeyVersion: true } });
   if (!bot?.tgBotId || !bot.webhookSecret || !secret) return null;
   const actual = Buffer.from(secret), expected = Buffer.from(bot.webhookSecret);
   if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;

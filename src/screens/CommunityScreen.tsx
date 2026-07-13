@@ -14,7 +14,7 @@ import { ModeratorContentFiltersEditor } from '@/components/moderator/ModeratorC
 import { ModeratorExecutorSheet, type ManagedModeratorBotView } from '@/components/moderator/ModeratorExecutorSheet'
 import { ModeratorHelpSheet, ModeratorInfoButton } from '@/components/moderator/ModeratorHelpSheet'
 import { API_BASE } from '@/lib/api'
-import { getTelegramInitData } from '@/lib/telegram'
+import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 
 interface CommunityScreenProps {
   channelId: string
@@ -54,10 +54,9 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
   const loadState = useCallback(async () => {
     if (!initData) { setError('Откройте Publium внутри Telegram'); setLoading(false); return }
     try {
-      const query = encodeURIComponent(initData)
       const [stateRes, chatsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/moderator/channels/${channelId}/community?initData=${query}`),
-        fetch(`${API_BASE}/api/moderator/available-chats?initData=${query}`),
+        moderatorFetch(`${API_BASE}/api/moderator/channels/${channelId}/community`),
+        moderatorFetch(`${API_BASE}/api/moderator/available-chats`),
       ])
       const state = await stateRes.json() as { community?: CommunityState | null; botUsername?: string; error?: string }
       const available = await chatsRes.json() as { chats?: AvailableChat[] }
@@ -84,7 +83,7 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
   const toggleModerator = async () => {
     if (!initData || !community?.moderator) return
     const enabled = !community.moderator.enabled
-    try { const res = await fetch(`${API_BASE}/api/moderator/moderators/${community.moderator.id}/pause`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData, enabled }) }); const data = await res.json() as { moderator?: CommunityState['moderator']; error?: string }; if (!res.ok || !data.moderator) throw new Error(data.error ?? 'Не удалось изменить состояние'); setCommunity(prev => prev ? { ...prev, moderator: data.moderator ?? prev.moderator } : prev) } catch (err) { setError(err instanceof Error ? err.message : 'Не удалось изменить состояние') }
+    try { const res = await moderatorFetch(`${API_BASE}/api/moderator/moderators/${community.moderator.id}/pause`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) }); const data = await res.json() as { moderator?: CommunityState['moderator']; error?: string }; if (!res.ok || !data.moderator) throw new Error(data.error ?? 'Не удалось изменить состояние'); setCommunity(prev => prev ? { ...prev, moderator: data.moderator ?? prev.moderator } : prev) } catch (err) { setError(err instanceof Error ? err.message : 'Не удалось изменить состояние') }
   }
 
   const connect = async (chat: AvailableChat) => {
@@ -92,10 +91,10 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
     setConnectingId(chat.id)
     setError('')
     try {
-      const res = await fetch(`${API_BASE}/api/moderator/channels/${channelId}/community`, {
+      const res = await moderatorFetch(`${API_BASE}/api/moderator/channels/${channelId}/community`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData, moderatorChatId: chat.id }),
+        body: JSON.stringify({ moderatorChatId: chat.id }),
       })
       const data = await res.json() as { community?: CommunityState; error?: string }
       if (!res.ok || !data.community) throw new Error(data.error ?? 'Не удалось подключить группу')

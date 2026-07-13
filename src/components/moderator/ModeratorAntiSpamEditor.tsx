@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, ChevronDown, Loader2, Save, ShieldAlert } from 'lucide-react'
 import { API_BASE } from '@/lib/api'
-import { getTelegramInitData } from '@/lib/telegram'
+import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
@@ -33,7 +33,7 @@ export function ModeratorAntiSpamEditor({ moderatorId }: { moderatorId: string }
 
   useEffect(() => {
     if (!initData) { setLoading(false); return }
-    fetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft?initData=${encodeURIComponent(initData)}`).then(async r => {
+    moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft`).then(async r => {
       const data = await r.json() as { draft?: { blocks?: AntiSpamBlock[] }; moderator?: { publishedVersion?: number | null }; error?: string }
       if (!r.ok) throw new Error(data.error ?? 'Не удалось загрузить антиспам')
       const found = data.draft?.blocks?.find(x => x.type === 'antispam'); if (found) { setBlock({ ...DEFAULT, ...found }); setDomains((found.allowedDomains ?? []).join('\n')) }
@@ -45,10 +45,10 @@ export function ModeratorAntiSpamEditor({ moderatorId }: { moderatorId: string }
     if (!initData) return false
     setSaving(true); setMessage('')
     const allowedDomains = domains.split(/[\n,]+/).map(x => x.trim()).filter(Boolean)
-    try { const r = await fetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData, blocks: [{ ...block, allowedDomains }] }) }); const data = await r.json() as { error?: string }; if (!r.ok) throw new Error(data.error ?? 'Не удалось сохранить'); setBlock(p => ({ ...p, allowedDomains })); setMessage('Черновик сохранён'); return true }
+    try { const r = await moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blocks: [{ ...block, allowedDomains }] }) }); const data = await r.json() as { error?: string }; if (!r.ok) throw new Error(data.error ?? 'Не удалось сохранить'); setBlock(p => ({ ...p, allowedDomains })); setMessage('Черновик сохранён'); return true }
     catch (e) { setMessage(e instanceof Error ? e.message : 'Не удалось сохранить'); return false } finally { setSaving(false) }
   }, [block, domains, initData, moderatorId])
-  const publish = async () => { if (!initData || publishing) return; setPublishing(true); if (!await save()) { setPublishing(false); return } try { const r = await fetch(`${API_BASE}/api/moderator-config/${moderatorId}/publish`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData }) }); const data = await r.json() as { error?: string }; if (!r.ok) throw new Error(data.error ?? 'Не удалось опубликовать'); setPublished(true); setMessage('Антиспам опубликован') } catch (e) { setMessage(e instanceof Error ? e.message : 'Не удалось опубликовать') } finally { setPublishing(false) } }
+  const publish = async () => { if (!initData || publishing) return; setPublishing(true); if (!await save()) { setPublishing(false); return } try { const r = await moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/publish`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }); const data = await r.json() as { error?: string }; if (!r.ok) throw new Error(data.error ?? 'Не удалось опубликовать'); setPublished(true); setMessage('Антиспам опубликован') } catch (e) { setMessage(e instanceof Error ? e.message : 'Не удалось опубликовать') } finally { setPublishing(false) } }
   if (loading) return <div className="flex justify-center py-6 text-[#66666E]"><Loader2 size={20} className="animate-spin" /></div>
 
   return <GlassCard>

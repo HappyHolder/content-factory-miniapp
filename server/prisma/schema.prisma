@@ -564,11 +564,13 @@ model ManagedModeratorBot {
   ownerUserId      String
   tgBotId          String?   @unique
   username         String?
+  expectedUsername String?
   displayName      String
   avatarUrl        String?
   tokenCipher      String?
   tokenIv          String?
   tokenTag         String?
+  tokenKeyVersion  Int       @default(1)
   webhookSecret    String?
   status           String    @default("REQUESTED")
   lastError        String?

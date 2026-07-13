@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, ChevronDown, Loader2, Save, ShieldCheck } from 'lucide-react'
 import { API_BASE } from '@/lib/api'
-import { getTelegramInitData } from '@/lib/telegram'
+import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
@@ -27,7 +27,7 @@ export function ModeratorCaptchaEditor({ moderatorId }: { moderatorId: string })
 
   useEffect(() => {
     if (!initData) { setLoading(false); return }
-    fetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft?initData=${encodeURIComponent(initData)}`)
+    moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft`)
       .then(async r => { const d = await r.json() as { draft?: { blocks?: CaptchaBlock[] }; moderator?: { publishedVersion?: number | null }; error?: string }; if (!r.ok) throw new Error(d.error ?? 'Не удалось загрузить CAPTCHA'); const found = d.draft?.blocks?.find(x => x.type === 'captcha'); if (found) setBlock({ ...DEFAULT, ...found }); const yes = Boolean(d.moderator?.publishedVersion); setPublished(yes); if (yes) setCollapsed(true) })
       .catch(e => setMessage(e instanceof Error ? e.message : 'Не удалось загрузить CAPTCHA')).finally(() => setLoading(false))
   }, [initData, moderatorId])
@@ -35,10 +35,10 @@ export function ModeratorCaptchaEditor({ moderatorId }: { moderatorId: string })
   const save = useCallback(async () => {
     if (!initData || !block.text.trim() || !block.buttonText.trim()) return false
     setSaving(true); setMessage('')
-    try { const r = await fetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData, blocks: [block] }) }); const d = await r.json() as { error?: string }; if (!r.ok) throw new Error(d.error ?? 'Не удалось сохранить'); setMessage('Черновик сохранён'); return true }
+    try { const r = await moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/draft`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blocks: [block] }) }); const d = await r.json() as { error?: string }; if (!r.ok) throw new Error(d.error ?? 'Не удалось сохранить'); setMessage('Черновик сохранён'); return true }
     catch (e) { setMessage(e instanceof Error ? e.message : 'Не удалось сохранить'); return false } finally { setSaving(false) }
   }, [block, initData, moderatorId])
-  const publish = async () => { if (!initData || publishing) return; setPublishing(true); if (!await save()) { setPublishing(false); return } try { const r = await fetch(`${API_BASE}/api/moderator-config/${moderatorId}/publish`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData }) }); const d = await r.json() as { error?: string }; if (!r.ok) throw new Error(d.error ?? 'Не удалось опубликовать'); setPublished(true); setMessage('CAPTCHA опубликована') } catch (e) { setMessage(e instanceof Error ? e.message : 'Не удалось опубликовать') } finally { setPublishing(false) } }
+  const publish = async () => { if (!initData || publishing) return; setPublishing(true); if (!await save()) { setPublishing(false); return } try { const r = await moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/publish`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }); const d = await r.json() as { error?: string }; if (!r.ok) throw new Error(d.error ?? 'Не удалось опубликовать'); setPublished(true); setMessage('CAPTCHA опубликована') } catch (e) { setMessage(e instanceof Error ? e.message : 'Не удалось опубликовать') } finally { setPublishing(false) } }
   if (loading) return <div className="flex justify-center py-6 text-[#66666E]"><Loader2 size={20} className="animate-spin" /></div>
 
   return <GlassCard>

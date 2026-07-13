@@ -41,8 +41,12 @@ export interface TgChat {
 export interface TgChatMember {
   status: 'creator' | 'administrator' | 'member' | 'restricted' | 'left' | 'kicked';
   user: { id: number; is_bot: boolean; first_name: string };
-  // Only present when status === 'administrator' and chat is a channel
+  // Administrator capabilities are present only for administrator members.
   can_post_messages?: boolean;
+  can_delete_messages?: boolean;
+  can_restrict_members?: boolean;
+  can_invite_users?: boolean;
+  can_pin_messages?: boolean;
 }
 
 // ─── Error class ──────────────────────────────────────────────────────────────

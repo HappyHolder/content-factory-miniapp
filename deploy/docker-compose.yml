@@ -14,6 +14,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: "2.0"
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -64,6 +69,12 @@ services:
       TONCENTER_API_KEY: ${TONCENTER_API_KEY}
     volumes:
       - uploads:/data/uploads
+    init: true
+    pids_limit: 256
+    mem_limit: 3g
+    cpus: "2.0"
+    security_opt:
+      - no-new-privileges:true
 
   # ── Edge: Caddy (SPA + reverse proxy + static files + auto HTTPS) ─────────────
   web:
@@ -83,6 +94,11 @@ services:
       - uploads:/srv/uploads:ro
       - caddy_data:/data
       - caddy_config:/config
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.0"
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   pgdata:

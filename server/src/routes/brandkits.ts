@@ -15,7 +15,7 @@ const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: MAX_FILE_SIZE_BYTES },
+  limits:  { fileSize: MAX_FILE_SIZE_BYTES , files: 1, fields: 20, parts: 25, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
       cb(null, true);
@@ -28,7 +28,7 @@ const upload = multer({
 // Separate multer for HTML template uploads (text/html, max 500 KB)
 const uploadHtml = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 500 * 1024 },
+  limits:  { fileSize: 500 * 1024 , files: 1, fields: 20, parts: 25, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ok = file.mimetype === 'text/html' || file.originalname.endsWith('.html');
     ok ? cb(null, true) : cb(new Error('Only .html files are accepted for cover templates.'));
@@ -39,7 +39,7 @@ const uploadHtml = multer({
 // channels with many posts can be large; only the message text is parsed out).
 const uploadExport = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 30 * 1024 * 1024 },
+  limits:  { fileSize: 30 * 1024 * 1024 , files: 1, fields: 20, parts: 25, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ok = file.mimetype === 'application/json' || file.originalname.endsWith('.json');
     ok ? cb(null, true) : cb(new Error('Only the Telegram export result.json file is accepted.'));

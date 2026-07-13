@@ -1,19 +1,20 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
-import { validateAndParseTelegramInitData } from '../lib/telegram';
+import { verifyModeratorSession } from '../lib/moderatorSession';
 import { DEFAULT_BLOCKS, parseBlocks, requiredRightsFor, type ModeratorBlock } from '../moderator/config';
+import { getBotIdFromToken, getChatMember, TelegramApiError } from '../lib/telegramBot';
+import { moderatorTokenForCommunity } from '../moderator/managedBotCrypto';
 
 const router = Router();
 
-async function ownedModerator(initData: unknown, moderatorId: string) {
-  if (typeof initData !== 'string' || !initData.trim()) throw new Error('INVALID_AUTH');
-  const parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
-  const user = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } });
+async function ownedModerator(req: Request, moderatorId: string) {
+  const session = verifyModeratorSession(req.headers.authorization);
+  const user = await prisma.user.findUnique({ where: { telegramId: session.tgUserId }, select: { id: true, telegramId: true } });
   if (!user) throw new Error('INVALID_AUTH');
   const moderator = await prisma.moderator.findFirst({
     where: { id: moderatorId, community: { channel: { userId: user.id } } },
-    include: { community: { include: { moderatorChat: true, channel: { select: { id: true, handle: true } } } } },
+    include: { community: { include: { moderatorChat: true, managedBot: true, channel: { select: { id: true, handle: true } } } } },
   });
   if (!moderator) throw new Error('NOT_FOUND');
   return { user, moderator };
@@ -27,7 +28,7 @@ function fail(res: Response, err: unknown): void {
 
 router.get('/:moderatorId/draft', async (req: Request, res: Response): Promise<void> => {
   let context;
-  try { context = await ownedModerator(req.query['initData'], req.params['moderatorId'] ?? ''); } catch (err) { fail(res, err); return; }
+  try { context = await ownedModerator(req, req.params['moderatorId'] ?? ''); } catch (err) { fail(res, err); return; }
   const draft = await prisma.moderatorConfig.findUnique({
     where: { moderatorId_version: { moderatorId: context.moderator.id, version: context.moderator.draftVersion } },
   });
@@ -38,9 +39,9 @@ router.get('/:moderatorId/draft', async (req: Request, res: Response): Promise<v
 });
 
 router.patch('/:moderatorId/draft', async (req: Request, res: Response): Promise<void> => {
-  const { initData, blocks: rawBlocks } = req.body as { initData?: unknown; blocks?: unknown };
+  const { blocks: rawBlocks } = req.body as { blocks?: unknown };
   let context;
-  try { context = await ownedModerator(initData, req.params['moderatorId'] ?? ''); } catch (err) { fail(res, err); return; }
+  try { context = await ownedModerator(req, req.params['moderatorId'] ?? ''); } catch (err) { fail(res, err); return; }
   let blocks: ModeratorBlock[];
   try { blocks = parseBlocks(rawBlocks); } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid blocks' }); return;
@@ -62,9 +63,8 @@ router.patch('/:moderatorId/draft', async (req: Request, res: Response): Promise
 });
 
 router.post('/:moderatorId/publish', async (req: Request, res: Response): Promise<void> => {
-  const { initData } = req.body as { initData?: unknown };
   let context;
-  try { context = await ownedModerator(initData, req.params['moderatorId'] ?? ''); } catch (err) { fail(res, err); return; }
+  try { context = await ownedModerator(req, req.params['moderatorId'] ?? ''); } catch (err) { fail(res, err); return; }
   const current = await prisma.moderatorConfig.findUnique({
     where: { moderatorId_version: { moderatorId: context.moderator.id, version: context.moderator.draftVersion } },
   });
@@ -74,11 +74,32 @@ router.post('/:moderatorId/publish', async (req: Request, res: Response): Promis
     res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid blocks' }); return;
   }
   const requiredRights = requiredRightsFor(blocks);
-  const granted = (context.moderator.community.moderatorChat?.grantedRights ?? {}) as Record<string, unknown>;
-  if (requiredRights.can_restrict_members && granted['can_restrict_members'] !== true) { res.status(409).json({ error: 'Для CAPTCHA дайте ModerBot право ограничивать участников.' }); return; }
-  if (requiredRights.can_delete_messages && granted['can_delete_messages'] !== true) {
-    res.status(409).json({ error: 'Для включённых функций дайте ModerBot право удалять сообщения.' });
-    return; // MISSING_DELETE_RIGHT
+  const chat = context.moderator.community.moderatorChat;
+  if (!chat) { res.status(409).json({ error: 'Сначала подключите группу обсуждений.' }); return; }
+  let granted: Record<string, boolean>;
+  try {
+    const token = await moderatorTokenForCommunity(context.moderator.communityId);
+    const [botRole, userRole] = await Promise.all([
+      getChatMember(chat.tgChatId, getBotIdFromToken(token), token),
+      getChatMember(chat.tgChatId, Number(context.user.telegramId), token),
+    ]);
+    if (!['administrator', 'creator'].includes(userRole.status)) { res.status(403).json({ error: 'Вы больше не являетесь администратором этой группы.' }); return; }
+    if (!['administrator', 'creator'].includes(botRole.status)) { res.status(409).json({ error: 'Активный бот-исполнитель больше не является администратором группы.' }); return; }
+    granted = {
+      can_delete_messages: botRole.can_delete_messages === true,
+      can_restrict_members: botRole.can_restrict_members === true,
+      can_invite_users: botRole.can_invite_users === true,
+      can_pin_messages: botRole.can_pin_messages === true,
+    };
+    await prisma.moderator.update({ where: { id: context.moderator.id }, data: { grantedRights: granted, lastRightsCheckAt: new Date() } });
+    if (context.moderator.executorType === 'SHARED') await prisma.moderatorChat.update({ where: { id: chat.id }, data: { grantedRights: granted } });
+  } catch (error) {
+    res.status(502).json({ error: error instanceof TelegramApiError ? error.message : 'Не удалось безопасно проверить права активного бота.' }); return;
+  }
+  if (requiredRights.can_restrict_members && granted.can_restrict_members !== true) { res.status(409).json({ error: 'Для включённых функций дайте активному боту право ограничивать участников.' }); return; }
+  if (requiredRights.can_delete_messages && granted.can_delete_messages !== true) {
+    res.status(409).json({ error: 'Для включённых функций дайте активному боту право удалять сообщения.' });
+    return;
   }
     const nextVersion = current.version + 1;
   const result = await prisma.$transaction(async tx => {

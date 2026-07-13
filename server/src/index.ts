@@ -21,12 +21,32 @@ import contentPlanRouter from './routes/contentPlan';
 import ogRouter from './routes/og';
 import { startScheduler } from './lib/scheduler';
 import { resumeGeneratingPlans } from './lib/contentWorker';
+import { rateLimit } from './lib/rateLimit';
 
 const app = express();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-app.use(cors());
-app.use(express.json());
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+const productionOrigin = new URL(env.PUBLIC_BASE_URL).origin;
+app.use(cors({
+  origin: (origin, callback) => callback(null, !origin || env.NODE_ENV !== 'production' || origin === productionOrigin),
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 600,
+}));
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
+app.use(express.json({ limit: '128kb' }));
+const moderatorSessionLimit = rateLimit({ windowMs: 60_000, max: 15 });
+const moderatorApiLimit = rateLimit({ windowMs: 60_000, max: 120, skip: req => req.path.startsWith('/webhook') });
+app.use('/api/auth/moderator-session', moderatorSessionLimit);
+app.use('/api/moderator', moderatorApiLimit);
+app.use('/api/moderator-config', moderatorApiLimit);
 
 // ─── Static file storage (replaces Vercel Blob) ─────────────────────────────────
 // Serve uploaded/generated files at /uploads. In production nginx serves this

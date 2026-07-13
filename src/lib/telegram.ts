@@ -1,3 +1,5 @@
+import { API_BASE } from './api'
+
 // Safe Telegram Mini App helpers for the frontend.
 // All functions work in plain browser dev mode — when window.Telegram is absent
 // they return null / no-op silently. Never throw outside the Telegram environment.
@@ -80,4 +82,44 @@ export function shareTelegramMessage(preparedMessageId: string, callback?: (sent
   } catch {
     return false
   }
+}
+let moderatorSessionPromise: Promise<{ token: string; expiresAtMs: number }> | null = null
+
+async function moderatorSessionToken(forceRefresh = false): Promise<string> {
+  if (forceRefresh) moderatorSessionPromise = null
+  if (!moderatorSessionPromise) {
+    moderatorSessionPromise = (async () => {
+      const initData = getTelegramInitData()
+      if (!initData) throw new Error('Откройте Publium внутри Telegram')
+      const response = await fetch(`${API_BASE}/api/auth/moderator-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData }),
+      })
+      const data = await response.json() as { token?: string; expiresAt?: string; error?: string }
+      if (!response.ok || !data.token || !data.expiresAt) throw new Error(data.error ?? 'Не удалось открыть безопасную сессию Moderator')
+      return { token: data.token, expiresAtMs: Date.parse(data.expiresAt) }
+    })().catch(error => {
+      moderatorSessionPromise = null
+      throw error
+    })
+  }
+  const session = await moderatorSessionPromise
+  if (!Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= Date.now() + 30_000) {
+    return moderatorSessionToken(true)
+  }
+  return session.token
+}
+
+/** Authenticated fetch for Community/Moderator APIs. Raw initData is exchanged once and never put in URLs or mutation bodies. */
+export async function moderatorFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const request = async (forceRefresh = false) => {
+    const token = await moderatorSessionToken(forceRefresh)
+    const headers = new Headers(init.headers)
+    headers.set('Authorization', `Bearer ${token}`)
+    return fetch(input, { ...init, headers })
+  }
+  const response = await request()
+  if (response.status !== 401) return response
+  return request(true)
 }

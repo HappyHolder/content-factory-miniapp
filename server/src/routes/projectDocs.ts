@@ -17,7 +17,7 @@ const MAX_DOCS_PER_CHANNEL = 20;
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: MAX_FILE_SIZE_BYTES },
+  limits:  { fileSize: MAX_FILE_SIZE_BYTES , files: 1, fields: 20, parts: 25, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     // Gate on the same kinds docExtractor understands (PDF/DOCX/MD/TXT).
     if (classifyDoc(file.mimetype, file.originalname)) {

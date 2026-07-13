@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bold, Check, ChevronDown, ImagePlus, Italic, Link2, Loader2, MessageSquareReply, Plus, Save, Strikethrough, Trash2, X } from 'lucide-react'
 import { API_BASE } from '@/lib/api'
-import { getTelegramInitData } from '@/lib/telegram'
+import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { ModeratorHelpSheet, ModeratorInfoButton } from './ModeratorHelpSheet'
 import { Button } from '@/components/ui/Button'
@@ -33,7 +33,7 @@ export function ModeratorTriggersEditor({ moderatorId }: { moderatorId: string }
 
   useEffect(() => {
     if (!initData) { setLoading(false); return }
-    fetch(API_BASE + '/api/moderator-config/' + moderatorId + '/draft?initData=' + encodeURIComponent(initData))
+    moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/draft')
       .then(async res => { const data = await res.json() as { draft?: { blocks?: TriggersBlock[] }; moderator?: { publishedVersion?: number | null }; error?: string }; if (!res.ok) throw new Error(data.error || 'Не удалось загрузить триггеры'); const found = data.draft?.blocks?.find(x => x.type === 'triggers'); if (found) setBlock({ ...DEFAULT, ...found, triggers: found.triggers || [] }); const yes = Boolean(data.moderator?.publishedVersion); setPublished(yes); if (yes) setCollapsed(true) })
       .catch(error => setMessage(error instanceof Error ? error.message : 'Не удалось загрузить триггеры')).finally(() => setLoading(false))
   }, [initData, moderatorId])
@@ -49,7 +49,7 @@ export function ModeratorTriggersEditor({ moderatorId }: { moderatorId: string }
     const id = uploadTarget.current
     if (!initData || !id) return
     setUploadingId(id); setMessage('')
-    try { const form = new FormData(); form.append('initData', initData); form.append('image', file); const res = await fetch(API_BASE + '/api/posts/upload-block-image', { method: 'POST', body: form }); const data = await res.json() as { url?: string; error?: string }; if (!res.ok || !data.url) throw new Error(data.error || 'Не удалось загрузить изображение'); patchTrigger(id, { imageUrl: data.url }) }
+    try { const form = new FormData(); form.append('initData', initData); form.append('image', file); const res = await moderatorFetch(API_BASE + '/api/posts/upload-block-image', { method: 'POST', body: form }); const data = await res.json() as { url?: string; error?: string }; if (!res.ok || !data.url) throw new Error(data.error || 'Не удалось загрузить изображение'); patchTrigger(id, { imageUrl: data.url }) }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось загрузить изображение') }
     finally { setUploadingId(null); uploadTarget.current = null; if (fileRef.current) fileRef.current.value = '' }
   }
@@ -67,14 +67,14 @@ export function ModeratorTriggersEditor({ moderatorId }: { moderatorId: string }
     if (!initData) return false
     const problem = validate(); if (problem) { setMessage(problem); return false }
     setSaving(true); setMessage('')
-    try { const clean = { ...block, triggers: block.triggers.map(t => ({ ...t, name: t.name.trim(), phrases: t.phrases.map(p => p.trim()).filter(Boolean), text: t.text.trim() })) }; const res = await fetch(API_BASE + '/api/moderator-config/' + moderatorId + '/draft', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData, blocks: [clean] }) }); const data = await res.json() as { error?: string }; if (!res.ok) throw new Error(data.error || 'Не удалось сохранить'); setBlock(clean); setMessage('Черновик сохранён'); return true }
+    try { const clean = { ...block, triggers: block.triggers.map(t => ({ ...t, name: t.name.trim(), phrases: t.phrases.map(p => p.trim()).filter(Boolean), text: t.text.trim() })) }; const res = await moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/draft', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blocks: [clean] }) }); const data = await res.json() as { error?: string }; if (!res.ok) throw new Error(data.error || 'Не удалось сохранить'); setBlock(clean); setMessage('Черновик сохранён'); return true }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось сохранить'); return false }
     finally { setSaving(false) }
   }, [block, initData, moderatorId])
   const publish = async () => {
     if (!await save()) return
     setPublishing(true)
-    try { const res = await fetch(API_BASE + '/api/moderator-config/' + moderatorId + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData }) }); const data = await res.json() as { error?: string }; if (!res.ok) throw new Error(data.error || 'Не удалось опубликовать'); setPublished(true); setMessage('Триггеры опубликованы и работают в чате') }
+    try { const res = await moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }); const data = await res.json() as { error?: string }; if (!res.ok) throw new Error(data.error || 'Не удалось опубликовать'); setPublished(true); setMessage('Триггеры опубликованы и работают в чате') }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось опубликовать') }
     finally { setPublishing(false) }
   }
