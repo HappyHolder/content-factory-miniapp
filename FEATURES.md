@@ -1,6 +1,7 @@
-# Publium — Feature Inventory (v1.0)
+# Publium — Feature Inventory (v1.2)
 
-- **Moderator MVP** — visual Welcome, CAPTCHA, Anti-spam, Content Filters, sanctions escalation, admin reply commands, reversible audit log, pause, and fail-open Terra AI moderation.
+- **Community + Moderator v1** — отдельный экран сообщества, визуальные блоки Welcome, CAPTCHA, Anti-spam, Content Filters, триггеры, санкции, ручные команды, журнал, пауза и fail-open AI-модерация Terra.
+- **Персональный AI Moderator** — собственное имя, username и аватар бота-исполнителя; отдельные webhook/secret и зашифрованный токен. Стандартный `@PubliumModerBot` остаётся доступен без персонализации.
 
 Living catalog of everything Publium does. Grouped by area; each item notes the
 main backing endpoint(s) / module(s). Use this as the source of truth for release
@@ -24,6 +25,19 @@ publishes or schedules it to the user's channel.
 - **Cover settings** — cover mode (AI / HTML / AI+HTML), aspect ratio, background style/detail, cover language, logo usage, brand colors, reference images.
 - **Rubrics** — content types per channel (`{name, description, mode, templateUrl?}`); an AI classifier routes each post into a rubric, whose mode + template decide how the cover is built. `classifyPostRubric`.
 - **AI cover-style generation** — generate a channel visual style. `POST /api/brandkits/generate-cover-style`.
+## 2.1 Community & Moderator
+- **Вход из карточки канала** — экран сообщества с вкладками Moderator / Community Manager.
+- **Два уровня продукта** — `@Publiumbot` открывает Mini App и хранит настройки; отдельный бот-исполнитель работает администратором группы обсуждений.
+- **Draft / publish** — изменения блоков сохраняются в черновик и начинают исполняться только после публикации.
+- **Welcome** — Rich Message, изображение, кнопки, переменные, повторный вход и автоудаление.
+- **CAPTCHA** — персональная кнопка, временное ограничение, durable timeout и kick/restrict.
+- **Anti-spam** — flood, повторы, ссылки и allowlist доменов.
+- **Content Filters** — категории стоп-слов и фраз, ручные ответы, regex, домены, CAPS, emoji, пересылки и типы вложений.
+- **Триггеры** — exact/prefix/contains автоответы с Rich Message, изображением, кнопками, cooldown и передачей знаний Terra.
+- **Правила и санкции** — предупреждения со сроком, warn → mute → ban, авто-unmute и ручные reply-команды администраторов.
+- **AI-модерация Terra** — классификация отдельных сообщений и контекстные вмешательства в затяжной оффтопик, политику, конфликт, травлю и рекламу; симулятор и trial-квота.
+- **Журнал** — последние решения и отмена warn/mute/ban; общая пауза Moderator.
+- **Контекстная помощь** — bottom-sheet инструкции, примеры и рекомендации для всех блоков и бота-исполнителя.
 
 ## 3. Content creation — Create tab (`CreateScreen`)
 - **AI generation** from a single input: free text, a pasted link (article auto-extracted via `fetchArticle`), or a screenshot (vision-extracted via `extractImageContentFromUrl`). `POST /api/posts/generate`.
@@ -90,4 +104,4 @@ publishes or schedules it to the user's channel.
 
 ---
 
-_Last updated: 2026-07-03 (v1.0)._
+_Last updated: 2026-07-13 (v1.2)._

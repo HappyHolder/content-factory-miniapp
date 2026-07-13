@@ -11,9 +11,17 @@ For the full always-current capability list, see [FEATURES.md](FEATURES.md).
 
 ---
 
-## [Unreleased] — toward 1.2
+## [Unreleased] — toward 1.3
 
-Shipped to production since 1.1; not yet tagged.
+No unreleased changes yet.
+
+---
+
+## [1.2.0] — 2026-07-13
+
+Everything below is live in production. This release adds the Community entry
+point and the first usable Publium Moderator, and includes all content and
+publishing improvements shipped after 1.1.
 
 ### Fixed
 - **Moderator: понятный результат санкции фильтра** — к ручному ответу категории автоматически добавляется номер предупреждения, длительность mute или сообщение о ban; служебный статус работает и без ручного текста и учитывает настройку «Сообщать участнику результат».
