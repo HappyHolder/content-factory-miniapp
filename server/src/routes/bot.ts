@@ -11,6 +11,7 @@ import { isPaidTier, grantSubscription } from '../lib/payments';
 import { grantStylePurchase } from '../lib/styles';
 import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContent } from '../lib/visionExtractor';
+import { completeManagedBot, type ManagedBotUpdate } from '../moderator/managedBotService';
 
 // ─── /start welcome ─────────────────────────────────────────────────────────
 const WELCOME_TEXT =
@@ -130,6 +131,7 @@ interface TelegramUpdate {
   message?: TgMessage;
   pre_checkout_query?: TgPreCheckoutQuery;
   my_chat_member?: TgChatMemberUpdated;
+  managed_bot?: ManagedBotUpdate;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -351,6 +353,23 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   const update = req.body as TelegramUpdate;
 
   // ── Stars payments: pre-checkout must be answered within 10s ─────────────
+  if (update.managed_bot) {
+    try {
+      const completed = await completeManagedBot(update.managed_bot);
+      if (completed) {
+        await sendBotMessage(
+          completed.ownerTgId,
+          'Персональный AI Moderator @' + (completed.username ?? 'bot') + ' создан. Вернитесь в Publium, добавьте его в группу и завершите подключение.',
+          env.TELEGRAM_BOT_TOKEN,
+        ).catch(() => undefined);
+      }
+    } catch (error) {
+      console.error('[bot/webhook] managed bot setup failed:', (error as Error).message);
+    }
+    res.status(200).json({ ok: true });
+    return;
+  }
+
   if (update.pre_checkout_query) {
     await answerPreCheckoutQuery(update.pre_checkout_query.id, true, env.TELEGRAM_BOT_TOKEN);
     res.status(200).json({ ok: true });

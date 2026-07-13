@@ -1,5 +1,6 @@
 import { prisma } from '../db';
-import { banChatUser, deleteBotMessage, getChatMember, kickChatUser, restrictChatUser, sendBotMessage, unbanChatUser } from '../lib/telegramBot';
+import { env } from '../env';
+import { banChatUser, deleteBotMessage, getBotIdFromToken, getChatMember, kickChatUser, restrictChatUser, sendBotMessage, unbanChatUser } from '../lib/telegramBot';
 import { parseBlocks, type WarningPolicyBlock } from './config';
 import { activeWarningCount, issueWarning, revokeWarnings } from './warningEngine';
 
@@ -15,14 +16,16 @@ const durationSeconds = (raw?: string): number | null => {
 };
 const label = (user: User) => user.username ? `@${user.username}` : user.first_name;
 
-export async function handleManualCommand(updateId: number, message: CommandMessage, token: string): Promise<{ handled: boolean; command?: string }> {
+export async function handleManualCommand(updateId: string, message: CommandMessage, token: string, botId: number): Promise<{ handled: boolean; command?: string }> {
   const match = /^\/(warn|mute|unmute|ban|kick|unban|delete|info)(?:@\w+)?(?:\s+([^\s]+))?(?:\s+([\s\S]+))?$/i.exec(message.text?.trim() ?? '');
   if (!match || !message.from) return { handled: false };
   const command = match[1]!.toLowerCase();
   const actorRole = await getChatMember(String(message.chat.id), message.from.id, token).catch(() => null);
   if (!actorRole || !['administrator', 'creator'].includes(actorRole.status)) return { handled: true, command };
-  const community = await prisma.community.findFirst({ where: { moderatorChat: { tgChatId: String(message.chat.id) }, moderator: { enabled: true, publishedVersion: { not: null } } }, include: { moderator: true } });
+  const community = await prisma.community.findFirst({ where: { moderatorChat: { tgChatId: String(message.chat.id) }, moderator: { enabled: true, publishedVersion: { not: null } } }, include: { moderator: true, managedBot: true } });
   if (!community?.moderator?.publishedVersion) return { handled: true, command };
+  const expectedBotId = community.moderator.executorType === 'CUSTOM' ? Number(community.managedBot?.tgBotId) : getBotIdFromToken(env.MODERATOR_BOT_TOKEN);
+  if (!Number.isFinite(expectedBotId) || expectedBotId !== botId) return { handled: true, command };
   const config = await prisma.moderatorConfig.findUnique({ where: { moderatorId_version: { moderatorId: community.moderator.id, version: community.moderator.publishedVersion } } });
   const policy = parseBlocks(config?.blocks ?? []).find(b => b.type === 'warning_policy' && b.enabled) as WarningPolicyBlock | undefined;
   if (!policy) return { handled: true, command };
@@ -30,7 +33,7 @@ export async function handleManualCommand(updateId: number, message: CommandMess
   if (command === 'delete') {
     if (message.reply_to_message) await deleteBotMessage(message.chat.id, message.reply_to_message.message_id, token).catch(() => undefined);
     if (policy.deleteCommandMessages) await deleteBotMessage(message.chat.id, message.message_id, token).catch(() => undefined);
-    await prisma.moderationEvent.create({ data: { communityId: community.id, telegramUpdateId: String(updateId), telegramMessageId: message.reply_to_message?.message_id, tgUserId: target ? String(target.id) : null, eventType: 'MANUAL_COMMAND', decision: 'DELETE', action: 'DELETE', status: 'PROCESSED', reversedById: String(message.from.id), metadata: { command } } });
+    await prisma.moderationEvent.create({ data: { communityId: community.id, telegramUpdateId: updateId, telegramMessageId: message.reply_to_message?.message_id, tgUserId: target ? String(target.id) : null, eventType: 'MANUAL_COMMAND', decision: 'DELETE', action: 'DELETE', status: 'PROCESSED', reversedById: String(message.from.id), metadata: { command } } });
     return { handled: true, command };
   }
   if (!target) { await sendBotMessage(message.chat.id, 'Ответьте этой командой на сообщение участника.', token).catch(() => undefined); return { handled: true, command }; }
@@ -38,7 +41,7 @@ export async function handleManualCommand(updateId: number, message: CommandMess
   if (targetRole && ['administrator', 'creator'].includes(targetRole.status)) { await sendBotMessage(message.chat.id, 'Администраторов нельзя наказывать через Moderator.', token).catch(() => undefined); return { handled: true, command }; }
   const firstArg = match[2], rest = match[3];
   const reason = command === 'mute' && durationSeconds(firstArg) ? (rest || 'Ручное действие администратора') : [firstArg, rest].filter(Boolean).join(' ') || 'Ручное действие администратора';
-  const event = await prisma.moderationEvent.create({ data: { communityId: community.id, telegramUpdateId: String(updateId), telegramMessageId: message.reply_to_message?.message_id, tgUserId: String(target.id), eventType: 'MANUAL_COMMAND', decision: command.toUpperCase(), reason: reason.slice(0, 500), action: command.toUpperCase(), status: 'RECEIVED', reversedById: String(message.from.id), metadata: { command, actorTgUserId: String(message.from.id) } } });
+  const event = await prisma.moderationEvent.create({ data: { communityId: community.id, telegramUpdateId: updateId, telegramMessageId: message.reply_to_message?.message_id, tgUserId: String(target.id), eventType: 'MANUAL_COMMAND', decision: command.toUpperCase(), reason: reason.slice(0, 500), action: command.toUpperCase(), status: 'RECEIVED', reversedById: String(message.from.id), metadata: { command, actorTgUserId: String(message.from.id) } } });
   let response = '';
   if (command === 'warn') {
     const result = await issueWarning({ communityId: community.id, chatId: message.chat.id, tgUserId: String(target.id), telegramMessageId: message.message_id, reason, source: 'MANUAL', eventId: event.id, policy, token });

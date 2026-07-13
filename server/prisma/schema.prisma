@@ -92,6 +92,7 @@ model User {
   generationJobs GenerationJob[]
   subscription   Subscription?
   aiModeratorEntitlement AiModeratorEntitlement?
+  managedModeratorBots ManagedModeratorBot[]
   chatMessages   ChatMessage[]
 }
 
@@ -537,6 +538,7 @@ model Community {
   messageSamples   ModerationMessageSample[]
   conversationMessages ModeratorConversationMessage[]
   conversationState ModeratorConversationState?
+  managedBot        ManagedModeratorBot?
 }
 
 model Moderator {
@@ -549,10 +551,35 @@ model Moderator {
   requiredRights    Json?
   grantedRights     Json?
   lastRightsCheckAt DateTime?
+  executorType      String            @default("SHARED")
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   community         Community         @relation(fields: [communityId], references: [id], onDelete: Cascade)
   configs           ModeratorConfig[]
+}
+
+model ManagedModeratorBot {
+  id               String    @id @default(cuid())
+  communityId      String    @unique
+  ownerUserId      String
+  tgBotId          String?   @unique
+  username         String?
+  displayName      String
+  avatarUrl        String?
+  tokenCipher      String?
+  tokenIv          String?
+  tokenTag         String?
+  webhookSecret    String?
+  status           String    @default("REQUESTED")
+  lastError        String?
+  requestExpiresAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  owner     User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, status])
 }
 
 model ModeratorConfig {

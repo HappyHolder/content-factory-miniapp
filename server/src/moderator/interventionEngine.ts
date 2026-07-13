@@ -17,7 +17,7 @@ async function entitlement(userId: string) {
 
 export async function reserveModeratorAiCheck(userId:string,inputTokens:number,outputTokensEstimate=100):Promise<boolean>{const access=await entitlement(userId);if(access.status==='DISABLED'||access.checksUsed>=access.monthlyChecksLimit)return false;await prisma.aiModeratorEntitlement.update({where:{userId},data:{checksUsed:{increment:1},inputTokensUsed:{increment:inputTokens},outputTokensUsed:{increment:outputTokensEstimate},estimatedCostMicros:{increment:Math.round(inputTokens*2.5+outputTokensEstimate*15)}}});return true}
 
-export async function processIntervention(input: { updateId:number; communityId:string; ownerUserId:string; chatId:number; tgUserId:string; telegramMessageId:number; text:string; block:AiModerationBlock; warningPolicy?:WarningPolicyBlock; channelContext:unknown; token:string }): Promise<{ analyzed:boolean; intervened:boolean; limited?:boolean }> {
+export async function processIntervention(input: { updateId:number|string; communityId:string; ownerUserId:string; chatId:number; tgUserId:string; telegramMessageId:number; text:string; block:AiModerationBlock; warningPolicy?:WarningPolicyBlock; channelContext:unknown; token:string }): Promise<{ analyzed:boolean; intervened:boolean; limited?:boolean }> {
   const now=new Date(), expiresAt=new Date(now.getTime()+60*60_000);
   const packet=await prisma.$transaction(async tx=>{
     const inserted=await tx.moderatorConversationMessage.createMany({data:[{communityId:input.communityId,tgUserId:input.tgUserId,telegramMessageId:input.telegramMessageId,text:input.text.slice(0,4000),expiresAt}],skipDuplicates:true});

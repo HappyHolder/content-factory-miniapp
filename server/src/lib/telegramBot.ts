@@ -717,6 +717,46 @@ export const unbanChatUser=(chatId:number|string,userId:number,token:string)=>te
 export const kickChatUser=async(chatId:number|string,userId:number,token:string)=>{await telegramAction('banChatMember',{chat_id:chatId,user_id:userId,revoke_messages:true},token);await telegramAction('unbanChatMember',{chat_id:chatId,user_id:userId,only_if_banned:true},token);};
 export const answerBotCallback=(id:string,text:string,token:string)=>telegramAction('answerCallbackQuery',{callback_query_id:id,text},token);
 
+export interface TelegramBotIdentity {
+  id: number;
+  is_bot: boolean;
+  first_name: string;
+  username?: string;
+  can_manage_bots?: boolean;
+}
+
+async function telegramRequest<T>(method: string, payload: Record<string, unknown>, token: string): Promise<T> {
+  const response = await fetch(`${TG_API}/bot${token}/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json() as TgApiResponse<T>;
+  if (!body.ok || body.result === undefined) throw new TelegramApiError(body.description ?? `${method} failed`, body.error_code);
+  return body.result;
+}
+
+export const getBotIdentity = (token: string) => telegramRequest<TelegramBotIdentity>('getMe', {}, token);
+export const getManagedBotToken = (userId: number, managerToken: string) => telegramRequest<string>('getManagedBotToken', { user_id: userId }, managerToken);
+export const setBotName = (name: string, token: string) => telegramRequest<boolean>('setMyName', { name: name.slice(0, 64) }, token);
+
+export const setBotDescription = async (name: string, token: string): Promise<void> => {
+  await telegramRequest<boolean>('setMyShortDescription', { short_description: `Персональный AI Moderator сообщества «${name}» в Publium.`.slice(0, 120) }, token);
+  await telegramRequest<boolean>('setMyDescription', { description: `Защищает сообщество «${name}»: приветствие, CAPTCHA, антиспам, фильтры, санкции, триггеры и контекстная AI-модерация Terra.`.slice(0, 512) }, token);
+};
+
+export async function setBotProfilePhoto(fileBytes: Buffer, token: string): Promise<void> {
+  const form = new FormData();
+  form.append('photo', JSON.stringify({ type: 'static', photo: 'attach://avatar' }));
+  form.append('avatar', new Blob([new Uint8Array(fileBytes)], { type: 'image/jpeg' }), 'avatar.jpg');
+  const response = await fetch(`${TG_API}/bot${token}/setMyProfilePhoto`, { method: 'POST', body: form });
+  const body = await response.json() as TgApiResponse<boolean>;
+  if (!body.ok) throw new TelegramApiError(body.description ?? 'setMyProfilePhoto failed', body.error_code);
+}
+
+export const setBotWebhook = (token: string, url: string, secret: string) => telegramRequest<boolean>('setWebhook', { url, secret_token: secret, allowed_updates: ['message', 'edited_message', 'callback_query', 'my_chat_member'] }, token);
+export const deleteBotWebhook = (token: string) => telegramRequest<boolean>('deleteWebhook', { drop_pending_updates: false }, token);
+
 /** Deletes a message sent in, or a service message from, a managed group. */
 export async function deleteBotMessage(chatId: number | string, messageId: number, token: string): Promise<void> {
   const url = `${TG_API}/bot${token}/deleteMessage`;
