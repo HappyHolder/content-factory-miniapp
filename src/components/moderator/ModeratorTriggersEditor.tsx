@@ -3,6 +3,7 @@ import { Bold, Check, ChevronDown, ImagePlus, Italic, Link2, Loader2, MessageSqu
 import { API_BASE } from '@/lib/api'
 import { getTelegramInitData } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
+import { ModeratorHelpSheet, ModeratorInfoButton } from './ModeratorHelpSheet'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { RichPostPreview, textToRuns } from '@/components/posts/RichPostPreview'
@@ -26,6 +27,7 @@ export function ModeratorTriggersEditor({ moderatorId }: { moderatorId: string }
   const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [published, setPublished] = useState(false)
   const [message, setMessage] = useState('')
+  const [helpOpen, setHelpOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const uploadTarget = useRef<string | null>(null)
 
@@ -85,8 +87,7 @@ export function ModeratorTriggersEditor({ moderatorId }: { moderatorId: string }
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] bg-[rgba(255,106,0,0.10)] text-[#FF6A00]"><MessageSquareReply size={18} /></span>
         <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="text-[14px] font-semibold text-white">Триггеры</span>{published && <span className="flex items-center gap-1 text-[10px] text-emerald-400"><Check size={11} /> опубликовано</span>}</span><span className="mt-0.5 block truncate text-[11px] text-[#66666E]">{block.triggers.length ? block.triggers.filter(t => t.enabled).length + ' активных автоответов' : 'Слово или фраза → Rich Message'}</span></span>
         <ChevronDown size={18} className={'shrink-0 text-[#66666E] transition-transform duration-200 ' + (collapsed ? '-rotate-90' : '')} />
-      </button>
-    </div>
+      </button><ModeratorInfoButton onClick={() => setHelpOpen(true)} label="Открыть справку: Триггеры" /></div>
     {!collapsed && <div>
       <div className="rounded-[14px] border border-white/[0.07] bg-white/[0.025] p-3"><Switch label="Включить триггеры" description="Автоматически отвечать на настроенные слова и фразы" value={block.enabled} onChange={enabled => setBlock(prev => ({ ...prev, enabled }))} /></div>
       <div className="mt-4 flex items-center justify-between"><div><p className="text-[12px] font-semibold text-white">Автоответы</p><p className="mt-0.5 text-[10px] text-[#66666E]">До 50 сценариев, один ответ на сообщение</p></div><button type="button" onClick={addTrigger} disabled={block.triggers.length >= 50} className="flex min-h-10 cursor-pointer items-center gap-1 rounded-[10px] px-2.5 text-[11px] font-medium text-[#FF6A00] hover:bg-[rgba(255,106,0,0.08)] disabled:opacity-40"><Plus size={14} /> Добавить</button></div>
@@ -130,5 +131,6 @@ export function ModeratorTriggersEditor({ moderatorId }: { moderatorId: string }
       {message && <p aria-live="polite" className="mt-3 text-[11px] text-[#8A8A93]">{message}</p>}
       <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={() => void save()} disabled={saving || publishing} fullWidth>{saving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Сохранить</>}</Button><Button variant="primary" size="sm" onClick={() => void publish()} disabled={saving || publishing || !block.triggers.length} fullWidth>{publishing ? <Loader2 size={14} className="animate-spin" /> : 'Опубликовать'}</Button></div>
     </div>}
+    <ModeratorHelpSheet kind="triggers" open={helpOpen} onClose={() => setHelpOpen(false)} />
   </GlassCard>
 }
