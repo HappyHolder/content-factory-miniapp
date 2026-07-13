@@ -1,6 +1,8 @@
 # Publium backend — build TypeScript separately and run the API as an unprivileged user.
 FROM node:20-bookworm-slim AS build
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY prisma ./prisma
@@ -13,6 +15,8 @@ FROM node:20-bookworm-slim AS runtime
 ENV NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+ && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
