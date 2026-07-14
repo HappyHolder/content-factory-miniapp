@@ -24,6 +24,7 @@ import { startScheduler } from './lib/scheduler';
 import { resumeGeneratingPlans } from './lib/contentWorker';
 import { rateLimit } from './lib/rateLimit';
 import { startCommunityManagerWorker } from './communityManager/engine';
+import { startCommunityActivityScheduler } from './communityManager/activityScheduler';
 
 const app = express();
 
@@ -98,6 +99,7 @@ app.listen(env.PORT, () => {
   );
   startScheduler();
   startCommunityManagerWorker();
+  startCommunityActivityScheduler();
   // Resume any content-manager plans interrupted by a restart.
   resumeGeneratingPlans().catch(err =>
     console.error('[content-worker] resume failed:', (err as Error).message));

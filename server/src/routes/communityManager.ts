@@ -119,7 +119,7 @@ router.delete('/:id/faq/:faqId',async(req,res)=>{let c;try{c=await owned(req,req
 
 router.post('/:id/activities/run',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
-  const type=['DISCUSSION','POLL','DIGEST'].includes(req.body?.type)?req.body.type:'DISCUSSION';
+  const type=['DISCUSSION','POLL','GAME','DIGEST'].includes(req.body?.type)?req.body.type:'DISCUSSION';
   try{res.json(await runCommunityActivity(c.manager.id,type,typeof req.body?.topic==='string'?req.body.topic:undefined))}catch(e){res.status(502).json({error:e instanceof Error?e.message:'Activity failed'})}
 });
 

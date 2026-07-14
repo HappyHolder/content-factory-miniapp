@@ -9,6 +9,14 @@ const root = path.resolve(here, '..');
 const repo = path.resolve(root, '..');
 const require = createRequire(import.meta.url);
 const { matchRegexWithTimeout } = require(path.join(root, 'dist/moderator/regexGuard.js'));
+const { initiativeBackoffHours, consecutiveIgnored, chooseActivityType } = require(path.join(root, 'dist/communityManager/activityPolicy.js'));
+
+assert.equal(initiativeBackoffHours(6, 0), 6);
+assert.equal(initiativeBackoffHours(6, 1), 24);
+assert.equal(initiativeBackoffHours(6, 2), 72);
+assert.equal(initiativeBackoffHours(6, 3), 168);
+assert.equal(consecutiveIgnored([{ automatic: true, evaluated: true, engaged: false }, { automatic: true, evaluated: true, engaged: false }, { automatic: true, evaluated: true, engaged: true }]), 2);
+assert.equal(chooseActivityType(['DISCUSSION','POLL','GAME'], ['DISCUSSION']), 'POLL');
 
 assert.equal(await matchRegexWithTimeout(['spam\\d+'], 'prefix spam42 suffix'), 'spam\\d+');
 const started = Date.now();
