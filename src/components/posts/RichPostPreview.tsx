@@ -11,7 +11,7 @@ import type { ListItem, PostBlock, Run } from '@/types'
 // Inline markers (one style per run; non-nested — the editor wraps a selection
 // in a single marker): **bold** __italic__ ~~strike~~ `code` ==mark== ||spoiler||
 export function runsToText(runs: Run[]): string {
-  return runs.map(r => {
+  return (Array.isArray(runs) ? runs : []).map(r => {
     let t = r.t
     if (r.code)    t = '`' + t + '`'
     if (r.b)       t = `**${t}**`
@@ -89,7 +89,7 @@ function RunSpan({ r }: { r: Run }) {
 }
 
 function Runs({ runs }: { runs: Run[] }) {
-  return <>{runs.map((r, i) => <RunSpan key={i} r={r} />)}</>
+  return <>{(Array.isArray(runs) ? runs : []).map((r, i) => <RunSpan key={i} r={r} />)}</>
 }
 
 // ─── Block rendering ────────────────────────────────────────────────────────────

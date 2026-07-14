@@ -12,6 +12,7 @@ const { matchRegexWithTimeout } = require(path.join(root, 'dist/moderator/regexG
 const { initiativeBackoffHours, consecutiveIgnored, chooseActivityType } = require(path.join(root, 'dist/communityManager/activityPolicy.js'));
 const { shouldJoinAmbient } = require(path.join(root, 'dist/communityManager/responsePolicy.js'));
 const { interventionCooldownSeconds, selectRepeatedParticipant } = require(path.join(root, 'dist/moderator/interventionPolicy.js'));
+const { normalizePostBlocks, blocksToPlainText, blocksToRichHtml } = require(path.join(root, 'dist/lib/richPost.js'));
 
 assert.equal(initiativeBackoffHours(6, 0), 6);
 assert.equal(initiativeBackoffHours(6, 1), 24);
@@ -25,6 +26,11 @@ assert.equal(selectRepeatedParticipant('u3',['u1'],['u1','u2'],['u1','u2','u3'])
 assert.equal(shouldJoinAmbient({enabled:true,intent:'conversation',respond:true,confidence:.8,hasQuestion:true,textLength:16}), true);
 assert.equal(shouldJoinAmbient({enabled:true,intent:'conversation',respond:true,confidence:.8,hasQuestion:false,textLength:10}), false);
 assert.equal(shouldJoinAmbient({enabled:true,intent:'unsafe',respond:true,confidence:.9,hasQuestion:true,textLength:40}), false);
+const legacyBlocks = normalizePostBlocks([{ type: 'list', ordered: false, items: [[{ t: 'Legacy item', b: true }], [{ t: 'Second item' }]] }]);
+assert.deepEqual(legacyBlocks?.[0]?.items?.[0], { runs: [{ t: 'Legacy item', b: true }] });
+assert.match(blocksToPlainText(legacyBlocks), /Legacy item/);
+assert.match(blocksToRichHtml(legacyBlocks), /Legacy item/);
+assert.deepEqual(normalizePostBlocks([{ type: 'image', url: 'https://example.com/a.jpg', prompt: 'keep me' }])?.[0], { type: 'image', url: 'https://example.com/a.jpg', prompt: 'keep me' });
 
 assert.equal(await matchRegexWithTimeout(['spam\\d+'], 'prefix spam42 suffix'), 'spam\\d+');
 const started = Date.now();

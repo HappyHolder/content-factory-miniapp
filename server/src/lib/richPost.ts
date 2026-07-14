@@ -43,7 +43,7 @@ export type PostBlock =
   | { type: 'list';      ordered?: boolean; items: ListItem[] }
   | { type: 'quote';     runs: Run[]; expandable?: boolean }
   | { type: 'table';     headers: string[]; rows: string[][] }
-  | { type: 'image';     url: string }
+  | { type: 'image';     url: string; prompt?: string }
   | { type: 'video';     url: string; poster?: string }
   | { type: 'document';  url: string; name: string; mime?: string; size?: number }
   | { type: 'gallery';   layout: 'slideshow' | 'collage' | 'stack'; urls: string[] }
@@ -62,6 +62,108 @@ export interface RichPost {
   blocks: PostBlock[];
 }
 
+// ─── Runtime normalization ────────────────────────────────────────────────────
+// PostBlock is stored as JSON, so TypeScript cannot protect rows written by an
+// older application version. In particular, list items used to be stored as
+// Run[][] and now use { runs: Run[]; sub?: Run[][] }[]. Normalize at every I/O
+// boundary so legacy content remains editable and publishable.
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function normalizeRun(value: unknown): Run | null {
+  const run = objectValue(value);
+  if (!run || typeof run['t'] !== 'string') return null;
+  return {
+    t: run['t'],
+    ...(run['b'] === true ? { b: true } : {}),
+    ...(run['i'] === true ? { i: true } : {}),
+    ...(run['u'] === true ? { u: true } : {}),
+    ...(run['s'] === true ? { s: true } : {}),
+    ...(run['code'] === true ? { code: true } : {}),
+    ...(run['spoiler'] === true ? { spoiler: true } : {}),
+    ...(run['mark'] === true ? { mark: true } : {}),
+    ...(typeof run['link'] === 'string' ? { link: run['link'] } : {}),
+  };
+}
+
+function normalizeRuns(value: unknown): Run[] {
+  return Array.isArray(value)
+    ? value.map(normalizeRun).filter((run): run is Run => run !== null)
+    : [];
+}
+
+function normalizeListItem(value: unknown): ListItem | null {
+  if (Array.isArray(value)) {
+    const runs = normalizeRuns(value);
+    return runs.length ? { runs } : null;
+  }
+  if (typeof value === 'string') return { runs: [{ t: value }] };
+  const item = objectValue(value);
+  if (!item) return null;
+  const runs = normalizeRuns(item['runs']);
+  if (!runs.length && typeof item['text'] === 'string') runs.push({ t: item['text'] });
+  if (!runs.length) return null;
+  const sub = Array.isArray(item['sub'])
+    ? item['sub'].map(normalizeRuns).filter(runs => runs.length > 0)
+    : [];
+  return sub.length ? { runs, sub } : { runs };
+}
+
+function normalizeBlock(value: unknown): PostBlock | null {
+  const block = objectValue(value);
+  if (!block || typeof block['type'] !== 'string') return null;
+  switch (block['type']) {
+    case 'heading':
+      return typeof block['text'] === 'string'
+        ? { type: 'heading', text: block['text'], ...(typeof block['link'] === 'string' ? { link: block['link'] } : {}) }
+        : null;
+    case 'paragraph': return { type: 'paragraph', runs: normalizeRuns(block['runs']) };
+    case 'list': {
+      const items = Array.isArray(block['items'])
+        ? block['items'].map(normalizeListItem).filter((item): item is ListItem => item !== null)
+        : [];
+      return { type: 'list', ordered: block['ordered'] === true, items };
+    }
+    case 'quote': return { type: 'quote', runs: normalizeRuns(block['runs']), expandable: block['expandable'] === true };
+    case 'table': {
+      const headers = Array.isArray(block['headers']) ? block['headers'].map(v => typeof v === 'string' ? v : '') : [];
+      const rows = Array.isArray(block['rows'])
+        ? block['rows'].filter(Array.isArray).map(row => row.map(v => typeof v === 'string' ? v : ''))
+        : [];
+      return { type: 'table', headers, rows };
+    }
+    case 'image': return typeof block['url'] === 'string' ? { type: 'image', url: block['url'], ...(typeof block['prompt'] === 'string' ? { prompt: block['prompt'] } : {}) } : null;
+    case 'video': return typeof block['url'] === 'string' ? { type: 'video', url: block['url'], ...(typeof block['poster'] === 'string' ? { poster: block['poster'] } : {}) } : null;
+    case 'document': return typeof block['url'] === 'string' && typeof block['name'] === 'string' ? { type: 'document', url: block['url'], name: block['name'], ...(typeof block['mime'] === 'string' ? { mime: block['mime'] } : {}), ...(typeof block['size'] === 'number' ? { size: block['size'] } : {}) } : null;
+    case 'gallery': {
+      const urls = Array.isArray(block['urls']) ? block['urls'].filter((v): v is string => typeof v === 'string') : [];
+      const layout = block['layout'] === 'collage' || block['layout'] === 'stack' ? block['layout'] : 'slideshow';
+      return { type: 'gallery', layout, urls };
+    }
+    case 'linkbox': return typeof block['text'] === 'string' && typeof block['url'] === 'string' ? { type: 'linkbox', text: block['text'], url: block['url'] } : null;
+    case 'checklist': {
+      const items = Array.isArray(block['items']) ? block['items'].flatMap(value => {
+        const item = objectValue(value);
+        return item && typeof item['text'] === 'string' ? [{ text: item['text'], checked: item['checked'] === true }] : [];
+      }) : [];
+      return { type: 'checklist', items };
+    }
+    case 'details': return typeof block['summary'] === 'string' && typeof block['body'] === 'string' ? { type: 'details', summary: block['summary'], body: block['body'] } : null;
+    case 'code': return typeof block['text'] === 'string' ? { type: 'code', text: block['text'], ...(typeof block['language'] === 'string' ? { language: block['language'] } : {}) } : null;
+    case 'divider': return { type: 'divider' };
+    default: return null;
+  }
+}
+
+/** Converts persisted/remote JSON into the current safe PostBlock shape. */
+export function normalizePostBlocks(value: unknown): PostBlock[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.map(normalizeBlock).filter((block): block is PostBlock => block !== null);
+}
 // ─── Escaping ───────────────────────────────────────────────────────────────────
 
 /** Escapes text for use inside Telegram HTML (&, <, > only — per Bot API spec). */

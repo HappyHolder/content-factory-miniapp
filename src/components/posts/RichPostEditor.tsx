@@ -7,6 +7,7 @@ import { API_BASE } from '@/lib/api'
 import { RichPostPreview, runsToText, textToRuns, listItemsToText, textToListItems } from '@/components/posts/RichPostPreview'
 import type { PostBlock, LinkItem, ButtonStyle } from '@/types'
 import { cn } from '@/lib/utils'
+import { normalizePostBlocks } from '@/lib/postBlockNormalizer'
 
 // Inline-button styles Telegram accepts ('' = default). `chip` colors the picker
 // when active; `preview` colors the button chip in preview mode.
@@ -69,7 +70,7 @@ function makeBlock(type: PostBlock['type']): PostBlock {
 
 export function RichPostEditor({ postId, variantId, blocks: initial, channelName, channelHandle, avatarUrl, enableButtons }: RichPostEditorProps) {
   const { state, updatePost, showToast } = useApp()
-  const [blocks, setBlocks] = useState<PostBlock[]>(() => structuredClone(initial))
+  const [blocks, setBlocks] = useState<PostBlock[]>(() => structuredClone(normalizePostBlocks(initial) ?? []))
   const [mode, setMode] = useState<'preview' | 'edit'>('preview')
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)

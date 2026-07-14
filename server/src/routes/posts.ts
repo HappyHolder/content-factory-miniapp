@@ -7,12 +7,13 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { sendChannelPost, sendRichChannelPost, editChannelPost, TelegramApiError, buildInlineKeyboard, savePreparedPostMessage } from '../lib/telegramBot';
-import { blocksToRichHtml, type PostBlock } from '../lib/richPost';
+import { blocksToRichHtml, normalizePostBlocks, type PostBlock } from '../lib/richPost';
 import { isWithinEditWindow } from '../lib/postRetention';
 
 /** Returns the variant's structured blocks if present and non-empty, else null. */
 function variantBlocks(v: { blocks?: unknown }): PostBlock[] | null {
-  return Array.isArray(v.blocks) && v.blocks.length > 0 ? (v.blocks as PostBlock[]) : null;
+  const blocks = normalizePostBlocks(v.blocks);
+  return blocks?.length ? blocks : null;
 }
 
 /** Collects every stored media URL (cover + block images/videos) from variants. */
@@ -860,6 +861,7 @@ router.patch('/:postId/blocks', async (req: Request, res: Response): Promise<voi
   if (typeof variantId !== 'string' || !variantId.trim()) { res.status(400).json({ error: 'variantId is required' }); return; }
   if (!Array.isArray(blocks)) { res.status(400).json({ error: 'blocks must be an array' }); return; }
   if (blocks.length > 80) { res.status(400).json({ error: 'too many blocks' }); return; }
+  const normalizedBlocks = normalizePostBlocks(blocks) ?? [];
 
   let parsed;
   try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
@@ -878,7 +880,7 @@ router.patch('/:postId/blocks', async (req: Request, res: Response): Promise<voi
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await prisma.postVariant.update({ where: { id: variantId }, data: { blocks: blocks as any } });
+    await prisma.postVariant.update({ where: { id: variantId }, data: { blocks: normalizedBlocks as any } });
     res.json({ ok: true });
   } catch (err) {
     console.error('[posts/blocks] update failed:', (err as Error).message);

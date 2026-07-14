@@ -23,7 +23,7 @@ import { moderatorTokenForCommunity } from '../moderator/managedBotCrypto';
 import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard, deleteBotMessage, kickChatUser, restrictChatUser } from './telegramBot';
 import { deleteObject } from './storage';
 import { POST_EDIT_WINDOW_MS } from './postRetention';
-import type { PostBlock } from './richPost';
+import { normalizePostBlocks, type PostBlock } from './richPost';
 
 // ─── In-flight guard ─────────────────────────────────────────────────────────
 // Prevents two concurrent sweeps (e.g. a slow sweep + the next setInterval tick)
@@ -88,9 +88,8 @@ async function publishDuePosts(): Promise<void> {
     const selectedVariant =
       post.variants.find(v => v.id === post.selectedVariantId) ?? post.variants[0];
 
-    const blocks = Array.isArray(selectedVariant?.blocks) && selectedVariant.blocks.length > 0
-      ? (selectedVariant.blocks as PostBlock[])
-      : null;
+    const normalizedBlocks = normalizePostBlocks(selectedVariant?.blocks);
+    const blocks = normalizedBlocks?.length ? normalizedBlocks : null;
     if (!selectedVariant?.text?.trim() && !blocks) {
       console.error(`[scheduler] Post ${post.id}: no publishable content — skipping`);
       continue;

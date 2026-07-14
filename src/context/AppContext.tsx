@@ -13,6 +13,7 @@ import {
 } from '@/i18n'
 import { getTelegramInitData, notifyTelegramReady } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
+import { normalizePostBlocks } from '@/lib/postBlockNormalizer'
 
 // ─── Auth status ─────────────────────────────────────────────────────────────
 // 'mock'          — dev/browser mode (no initData); mock data shown immediately
@@ -149,7 +150,7 @@ function mapListPost(p: ListApiPost): GeneratedPost {
     sourceSummary:     p.sourceSummary,
     channelId:         p.channelId,
     channelUsername:   p.channelUsername,
-    variants:          p.variants,
+    variants:          p.variants.map(variant => ({ ...variant, blocks: normalizePostBlocks(variant.blocks) })),
     selectedVariantId: p.selectedVariantId  ?? undefined,
     linkButtons:       p.linkButtons        as GeneratedPost['linkButtons'],
     status:            p.status,
