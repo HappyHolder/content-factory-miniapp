@@ -1,6 +1,6 @@
 import { prisma } from '../db';
 import { isQuietHour, parseCommunityManagerConfig } from './config';
-import { chooseActivityType, consecutiveIgnored, initiativeBackoffHours, type CommunityActivityType } from './activityPolicy';
+import { chooseActivityTopic, chooseAdaptiveActivityType, consecutiveIgnored, initiativeBackoffHours, type CommunityActivityType } from './activityPolicy';
 import { runCommunityActivity } from './engine';
 
 const CHECK_INTERVAL_MS=7*60_000;
@@ -56,9 +56,9 @@ async function considerManager(manager:any,now:Date){
   if(now.getTime()-silenceFrom.getTime()<config.activities.silenceMinutes*60_000)return;
   const newer=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id,createdAt:{gt:silenceFrom}},select:{id:true}});
   if(newer)return;
-  const type=chooseActivityType(types,recent.map(x=>x.type as CommunityActivityType));
+  const type=chooseAdaptiveActivityType(types,recent.map(x=>{const result=resultOf(x.result);return{type:x.type,engaged:result.engaged,evaluated:result.evaluated}}));
   if(!type)return;
-  const topic=config.activities.topics.length?config.activities.topics[automatic.length%config.activities.topics.length]:undefined;
+  const topic=chooseActivityTopic(config.activities.topics,recent.map(x=>x.topic));
   await runCommunityActivity(manager.id,type,topic,{automatic:true,reason:'chat_idle_'+config.activities.silenceMinutes+'m'});
 }
 

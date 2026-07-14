@@ -7,6 +7,7 @@ import { DEFAULT_CM_CONFIG, parseCommunityManagerConfig } from '../communityMana
 import { acceptCommunityManagerUpdate, runCommunityActivity, simulateCommunityManager, verifyCommunityManagerWebhookSecret } from '../communityManager/engine';
 import { communityManagerExecutor, incomingManagedCommunityBot, managedCommunityBotPublic, updateManagedCommunityBotProfile } from '../communityManager/managedBot';
 import { decryptManagedBotToken } from '../moderator/managedBotCrypto';
+import { actionPresentation } from '../communityManager/actionPresentation';
 
 const router=Router();
 async function auth(req:Request){
@@ -28,7 +29,7 @@ router.get('/channels/:channelId',async(req,res)=>{
   const manager=channel.community?.communityManager;
   const [docs,faqs,actions]=manager?await Promise.all([prisma.projectDoc.count({where:{channelId:channel.id}}),prisma.communityManagerFaq.count({where:{communityManagerId:manager.id,enabled:true}}),prisma.communityManagerAction.findMany({where:{communityManagerId:manager.id},orderBy:{createdAt:'desc'},take:10})]):[await prisma.projectDoc.count({where:{channelId:channel.id}}),0,[]];
   const managed=channel.community?.managedCommunityManagerBot??null,custom=manager?.executorType==='CUSTOM'&&managed?.status==='ACTIVE';
-  res.json({communityId:channel.community?.id??null,chat:channel.community?.moderatorChat??null,manager:publicManager(manager),botUsername:custom&&managed?.username?managed.username:env.COMMUNITY_MANAGER_BOT_USERNAME,sharedBotUsername:env.COMMUNITY_MANAGER_BOT_USERNAME,managedBot:managedCommunityBotPublic(managed),docsCount:docs,faqCount:faqs,actions});
+  res.json({communityId:channel.community?.id??null,chat:channel.community?.moderatorChat??null,manager:publicManager(manager),botUsername:custom&&managed?.username?managed.username:env.COMMUNITY_MANAGER_BOT_USERNAME,sharedBotUsername:env.COMMUNITY_MANAGER_BOT_USERNAME,managedBot:managedCommunityBotPublic(managed),docsCount:docs,faqCount:faqs,actions:actions.map(action=>({...action,presentation:actionPresentation(action)}))});
 });
 
 router.post('/channels/:channelId/create',async(req,res)=>{
@@ -89,8 +90,8 @@ router.post('/:id/pause',async(req,res)=>{
 router.get('/:id/health',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
   let botStatus='missing',executorType=c.manager.executorType;try{if(c.manager.community.moderatorChat){const executor=await communityManagerExecutor(c.manager.community.id);executorType=executor.type;botStatus=(await getChatMember(c.manager.community.moderatorChat.tgChatId,executor.botId,executor.token)).status}}catch{botStatus='error'}
-  const pending=await prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:{in:['PENDING','RETRY_WAIT','CLAIMED']}}});
-  res.json({executor:botStatus,executorType,webhook:Boolean(env.COMMUNITY_MANAGER_WEBHOOK_SECRET),published:Boolean(c.manager.publishedVersion),enabled:c.manager.enabled,ai:env.AI_PROVIDER==='deepseek'&&Boolean(env.DEEPSEEK_API_KEY),research:Boolean(env.ANTHROPIC_API_KEY||env.TAVILY_API_KEY||process.env.SERPER_API_KEY),pending});
+  const [pending,retrying,failed24h,oldest]=await Promise.all([prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:{in:['PENDING','RETRY_WAIT','CLAIMED']}}}),prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:'RETRY_WAIT'}}),prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:'FAILED',updatedAt:{gte:new Date(Date.now()-86400_000)}}}),prisma.communityManagerJob.findFirst({where:{communityManagerId:c.manager.id,status:{in:['PENDING','RETRY_WAIT','CLAIMED']}},orderBy:{createdAt:'asc'},select:{createdAt:true}})]);
+  res.json({executor:botStatus,executorType,webhook:Boolean(env.COMMUNITY_MANAGER_WEBHOOK_SECRET),published:Boolean(c.manager.publishedVersion),enabled:c.manager.enabled,ai:env.AI_PROVIDER==='deepseek'&&Boolean(env.DEEPSEEK_API_KEY),research:Boolean(env.ANTHROPIC_API_KEY||env.TAVILY_API_KEY||process.env.SERPER_API_KEY),pending,retrying,failed24h,oldestPendingAt:oldest?.createdAt??null,lastHealthyAt:c.manager.lastHealthyAt,lastError:c.manager.lastError});
 });
 
 router.post('/:id/simulate',async(req,res)=>{
@@ -103,7 +104,8 @@ router.post('/:id/simulate',async(req,res)=>{
 router.get('/:id/actions',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
   const take=Math.min(100,Math.max(1,Number(req.query.take)||30));
-  res.json({actions:await prisma.communityManagerAction.findMany({where:{communityManagerId:c.manager.id},orderBy:{createdAt:'desc'},take})});
+  const actions=await prisma.communityManagerAction.findMany({where:{communityManagerId:c.manager.id},orderBy:{createdAt:'desc'},take});
+  res.json({actions:actions.map(action=>({...action,presentation:actionPresentation(action)}))});
 });
 
 router.post('/:id/actions/:actionId/send',async(req,res)=>{
