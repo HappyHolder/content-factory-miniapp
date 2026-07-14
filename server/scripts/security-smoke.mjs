@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url);
 const { matchRegexWithTimeout } = require(path.join(root, 'dist/moderator/regexGuard.js'));
 const { initiativeBackoffHours, consecutiveIgnored, chooseActivityType } = require(path.join(root, 'dist/communityManager/activityPolicy.js'));
 const { shouldJoinAmbient } = require(path.join(root, 'dist/communityManager/responsePolicy.js'));
+const { allowConversationGreeting, needsNaturalConversationRewrite, sanitizeConversationReply } = require(path.join(root, 'dist/communityManager/conversationStyle.js'));
 const { interventionCooldownSeconds, selectRepeatedParticipant } = require(path.join(root, 'dist/moderator/interventionPolicy.js'));
 const { normalizePostBlocks, blocksToPlainText, blocksToRichHtml } = require(path.join(root, 'dist/lib/richPost.js'));
 
@@ -26,6 +27,13 @@ assert.equal(selectRepeatedParticipant('u3',['u1'],['u1','u2'],['u1','u2','u3'])
 assert.equal(shouldJoinAmbient({enabled:true,intent:'conversation',respond:true,confidence:.8,hasQuestion:true,textLength:16}), true);
 assert.equal(shouldJoinAmbient({enabled:true,intent:'conversation',respond:true,confidence:.8,hasQuestion:false,textLength:10}), false);
 assert.equal(shouldJoinAmbient({enabled:true,intent:'unsafe',respond:true,confidence:.9,hasQuestion:true,textLength:40}), false);
+assert.equal(allowConversationGreeting('Привет, подскажешь?', false), true);
+assert.equal(allowConversationGreeting('Привет ещё раз', true), false);
+assert.equal(allowConversationGreeting('Ответ будет', false), false);
+assert.equal(sanitizeConversationReply('Привет! Давай разбираться. По BTC всё без изменений.', false), 'По BTC всё без изменений.');
+assert.equal(needsNaturalConversationRewrite('Что именно интересует? Если есть конкретный вопрос — пиши.'), true);
+assert.equal(sanitizeConversationReply('По BTC всё без изменений. Если есть конкретный вопрос — пиши.', false), 'По BTC всё без изменений.');
+assert.equal(needsNaturalConversationRewrite('Будет, куда он денется.'), false);
 const legacyBlocks = normalizePostBlocks([{ type: 'list', ordered: false, items: [[{ t: 'Legacy item', b: true }], [{ t: 'Second item' }]] }]);
 assert.deepEqual(legacyBlocks?.[0]?.items?.[0], { runs: [{ t: 'Legacy item', b: true }] });
 assert.match(blocksToPlainText(legacyBlocks), /Legacy item/);
