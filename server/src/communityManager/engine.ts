@@ -6,6 +6,7 @@ import { research, type ResearchSource } from '../lib/researchEngine';
 import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { DEFAULT_CM_CONFIG, isQuietHour, parseCommunityManagerConfig, type CommunityManagerConfigData } from './config';
 import { communityManagerExecutor } from './managedBot';
+import { shouldJoinAmbient } from './responsePolicy';
 
 type TgMessage={message_id:number;chat:{id:number};from?:{id:number;is_bot?:boolean};text?:string;caption?:string;reply_to_message?:{message_id:number;from?:{id:number;is_bot?:boolean}}};
 type TgUpdate={update_id:number;message?:TgMessage;edited_message?:TgMessage};
@@ -78,6 +79,8 @@ async function moderationDisposition(ctx:Ctx,m:any):Promise<'ALLOWED'|'BLOCKED'|
   return row?.action==='BLOCK'?'BLOCKED':row?.action==='IGNORE'?'IGNORED':row?.action==='ALLOW'?'ALLOWED':'PENDING';
 }
 
+async function ambientCooldownFree(ctx:Ctx){const since=new Date(Date.now()-ctx.config.replies.ambientCooldownMinutes*60_000);return !await prisma.communityManagerAction.findFirst({where:{communityManagerId:ctx.manager.id,decision:'RESPOND',createdAt:{gte:since}},select:{id:true}})}
+
 async function withinQuota(ctx:Ctx,m:any){
   if(m.tgUserId&&ctx.config.replies.userCooldownSeconds>0){const userMessages=await prisma.communityManagerMessage.findMany({where:{communityManagerId:ctx.manager.id,tgUserId:m.tgUserId,createdAt:{gte:new Date(Date.now()-86400_000)}},orderBy:{createdAt:'desc'},take:100,select:{id:true}});if(userMessages.length&&await prisma.communityManagerAction.count({where:{communityManagerId:ctx.manager.id,decision:'RESPOND',messageId:{in:userMessages.map(x=>x.id)},createdAt:{gte:new Date(Date.now()-ctx.config.replies.userCooldownSeconds*1000)}}}))return false}
   const h=new Date(Date.now()-3600_000),d=new Date(Date.now()-86400_000);
@@ -86,7 +89,7 @@ async function withinQuota(ctx:Ctx,m:any){
 }
 
 async function log(ctx:Ctx,m:any,decision:string,intent:string,confidence:number,reason:string,start:number,response?:string,sources:ResearchSource[]=[],usage={input:0,output:0},error?:unknown,telegramMessageId?:number){
-  await prisma.communityManagerAction.create({data:{communityManagerId:ctx.manager.id,messageId:m?.id,decision,intent,confidence,reason:reason.slice(0,500),response:response?.slice(0,5000),sources:sources as any,model:env.DEEPSEEK_MODEL,promptVersion:'community-manager-v1',inputTokens:usage.input,outputTokens:usage.output,latencyMs:Date.now()-start,telegramMessageId,status:error?'FAILED':'COMPLETED',error:error instanceof Error?error.message.slice(0,500):undefined}});
+  await prisma.communityManagerAction.create({data:{communityManagerId:ctx.manager.id,messageId:m?.id,decision,intent,confidence,reason:reason.slice(0,500),response:response?.slice(0,5000),sources:sources as any,model:env.DEEPSEEK_MODEL,promptVersion:'community-manager-conversation-v2',inputTokens:usage.input,outputTokens:usage.output,latencyMs:Date.now()-start,telegramMessageId,status:error?'FAILED':'COMPLETED',error:error instanceof Error?error.message.slice(0,500):undefined}});
 }
 async function done(id:string,status:string,error?:string,runAfter?:Date){await prisma.communityManagerJob.update({where:{id},data:{status:runAfter?'RETRY_WAIT':status,lastError:error,runAfter,leaseUntil:null}})}
 
@@ -105,8 +108,10 @@ async function processJob(job:any){
   const text=(burst.map(x=>x.text).filter(Boolean).join('\n')||m.text||'').slice(0,12000),mention=text.toLowerCase().includes('@'+executor.username.toLowerCase()),reply=Boolean(m.replyToMessageId);
   const direct=(mention&&ctx.config.replies.replyToMention)||(reply&&ctx.config.replies.replyToDirectReply);
   const k=await knowledge(ctx,text),decision=await classify(ctx,text,direct,k.length);
-  const should=direct||(decision.respond&&((decision.intent==='product_support'&&ctx.config.support.answerProductQuestions)||ctx.config.replies.ambientConversation));
-  if(!should){await log(ctx,m,'SILENT',decision.intent,decision.confidence,decision.reason,start,undefined,[],decision.usage);await done(job.id,'SKIPPED');return}
+  const productAnswer=decision.respond&&decision.intent==='product_support'&&ctx.config.support.answerProductQuestions;
+  const ambientCandidate=shouldJoinAmbient({enabled:ctx.config.replies.ambientConversation,intent:decision.intent,respond:decision.respond,confidence:decision.confidence,hasQuestion:questionLike(text),textLength:text.trim().length});
+  const ambientAllowed=ambientCandidate&&await ambientCooldownFree(ctx),should=direct||productAnswer||ambientAllowed;
+  if(!should){await log(ctx,m,'SILENT',decision.intent,decision.confidence,ambientCandidate&&!ambientAllowed?'Community conversation cooldown':decision.reason,start,undefined,[],decision.usage);await done(job.id,'SKIPPED');return}
   let external='',sources:ResearchSource[]=[];
   const researchUsed=await prisma.communityManagerAction.count({where:{communityManagerId:ctx.manager.id,intent:'external_fresh',createdAt:{gte:new Date(Date.now()-86400_000)}}});
   const needsFreshData=freshLike(text)||decision.intent==='external_fresh',blocked=ctx.config.research.blockedDomains,allowed=ctx.config.research.allowedDomains.filter(a=>!blocked.some(b=>a===b||a.endsWith('.'+b)||b.endsWith('.'+a))),strict=ctx.config.research.sourcePolicy==='allowlist',canResearch=!strict||allowed.length>0;

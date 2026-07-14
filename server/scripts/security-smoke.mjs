@@ -10,6 +10,8 @@ const repo = path.resolve(root, '..');
 const require = createRequire(import.meta.url);
 const { matchRegexWithTimeout } = require(path.join(root, 'dist/moderator/regexGuard.js'));
 const { initiativeBackoffHours, consecutiveIgnored, chooseActivityType } = require(path.join(root, 'dist/communityManager/activityPolicy.js'));
+const { shouldJoinAmbient } = require(path.join(root, 'dist/communityManager/responsePolicy.js'));
+const { interventionCooldownSeconds, selectRepeatedParticipant } = require(path.join(root, 'dist/moderator/interventionPolicy.js'));
 
 assert.equal(initiativeBackoffHours(6, 0), 6);
 assert.equal(initiativeBackoffHours(6, 1), 24);
@@ -17,6 +19,12 @@ assert.equal(initiativeBackoffHours(6, 2), 72);
 assert.equal(initiativeBackoffHours(6, 3), 168);
 assert.equal(consecutiveIgnored([{ automatic: true, evaluated: true, engaged: false }, { automatic: true, evaluated: true, engaged: false }, { automatic: true, evaluated: true, engaged: true }]), 2);
 assert.equal(chooseActivityType(['DISCUSSION','POLL','GAME'], ['DISCUSSION']), 'POLL');
+assert.equal(interventionCooldownSeconds(300), 300);
+assert.equal(selectRepeatedParticipant('u2',['u1','u2'],['u1','u2'],['u1','u2']), 'u2');
+assert.equal(selectRepeatedParticipant('u3',['u1'],['u1','u2'],['u1','u2','u3']), 'u1');
+assert.equal(shouldJoinAmbient({enabled:true,intent:'conversation',respond:true,confidence:.8,hasQuestion:true,textLength:16}), true);
+assert.equal(shouldJoinAmbient({enabled:true,intent:'conversation',respond:true,confidence:.8,hasQuestion:false,textLength:10}), false);
+assert.equal(shouldJoinAmbient({enabled:true,intent:'unsafe',respond:true,confidence:.9,hasQuestion:true,textLength:40}), false);
 
 assert.equal(await matchRegexWithTimeout(['spam\\d+'], 'prefix spam42 suffix'), 'spam\\d+');
 const started = Date.now();
