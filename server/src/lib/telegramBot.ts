@@ -744,10 +744,16 @@ export const getBotIdentity = (token: string) => telegramRequest<TelegramBotIden
 export const getManagedBotToken = (userId: number, managerToken: string) => telegramRequest<string>('getManagedBotToken', { user_id: userId }, managerToken);
 export const setBotName = (name: string, token: string) => telegramRequest<boolean>('setMyName', { name: name.slice(0, 64) }, token);
 
-export const setBotDescription = async (name: string, token: string): Promise<void> => {
-  await telegramRequest<boolean>('setMyShortDescription', { short_description: `Персональный AI Moderator сообщества «${name}» в Publium.`.slice(0, 120) }, token);
-  await telegramRequest<boolean>('setMyDescription', { description: `Защищает сообщество «${name}»: приветствие, CAPTCHA, антиспам, фильтры, санкции, триггеры и контекстная AI-модерация Terra.`.slice(0, 512) }, token);
+export const setBotTextProfile = async (shortDescription: string, description: string, token: string): Promise<void> => {
+  await telegramRequest<boolean>('setMyShortDescription', { short_description: shortDescription.slice(0, 120) }, token);
+  await telegramRequest<boolean>('setMyDescription', { description: description.slice(0, 512) }, token);
 };
+
+export const setBotDescription = (name: string, token: string): Promise<void> => setBotTextProfile(
+  `Персональный AI Moderator сообщества «${name}» в Publium.`,
+  `Защищает сообщество «${name}»: приветствие, CAPTCHA, антиспам, фильтры, санкции, триггеры и контекстная AI-модерация Terra.`,
+  token,
+);
 
 export async function setBotProfilePhoto(fileBytes: Buffer, token: string): Promise<void> {
   const form = new FormData();

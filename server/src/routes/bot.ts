@@ -12,6 +12,7 @@ import { grantStylePurchase } from '../lib/styles';
 import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContent } from '../lib/visionExtractor';
 import { completeManagedBot, type ManagedBotUpdate } from '../moderator/managedBotService';
+import { completeManagedCommunityBot } from '../communityManager/managedBot';
 
 // ─── /start welcome ─────────────────────────────────────────────────────────
 const WELCOME_TEXT =
@@ -355,11 +356,14 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   // ── Stars payments: pre-checkout must be answered within 10s ─────────────
   if (update.managed_bot) {
     try {
-      const completed = await completeManagedBot(update.managed_bot);
+      const moderatorBot = await completeManagedBot(update.managed_bot);
+      const communityBot = moderatorBot ? null : await completeManagedCommunityBot(update.managed_bot);
+      const completed = moderatorBot ?? communityBot;
       if (completed) {
+        const product = communityBot ? 'Community Manager' : 'AI Moderator';
         await sendBotMessage(
           completed.ownerTgId,
-          'Персональный AI Moderator @' + (completed.username ?? 'bot') + ' создан. Вернитесь в Publium, добавьте его в группу и завершите подключение.',
+          `Персональный ${product} @${completed.username ?? 'bot'} создан. Вернитесь в Publium, добавьте его в группу и завершите подключение.`,
           env.TELEGRAM_BOT_TOKEN,
         ).catch(() => undefined);
       }

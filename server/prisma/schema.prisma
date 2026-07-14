@@ -93,6 +93,7 @@ model User {
   subscription   Subscription?
   aiModeratorEntitlement AiModeratorEntitlement?
   managedModeratorBots ManagedModeratorBot[]
+  managedCommunityManagerBots ManagedCommunityManagerBot[]
   chatMessages   ChatMessage[]
 }
 
@@ -538,8 +539,9 @@ model Community {
   messageSamples   ModerationMessageSample[]
   conversationMessages ModeratorConversationMessage[]
   conversationState ModeratorConversationState?
-  managedBot        ManagedModeratorBot?
-  communityManager  CommunityManager?
+  managedBot                 ManagedModeratorBot?
+  managedCommunityManagerBot ManagedCommunityManagerBot?
+  communityManager           CommunityManager?
 }
 
 model Moderator {
@@ -585,6 +587,31 @@ model ManagedModeratorBot {
   @@index([ownerUserId, status])
 }
 
+model ManagedCommunityManagerBot {
+  id               String    @id @default(cuid())
+  communityId      String    @unique
+  ownerUserId      String
+  tgBotId          String?   @unique
+  username         String?
+  expectedUsername String?
+  displayName      String
+  avatarUrl        String?
+  tokenCipher      String?
+  tokenIv          String?
+  tokenTag         String?
+  tokenKeyVersion  Int       @default(1)
+  webhookSecret    String?
+  status           String    @default("REQUESTED")
+  lastError        String?
+  requestExpiresAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  owner     User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, status])
+}
 model ModeratorConfig {
   id          String    @id @default(cuid())
   moderatorId String
@@ -702,7 +729,8 @@ model CommunityManager {
   communityId      String                     @unique
   status           String                     @default("DRAFT")
   enabled          Boolean                    @default(false)
-  mode             String                     @default("DRAFTS")
+  mode             String                     @default("AUTOPILOT")
+  executorType     String                     @default("SHARED")
   draftVersion     Int                        @default(1)
   publishedVersion Int?
   lastActionAt     DateTime?

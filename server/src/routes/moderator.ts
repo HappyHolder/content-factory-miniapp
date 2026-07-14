@@ -426,6 +426,7 @@ router.post('/communities/:communityId/managed-bot/request', async (req, res) =>
   }
   const expires = new Date(Date.now() + 30 * 60_000);
   await prisma.managedModeratorBot.updateMany({ where: { ownerUserId: auth.user.id, status: 'REQUESTED', communityId: { not: community.id } }, data: { status: 'CANCELLED', lastError: 'Создан новый запрос для другого сообщества' } });
+  await prisma.managedCommunityManagerBot.updateMany({ where: { ownerUserId: auth.user.id, status: 'REQUESTED' }, data: { status: 'CANCELLED', lastError: 'Создан новый запрос для Moderator' } });
   const bot = await prisma.managedModeratorBot.upsert({
     where: { communityId: community.id },
     create: { communityId: community.id, ownerUserId: auth.user.id, displayName: name, expectedUsername: suggestedUsername.toLowerCase(), avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : null, status: 'REQUESTED', requestExpiresAt: expires },
