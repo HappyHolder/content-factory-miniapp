@@ -139,9 +139,9 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
       })
       const data = await res.json() as { error?: string }
-      if (!res.ok) throw new Error(data.error ?? 'Не удалось опубликовать')
-      setPublished(true); setMessage('Настройки опубликованы')
-    } catch (err) { setMessage(err instanceof Error ? err.message : 'Не удалось опубликовать') }
+      if (!res.ok) throw new Error(data.error ?? 'Не удалось применить')
+      setPublished(true); setMessage('Настройки применены')
+    } catch (err) { setMessage(err instanceof Error ? err.message : 'Не удалось применить') }
     finally { setPublishing(false) }
   }
 
@@ -157,7 +157,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
       <div className={`flex items-center gap-1 ${collapsed ? '' : 'mb-4'}`}>
         <button type="button" aria-expanded={!collapsed} aria-controls={`welcome-block-${moderatorId}`} onClick={() => setCollapsed(value => !value)} className="flex min-h-14 min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[14px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] bg-[rgba(255,106,0,0.10)] text-[#FF6A00]"><MessageCircle size={18} /></span>
-          <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="text-[14px] font-semibold text-white">Приветствие</span>{published && <span className="flex items-center gap-1 text-[10px] text-emerald-400"><Check size={11} /> опубликовано</span>}</span><span className="mt-0.5 block truncate text-[11px] text-[#66666E]">{collapsed ? `${block.enabled ? 'Включено' : 'Выключено'}${block.imageUrl ? ' · изображение' : ''}${block.buttons?.length ? ` · ${block.buttons.length} кноп.` : ''}${block.autoDeleteSeconds ? ' · автоудаление' : ''}` : 'Rich Message для нового участника'}</span></span>
+          <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="text-[14px] font-semibold text-white">Приветствие</span>{published && <span className="flex items-center gap-1 text-[10px] text-emerald-400"><Check size={11} /> применено</span>}</span><span className="mt-0.5 block truncate text-[11px] text-[#66666E]">{collapsed ? `${block.enabled ? 'Включено' : 'Выключено'}${block.imageUrl ? ' · изображение' : ''}${block.buttons?.length ? ` · ${block.buttons.length} кноп.` : ''}${block.autoDeleteSeconds ? ' · автоудаление' : ''}` : 'Rich Message для нового участника'}</span></span>
           <ChevronDown size={18} className={`shrink-0 text-[#66666E] transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`} />
         </button><ModeratorInfoButton onClick={() => setHelpOpen(true)} label="Открыть справку: Приветствие" />
       </div>
@@ -167,7 +167,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
       <div className="rounded-[14px] border border-white/[0.07] bg-white/[0.025] p-3"><Switch label="Включить приветствие" description="Отправлять при вступлении" value={block.enabled} onChange={enabled => setBlock(prev => ({ ...prev, enabled }))} /></div>
 
       <div className="mt-4 flex flex-wrap gap-1 rounded-t-[12px] border border-b-0 border-white/[0.08] bg-white/[0.035] p-1.5">
-        {MARKERS.map(({ icon: Icon, label, before, after }) => <button key={label} type="button" title={label} aria-label={label} onClick={() => wrapSelection(before, after)} className="flex h-9 w-9 items-center justify-center rounded-[8px] text-[#8A8A93] hover:bg-white/[0.07] hover:text-white"><Icon size={15} /></button>)}
+        {MARKERS.map(({ icon: Icon, label, before, after }) => <button key={label} type="button" disabled={label === 'Подсветка'} title={label === 'Подсветка' ? 'Подсветка временно недоступна: текст может читаться некорректно' : label} aria-label={label === 'Подсветка' ? 'Подсветка временно недоступна' : label} onClick={() => wrapSelection(before, after)} className="flex h-9 w-9 items-center justify-center rounded-[8px] text-[#8A8A93] hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#8A8A93]"><Icon size={15} /></button>)}
         <button type="button" title="Ссылка" aria-label="Добавить ссылку" onClick={addLink} className="flex h-9 w-9 items-center justify-center rounded-[8px] text-[#8A8A93] hover:bg-white/[0.07] hover:text-white"><Link2 size={15} /></button>
       </div>
       <textarea ref={textareaRef} value={block.text} onChange={event => setBlock(prev => ({ ...prev, text: event.target.value }))} rows={6} maxLength={3500} className="w-full resize-none rounded-b-[12px] border border-white/[0.08] bg-[#0B0B0D] px-3.5 py-3 text-[14px] leading-relaxed text-white outline-none focus:border-[rgba(255,106,0,0.45)]" />
@@ -212,7 +212,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
 
       <div className="mt-5"><p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#66666E]">Предпросмотр</p><RichPostPreview blocks={previewBlocks} channelName="Модератор" />{(block.buttons ?? []).filter(b => b.label && b.url).map(b => <div key={b.id} className="mt-1.5 rounded-[9px] border border-[#2E7CF6]/30 bg-[#2E7CF6]/10 px-3 py-2 text-center text-[12px] text-[#7FB0FF]">{b.label}</div>)}</div>
       {message && <p aria-live="polite" className="mt-3 text-[11px] text-[#8A8A93]">{message}</p>}
-      <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={() => void save()} disabled={saving || publishing} fullWidth>{saving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Сохранить</>}</Button><Button variant="primary" size="sm" onClick={() => void publish()} disabled={saving || publishing} fullWidth>{publishing ? <Loader2 size={14} className="animate-spin" /> : 'Опубликовать'}</Button></div>
+      <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={() => void save()} disabled={saving || publishing} fullWidth>{saving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Сохранить</>}</Button><Button variant="primary" size="sm" onClick={() => void publish()} disabled={saving || publishing} fullWidth>{publishing ? <Loader2 size={14} className="animate-spin" /> : 'Применить'}</Button></div>
         </div>
       )}
       <ModeratorHelpSheet kind="welcome" open={helpOpen} onClose={() => setHelpOpen(false)} />

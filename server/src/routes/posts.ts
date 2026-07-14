@@ -1098,7 +1098,7 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
     : (count > 4 ? '8:1' : '4:1');
 
   try {
-    const image = await generatePanoramaImage(prompt.slice(0, 1200), aspectRatio);
+    const image = await generatePanoramaImage(prompt.slice(0, 1200), aspectRatio, orientation, count);
     if (!image) { res.status(502).json({ error: 'Генерация не удалась. Попробуйте ещё раз.' }); return; }
 
     const slices = await sliceImage(image, orientation, count);

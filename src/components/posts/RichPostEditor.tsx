@@ -660,9 +660,9 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
           ['==', Highlighter, 'Подсветка'],
           ['||', EyeOff, 'Спойлер'],
         ] as const).map(([mk, Icon, title]) => (
-          <button key={mk} type="button" title={title} aria-label={title}
+          <button key={mk} type="button" disabled={mk === '=='} title={mk === '==' ? 'Подсветка временно недоступна: текст может читаться некорректно' : title} aria-label={mk === '==' ? 'Подсветка временно недоступна' : title}
             onMouseDown={e => e.preventDefault()} onClick={() => wrap(mk)}
-            className="w-7 h-7 flex items-center justify-center rounded-[8px] bg-white/[0.05] border border-white/[0.08] text-[#A1A1AA] hover:text-[#FF6A00] hover:border-[#FF6A00]/40 active:bg-[rgba(255,106,0,0.12)] transition-colors">
+            className="w-7 h-7 flex items-center justify-center rounded-[8px] bg-white/[0.05] border border-white/[0.08] text-[#A1A1AA] hover:text-[#FF6A00] hover:border-[#FF6A00]/40 active:bg-[rgba(255,106,0,0.12)] transition-colors disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-white/[0.08] disabled:hover:text-[#A1A1AA]">
             <Icon size={14} />
           </button>
         ))}
@@ -833,9 +833,9 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
           {/* Shared formatting toolbar — applies to the focused cell's selection */}
           <div className="flex flex-wrap gap-1 items-center">
             {FMT.map(([mk, Icon, title]) => (
-              <button key={mk} type="button" title={title} aria-label={title}
+              <button key={mk} type="button" disabled={mk === '=='} title={mk === '==' ? 'Подсветка временно недоступна: текст может читаться некорректно' : title} aria-label={mk === '==' ? 'Подсветка временно недоступна' : title}
                 onMouseDown={e => e.preventDefault()} onClick={() => wrapCell(mk)}
-                className="w-7 h-7 flex items-center justify-center rounded-[8px] bg-white/[0.05] border border-white/[0.08] text-[#A1A1AA] hover:text-[#FF6A00] hover:border-[#FF6A00]/40 active:bg-[rgba(255,106,0,0.12)]">
+                className="w-7 h-7 flex items-center justify-center rounded-[8px] bg-white/[0.05] border border-white/[0.08] text-[#A1A1AA] hover:text-[#FF6A00] hover:border-[#FF6A00]/40 active:bg-[rgba(255,106,0,0.12)] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-white/[0.08] disabled:hover:text-[#A1A1AA]">
                 <Icon size={14} />
               </button>
             ))}

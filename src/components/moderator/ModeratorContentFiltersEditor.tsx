@@ -74,9 +74,9 @@ export function ModeratorContentFiltersEditor({ moderatorId }: { moderatorId: st
     setPublishing(true); if (!await save()) { setPublishing(false); return }
     try {
       const response = await moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
-      const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error || 'Не удалось опубликовать')
-      setPublished(true); setMessage('Категории фильтрации опубликованы')
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось опубликовать') }
+      const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error || 'Не удалось применить')
+      setPublished(true); setMessage('Категории фильтрации применены')
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось применить') }
     finally { setPublishing(false) }
   }
   const toggleMedia = (id: MediaType) => setBlock(previous => ({ ...previous, blockedMedia: previous.blockedMedia.includes(id) ? previous.blockedMedia.filter(x => x !== id) : [...previous.blockedMedia, id] }))
@@ -86,7 +86,7 @@ export function ModeratorContentFiltersEditor({ moderatorId }: { moderatorId: st
     <div className={'flex items-center gap-1 ' + (collapsed ? '' : 'mb-4')}>
       <button type="button" aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)} className="flex min-h-14 min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[14px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] bg-[rgba(255,106,0,0.10)] text-[#FF6A00]"><ListFilter size={18} /></span>
-        <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[14px] font-semibold text-white">Фильтры контента {published && <span className="flex items-center gap-1 text-[10px] font-normal text-emerald-400"><Check size={11} /> опубликовано</span>}</span><span className="mt-0.5 block truncate text-[11px] text-[#66666E]">{block.textCategories.filter(category => category.enabled).length + ' категорий · ' + block.textCategories.reduce((sum, category) => sum + category.terms.length, 0) + ' слов и фраз'}</span></span>
+        <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-[14px] font-semibold text-white">Фильтры контента {published && <span className="flex items-center gap-1 text-[10px] font-normal text-emerald-400"><Check size={11} /> применено</span>}</span><span className="mt-0.5 block truncate text-[11px] text-[#66666E]">{block.textCategories.filter(category => category.enabled).length + ' категорий · ' + block.textCategories.reduce((sum, category) => sum + category.terms.length, 0) + ' слов и фраз'}</span></span>
         <ChevronDown size={18} className={'shrink-0 text-[#66666E] transition-transform ' + (collapsed ? '-rotate-90' : '')} />
       </button>
       <ModeratorInfoButton onClick={() => setHelpOpen(true)} label="Открыть справку: Фильтры контента" />
@@ -126,7 +126,7 @@ export function ModeratorContentFiltersEditor({ moderatorId }: { moderatorId: st
         <Switch label="Пропускать доверенных" value={block.skipTrusted} onChange={skipTrusted => setBlock(previous => ({ ...previous, skipTrusted }))} />
       </div>
       {message && <p aria-live="polite" className="mt-3 text-[11px] text-[#8A8A93]">{message}</p>}
-      <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={() => void save()} disabled={saving || publishing} fullWidth>{saving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Сохранить</>}</Button><Button variant="primary" size="sm" onClick={() => void publish()} disabled={saving || publishing} fullWidth>{publishing ? <Loader2 size={14} className="animate-spin" /> : 'Опубликовать'}</Button></div>
+      <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={() => void save()} disabled={saving || publishing} fullWidth>{saving ? <Loader2 size={14} className="animate-spin" /> : <><Save size={14} /> Сохранить</>}</Button><Button variant="primary" size="sm" onClick={() => void publish()} disabled={saving || publishing} fullWidth>{publishing ? <Loader2 size={14} className="animate-spin" /> : 'Применить'}</Button></div>
     </div>}
 
     <Sheet open={Boolean(editing)} onClose={() => setEditingId(null)} title={editing?.name || 'Категория'} height="full">
