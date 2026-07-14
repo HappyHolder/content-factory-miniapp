@@ -233,7 +233,10 @@ router.post('/moderator-session', async (req: Request, res: Response): Promise<v
   if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
   let parsed;
   try {
-    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN, { maxAgeSeconds: 10 * 60, maxFutureSkewSeconds: 30 });
+    // Keep this exchange aligned with the 24-hour Telegram credential window
+    // used by the rest of Publium. A 10-minute window made an otherwise valid
+    // Mini App session fail as soon as the user opened Community later on.
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN, { maxAgeSeconds: 24 * 60 * 60, maxFutureSkewSeconds: 30 });
   } catch (error) {
     res.status(401).json({ error: error instanceof Error ? error.message : 'Invalid initData' }); return;
   }

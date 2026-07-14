@@ -97,6 +97,9 @@ async function moderatorSessionToken(forceRefresh = false): Promise<string> {
         body: JSON.stringify({ initData }),
       })
       const data = await response.json() as { token?: string; expiresAt?: string; error?: string }
+      if (response.status === 401 && data.error === 'initData has expired') {
+        throw new Error('Сессия Telegram устарела. Полностью закройте Publium и откройте его снова через бота.')
+      }
       if (!response.ok || !data.token || !data.expiresAt) throw new Error(data.error ?? 'Не удалось открыть безопасную сессию Moderator')
       return { token: data.token, expiresAtMs: Date.parse(data.expiresAt) }
     })().catch(error => {
