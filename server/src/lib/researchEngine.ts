@@ -37,9 +37,14 @@ export interface ResearchOptions {
   backend?: ResearchBackend;
   /** Extra grounding text (e.g. ProjectDoc excerpts) folded into the prompt. */
   extraContext?: string;
+  allowedDomains?: string[];
+  blockedDomains?: string[];
+  maxSearches?: number;
 }
 
 const MAX_EXTRA_CONTEXT_CHARS = 12_000;
+const domainToolFilter=(opts:ResearchOptions)=>opts.allowedDomains?.length?{allowed_domains:opts.allowedDomains}:opts.blockedDomains?.length?{blocked_domains:opts.blockedDomains}:{};
+const sourceAllowed=(url:string,opts:ResearchOptions)=>{try{const h=new URL(url).hostname.toLowerCase().replace(/^www\./,'');const allowed=opts.allowedDomains??[],blocked=opts.blockedDomains??[];if(blocked.some(d=>h===d||h.endsWith('.'+d)))return false;return !allowed.length||allowed.some(d=>h===d||h.endsWith('.'+d))}catch{return false}};
 
 /** De-duplicates sources by URL, preserving order and the first non-empty title. */
 function dedupeSources(sources: ResearchSource[]): ResearchSource[] {
@@ -103,14 +108,14 @@ function collectFromContent(
   }
 }
 
-async function researchViaOpus(query: string, extraContext?: string): Promise<ResearchResult> {
+async function researchViaOpus(query: string, extraContext: string|undefined, opts: ResearchOptions): Promise<ResearchResult> {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
   const userPrompt =
     (extraContext
       ? `Project reference material (use where relevant):\n${extraContext.slice(0, MAX_EXTRA_CONTEXT_CHARS)}\n\n`
       : '') +
-    `Research this topic and produce the brief:\n${query}`;
+    `Only use the configured domains. Do not recommend publishers, channels or influencers. Research this topic and produce the brief:\n${query}`;
 
   // Server tools run a bounded loop; on the iteration cap the API returns
   // stop_reason 'pause_turn' — re-send to resume. Guard against runaway loops.
@@ -127,9 +132,9 @@ async function researchViaOpus(query: string, extraContext?: string): Promise<Re
       system: researchSystem(),
       tools: [
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { type: 'web_search_20260209', name: 'web_search', max_uses: 8 } as any,
+        { type: 'web_search_20260209', name: 'web_search', max_uses: Math.max(1,Math.min(8,opts.maxSearches??3)), ...domainToolFilter(opts) } as any,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 } as any,
+        { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: Math.max(1,Math.min(5,opts.maxSearches??3)), ...domainToolFilter(opts) } as any,
       ],
       messages,
     });
@@ -145,7 +150,7 @@ async function researchViaOpus(query: string, extraContext?: string): Promise<Re
 
   return {
     text: textParts.join('\n').trim(),
-    sources: dedupeSources(sources),
+    sources: dedupeSources(sources).filter(x=>sourceAllowed(x.url,opts)),
     backend: 'opus',
   };
 }
@@ -199,8 +204,8 @@ async function deepseekSynthesize(
   }
 }
 
-async function researchViaDeepseek(query: string, extraContext?: string): Promise<ResearchResult> {
-  const searchBlock = (await webSearch(query)) ?? '';
+async function researchViaDeepseek(query: string, extraContext: string|undefined, opts: ResearchOptions): Promise<ResearchResult> {
+  const searchBlock = (await webSearch(query,{allowedDomains:opts.allowedDomains,blockedDomains:opts.blockedDomains})) ?? '';
   const urls = extractUrls(searchBlock, 4);
 
   const articles: { url: string; title: string; text: string }[] = [];
@@ -218,7 +223,7 @@ async function researchViaDeepseek(query: string, extraContext?: string): Promis
 
   return {
     text: (synthesised ?? material).trim(),
-    sources: dedupeSources(articles.map(a => ({ url: a.url, title: a.title }))),
+    sources: dedupeSources(articles.map(a => ({ url: a.url, title: a.title }))).filter(x=>sourceAllowed(x.url,opts)),
     backend: 'deepseek',
   };
 }
@@ -239,13 +244,13 @@ export async function research(query: string, opts: ResearchOptions = {}): Promi
 
   if (backend === 'opus') {
     try {
-      return await researchViaOpus(query, opts.extraContext);
+      return await researchViaOpus(query, opts.extraContext, opts);
     } catch (err) {
       // A hard Opus failure (rate limit, refusal, network) shouldn't sink the
       // whole plan item — degrade to the DeepSeek pipeline.
       console.warn('[researchEngine] Opus research failed, falling back to DeepSeek:', (err as Error).message);
-      return researchViaDeepseek(query, opts.extraContext);
+      return researchViaDeepseek(query, opts.extraContext, opts);
     }
   }
-  return researchViaDeepseek(query, opts.extraContext);
+  return researchViaDeepseek(query, opts.extraContext, opts);
 }

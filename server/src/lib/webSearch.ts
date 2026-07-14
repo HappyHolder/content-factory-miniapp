@@ -15,6 +15,11 @@ const MAX_RESULTS   = 8;
 const MAX_OUT_CHARS = 4_500;
 const FRESH_DAYS    = 14;   // recency window for the Tavily news pass
 
+export interface WebSearchOptions { allowedDomains?: string[]; blockedDomains?: string[] }
+const cleanDomains=(v:string[]|undefined)=>[...new Set((v??[]).map(x=>x.toLowerCase().replace(/^www\./,'')).filter(x=>/^[a-z0-9.-]+$/.test(x)&&x.includes('.')))];
+const domainAllowed=(url:string,opts:WebSearchOptions)=>{try{const h=new URL(url).hostname.toLowerCase().replace(/^www\./,'');const allowed=cleanDomains(opts.allowedDomains),blocked=cleanDomains(opts.blockedDomains);if(blocked.some(d=>h===d||h.endsWith('.'+d)))return false;return allowed.length===0||allowed.some(d=>h===d||h.endsWith('.'+d))}catch{return false}};
+const scopedQuery=(query:string,opts:WebSearchOptions)=>{const allowed=cleanDomains(opts.allowedDomains),blocked=cleanDomains(opts.blockedDomains);const scope=allowed.length?' ('+allowed.map(d=>'site:'+d).join(' OR ')+')':blocked.map(d=>' -site:'+d).join('');return(query.trim()+' '+scope).trim().slice(0,1200)};
+
 // ─── Serper (Google) ────────────────────────────────────────────────────────────
 
 const SERPER_URL = 'https://google.serper.dev/search';
@@ -30,7 +35,7 @@ interface SerperResponse {
   news?:           SerperNews[];
 }
 
-async function serperSearch(query: string): Promise<string | null> {
+async function serperSearch(query: string, opts: WebSearchOptions): Promise<string | null> {
   if (!SERPER_KEY) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -40,23 +45,23 @@ async function serperSearch(query: string): Promise<string | null> {
       signal:  controller.signal,
       headers: { 'X-API-KEY': SERPER_KEY, 'Content-Type': 'application/json' },
       // gl/hl=ru → Russian Google results (interfax/tass/dw etc.) for RU queries.
-      body: JSON.stringify({ q: query.trim().slice(0, 400), gl: 'ru', hl: 'ru', num: 10 }),
+      body: JSON.stringify({ q: scopedQuery(query, opts), gl: 'ru', hl: 'ru', num: 10 }),
     });
     if (!res.ok) { console.warn(`[webSearch] Serper HTTP ${res.status}`); return null; }
     const data = (await res.json()) as SerperResponse;
 
     const lines: string[] = [];
     const summary = data.answerBox?.answer || data.answerBox?.snippet || data.knowledgeGraph?.description;
-    if (summary && summary.trim()) lines.push(`Summary: ${summary.trim()}`);
+    if (summary && summary.trim() && !cleanDomains(opts.allowedDomains).length && !cleanDomains(opts.blockedDomains).length) lines.push(`Summary: ${summary.trim()}`);
 
-    const news = [...(data.topStories ?? []), ...(data.news ?? [])].slice(0, 5);
+    const news = [...(data.topStories ?? []), ...(data.news ?? [])].filter(n=>n.link&&domainAllowed(n.link,opts)).slice(0, 5);
     news.forEach((n, i) => {
       const t = (n.title ?? '').trim(), u = (n.link ?? '').trim();
       const meta = [n.source, n.date].filter(Boolean).join(', ');
       if (t || u) lines.push(`[news ${i + 1}] ${t}${meta ? ` (${meta})` : ''}\n${u}\n${(n.snippet ?? '').trim().slice(0, 280)}`);
     });
 
-    (data.organic ?? []).slice(0, MAX_RESULTS).forEach((r, i) => {
+    (data.organic ?? []).filter(r=>r.link&&domainAllowed(r.link,opts)).slice(0, MAX_RESULTS).forEach((r, i) => {
       const t = (r.title ?? '').trim(), u = (r.link ?? '').trim();
       const snippet = (r.snippet ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
       if (t || u) lines.push(`[${i + 1}] ${t}${r.date ? ` (${r.date})` : ''}\n${u}\n${snippet}`);
@@ -108,17 +113,18 @@ async function callTavily(query: string, extra: Record<string, unknown>): Promis
 const tavilyHasResults = (d: TavilyResponse | null): d is TavilyResponse =>
   !!d && Array.isArray(d.results) && d.results.length > 0;
 
-async function tavilySearch(query: string): Promise<string | null> {
+async function tavilySearch(query: string, opts: WebSearchOptions): Promise<string | null> {
   if (!env.TAVILY_API_KEY) return null;
-  // News-first for recency, then general — NO domain restriction (restricting to
-  // RU domains returned almost nothing; Tavily indexes them poorly).
-  let data = await callTavily(query, { topic: 'news', days: FRESH_DAYS, search_depth: 'advanced' });
-  if (!tavilyHasResults(data)) data = await callTavily(query, { search_depth: 'advanced' });
+  // News-first for recency, then general. Apply provider-side filters and repeat
+  // the check locally so a provider cannot leak an excluded result.
+  const allowed=cleanDomains(opts.allowedDomains),blocked=cleanDomains(opts.blockedDomains),domainOpts=allowed.length?{include_domains:allowed}:blocked.length?{exclude_domains:blocked}:{};
+  let data = await callTavily(query, { topic: 'news', days: FRESH_DAYS, search_depth: 'advanced', ...domainOpts });
+  if (!tavilyHasResults(data)) data = await callTavily(query, { search_depth: 'advanced', ...domainOpts });
   if (!data) return null;
 
   const lines: string[] = [];
-  if (data.answer && data.answer.trim()) lines.push(`Summary: ${data.answer.trim()}`);
-  (data.results ?? []).slice(0, MAX_RESULTS).forEach((r, i) => {
+  if (data.answer && data.answer.trim() && !allowed.length && !blocked.length) lines.push(`Summary: ${data.answer.trim()}`);
+  (data.results ?? []).filter(r=>r.url&&domainAllowed(r.url,opts)).slice(0, MAX_RESULTS).forEach((r, i) => {
     const t = (r.title ?? '').trim(), u = (r.url ?? '').trim();
     const date = (r.published_date ?? '').trim();
     const snippet = (r.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
@@ -131,11 +137,11 @@ async function tavilySearch(query: string): Promise<string | null> {
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 /** Searches the web (Serper/Google preferred, Tavily fallback). Returns null on no result. */
-export async function webSearch(query: string): Promise<string | null> {
+export async function webSearch(query: string, opts: WebSearchOptions = {}): Promise<string | null> {
   if (!query || !query.trim()) return null;
   if (SERPER_KEY) {
-    const viaGoogle = await serperSearch(query);
+    const viaGoogle = await serperSearch(query, opts);
     if (viaGoogle) return viaGoogle;
   }
-  return tavilySearch(query);
+  return tavilySearch(query, opts);
 }
