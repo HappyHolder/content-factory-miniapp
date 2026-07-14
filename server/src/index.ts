@@ -9,6 +9,7 @@ import brandkitsRouter from './routes/brandkits';
 import botRouter from './routes/bot';
 import moderatorRouter from './routes/moderator';
 import moderatorConfigRouter from './routes/moderatorConfig';
+import communityManagerRouter from './routes/communityManager';
 import sourcesRouter from './routes/sources';
 import postsRouter from './routes/posts';
 import chatRouter from './routes/chat';
@@ -22,6 +23,7 @@ import ogRouter from './routes/og';
 import { startScheduler } from './lib/scheduler';
 import { resumeGeneratingPlans } from './lib/contentWorker';
 import { rateLimit } from './lib/rateLimit';
+import { startCommunityManagerWorker } from './communityManager/engine';
 
 const app = express();
 
@@ -77,6 +79,7 @@ app.use('/api/brandkits', brandkitsRouter);
 app.use('/api/bot',       botRouter);
 app.use('/api/moderator', moderatorRouter);
 app.use('/api/moderator-config', moderatorConfigRouter);
+app.use('/api/community-manager', moderatorApiLimit, communityManagerRouter);
 app.use('/api/sources',   sourcesRouter);
 app.use('/api/posts',     postsRouter);
 app.use('/api/chat',      chatRouter);
@@ -94,6 +97,7 @@ app.listen(env.PORT, () => {
     `[publium-api] Running on port ${env.PORT} (${env.NODE_ENV})`
   );
   startScheduler();
+  startCommunityManagerWorker();
   // Resume any content-manager plans interrupted by a restart.
   resumeGeneratingPlans().catch(err =>
     console.error('[content-worker] resume failed:', (err as Error).message));

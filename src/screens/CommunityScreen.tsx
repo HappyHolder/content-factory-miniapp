@@ -13,6 +13,7 @@ import { ModeratorWarningPolicyEditor } from '@/components/moderator/ModeratorWa
 import { ModeratorContentFiltersEditor } from '@/components/moderator/ModeratorContentFiltersEditor'
 import { ModeratorExecutorSheet, type ManagedModeratorBotView } from '@/components/moderator/ModeratorExecutorSheet'
 import { ModeratorHelpSheet, ModeratorInfoButton } from '@/components/moderator/ModeratorHelpSheet'
+import { CommunityManagerPanel } from '@/components/community-manager/CommunityManagerPanel'
 import { API_BASE } from '@/lib/api'
 import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 
@@ -118,16 +119,7 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
       </div>
 
       {activeProduct === 'manager' ? (
-        <div className="px-4 pt-3">
-          <GlassCard strong className="relative overflow-hidden">
-            <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-[rgba(255,106,0,0.10)] blur-3xl" />
-            <div className="relative">
-              <div className="flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-[rgba(255,106,0,0.20)] bg-[rgba(255,106,0,0.11)] text-[#FF6A00]"><Sparkles size={20} /></div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="text-[15px] font-semibold text-white">Community Manager</h2><span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#777780]">Скоро</span></div><p className="mt-1 text-[12px] leading-relaxed text-[#777780]">ИИ-команда для развития сообщества вокруг вашего канала.</p></div></div>
-              <div className="mt-5 space-y-2.5">{[['ИИ-персоны', 'Общаются в заданном тоне и стиле канала.'], ['События', 'Запускают активности и поддерживают жизнь сообщества.'], ['Награды', 'Помогают проводить раздачи Stars и TON.']].map(([title, text]) => <div key={title} className="rounded-[13px] border border-white/[0.06] bg-white/[0.025] px-3.5 py-3"><p className="text-[12px] font-medium text-white">{title}</p><p className="mt-0.5 text-[11px] leading-relaxed text-[#66666E]">{text}</p></div>)}</div>
-              <p className="mt-4 text-[11px] leading-relaxed text-[#66666E]">Тематика, правила и стиль канала останутся ядром всех сценариев.</p>
-            </div>
-          </GlassCard>
-        </div>
+        <div className="px-4 pt-3"><CommunityManagerPanel channelId={channelId} channelUsername={channelUsername} /></div>
       ) : (
         <div className="space-y-3 px-4 pt-3" role="tabpanel">
           {loading ? <div className="flex items-center justify-center py-20 text-[#66666E]"><Loader2 size={22} className="animate-spin" /></div> : <>

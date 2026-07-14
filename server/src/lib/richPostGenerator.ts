@@ -16,7 +16,7 @@
  */
 
 import { env } from '../env';
-import { parseInline } from './richPost';
+import { parseInline, stripDisabledHighlightMarkers } from './richPost';
 import { replicateText } from './replicateText';
 import type { ListItem, PostBlock } from './richPost';
 
@@ -37,7 +37,7 @@ export interface RichGenInput {
   lang?: 'ru' | 'en';
 }
 
-// Inline markers (**bold**, ==highlight==, [text](url), …) are parsed by the
+// Inline markers (**bold**, [text](url), …) are parsed by the
 // shared parseInline() from ./richPost — one canonical vocabulary everywhere.
 
 // ─── AI element schema (what the model returns) ─────────────────────────────────
@@ -90,10 +90,10 @@ function buildPrompt(input: RichGenInput): { system: string; user: string } {
     'A "linkbox" is a framed CTA box with a centered link — use it AT MOST once, at the very end, and ONLY when the source has a real action URL (a product/site/handle). Never invent its URL. ' +
     'A list "items" entry is a string, OR an object {"text":"...","sub":["...","..."]} to nest a numbered sub-list under that item (use nesting when the source groups sub-points under a point). ' +
     '"headingUrl" is optional — set it ONLY if the source text contains a URL that the heading should link to. ' +
-    'Inline emphasis via these markers inside text (never output HTML tags): **bold**, __italic__, ~~strike~~, `mono`, ==highlight==, ||spoiler||, and links [text](url). ' +
-    'Bold the key numbers, percentages, tickers and names. Highlight (==) one or two genuinely key terms per post — sparingly. Use `mono` for code, tickers, IDs or commands. ' +
+    'Inline emphasis via these markers inside text (never output HTML tags): **bold**, __italic__, ~~strike~~, `mono`, ||spoiler||, and links [text](url). ' +
+    'TEMPORARY HARD RULE: highlighting is disabled. Never output ==highlight== or wrap any text in == markers; use **bold** for genuinely key terms instead. Bold the key numbers, percentages, tickers and names. Use `mono` for code, tickers, IDs or commands. ' +
     'Use links [text](url) ONLY when the source text actually contains that URL (for a source, product or handle) — never invent or guess a URL. Do not over-format: most text stays plain. ' +
-    'Keep a table to 2-4 columns. Table cells (headers and rows) may use the same inline markers — e.g. **bold** the key figure or ==highlight== a verdict in a cell. Do not add a signature/handle line. ' +
+    'Keep a table to 2-4 columns. Table cells (headers and rows) may use the same enabled inline markers — e.g. **bold** the key figure. Never use == markers in cells. Do not add a signature/handle line. ' +
     (ru ? 'Write any structural labels (table headers) in Russian.' : 'Write structural labels in English.');
 
   const user =
@@ -172,10 +172,11 @@ function isStr(x: unknown): x is string { return typeof x === 'string' && x.trim
 
 /** A list item may be a plain string or an object with an optional nested sub-list. */
 function toListItem(x: string | { text?: string; sub?: string[] }): ListItem | null {
-  if (isStr(x)) return { runs: parseInline(x) };
+  if (isStr(x)) return { runs: parseInline(stripDisabledHighlightMarkers(x)) };
   if (x && typeof x === 'object' && isStr(x.text)) {
-    const sub = Array.isArray(x.sub) ? x.sub.filter(isStr).map(parseInline) : [];
-    return sub.length ? { runs: parseInline(x.text), sub } : { runs: parseInline(x.text) };
+    const sub = Array.isArray(x.sub) ? x.sub.filter(isStr).map(v => parseInline(stripDisabledHighlightMarkers(v))) : [];
+    const runs = parseInline(stripDisabledHighlightMarkers(x.text));
+    return sub.length ? { runs, sub } : { runs };
   }
   return null;
 }
@@ -183,9 +184,9 @@ function toListItem(x: string | { text?: string; sub?: string[] }): ListItem | n
 function mapElement(el: AiElement, images: string[], usedImages: Set<number>): PostBlock | null {
   switch (el.kind) {
     case 'paragraph':
-      return isStr(el.text) ? { type: 'paragraph', runs: parseInline(el.text) } : null;
+      return isStr(el.text) ? { type: 'paragraph', runs: parseInline(stripDisabledHighlightMarkers(el.text)) } : null;
     case 'quote':
-      return isStr(el.text) ? { type: 'quote', runs: parseInline(el.text), expandable: el.expandable === true } : null;
+      return isStr(el.text) ? { type: 'quote', runs: parseInline(stripDisabledHighlightMarkers(el.text)), expandable: el.expandable === true } : null;
     case 'list': {
       const items = Array.isArray(el.items)
         ? el.items.map(toListItem).filter((x): x is ListItem => x !== null)
@@ -193,9 +194,9 @@ function mapElement(el: AiElement, images: string[], usedImages: Set<number>): P
       return items.length ? { type: 'list', ordered: el.ordered === true, items } : null;
     }
     case 'table': {
-      const headers = Array.isArray(el.headers) ? el.headers.filter(isStr) : [];
+      const headers = Array.isArray(el.headers) ? el.headers.filter(isStr).map(stripDisabledHighlightMarkers) : [];
       const rows = Array.isArray(el.rows)
-        ? el.rows.filter(r => Array.isArray(r)).map(r => r.map(c => (isStr(c) ? c : '')))
+        ? el.rows.filter(r => Array.isArray(r)).map(r => r.map(c => (isStr(c) ? stripDisabledHighlightMarkers(c) : '')))
         : [];
       return rows.length ? { type: 'table', headers, rows } : null;
     }
@@ -208,7 +209,7 @@ function mapElement(el: AiElement, images: string[], usedImages: Set<number>): P
       return { type: 'divider' };
     case 'linkbox':
       return isStr(el.text) && isStr(el.url) && /^https?:\/\/\S+$/i.test(el.url.trim())
-        ? { type: 'linkbox', text: el.text.trim(), url: el.url.trim() } : null;
+        ? { type: 'linkbox', text: stripDisabledHighlightMarkers(el.text.trim()), url: el.url.trim() } : null;
     case 'gallery': {
       const idxs = (Array.isArray(el.indices) ? el.indices : [])
         .filter(i => typeof i === 'number' && i >= 0 && i < images.length);
@@ -259,7 +260,7 @@ export async function generateRichBlocks(input: RichGenInput): Promise<PostBlock
         ? layout.headingUrl.trim() : undefined;
       // The heading is plain text (display-bold already) — strip any inline markers
       // the model left in (e.g. **bold**), so they don't render literally.
-      const text = parseInline(layout.heading).map(r => r.t).join('');
+      const text = parseInline(stripDisabledHighlightMarkers(layout.heading)).map(r => r.t).join('');
       blocks.push({ type: 'heading', text, ...(link ? { link } : {}) });
     }
     const used = new Set<number>();

@@ -283,9 +283,31 @@ async function handleCallback(update: ModeratorUpdate, query: CallbackQuery, res
   res.json({ ok: true, passed: true }); return true;
 }
 
+async function recordCommunityManagerDisposition(update: ModeratorUpdate, message: TgMessage): Promise<void> {
+  const community = await prisma.community.findFirst({
+    where: { moderatorChat: { tgChatId: String(message.chat.id) }, moderator: { enabled: true } },
+    select: { id: true, communityManager: { select: { id: true } } },
+  });
+  if (!community?.communityManager) return;
+  const blocked = await prisma.moderationEvent.findFirst({
+    where: { communityId: community.id, telegramMessageId: message.message_id, OR: [{ action: { contains: 'DELETE' } }, { eventType: { in: ['CONTENT_FILTER_TRIGGERED', 'ANTISPAM_TRIGGERED'] } }] },
+    select: { id: true },
+  });
+  const handled = await prisma.moderationEvent.findFirst({ where: { communityId: community.id, telegramMessageId: message.message_id, eventType: 'TRIGGER_MATCHED' }, select: { id: true } });
+  const action = blocked ? 'BLOCK' : handled ? 'IGNORE' : 'ALLOW';
+  await prisma.moderationEvent.create({
+    data: { communityId: community.id, telegramUpdateId: eventKey(update.update_id) + ':cm', telegramMessageId: message.message_id, tgUserId: message.from?.id ? String(message.from.id) : null, eventType: 'MESSAGE_DISPOSITION', action, status: 'PROCESSED' },
+  }).catch(err => { if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err; });
+  await prisma.communityManagerMessage.updateMany({
+    where: { communityManagerId: community.communityManager.id, telegramMessageId: message.message_id },
+    data: { moderationStatus: blocked ? 'BLOCKED' : handled ? 'IGNORED' : 'ALLOWED' },
+  });
+}
 async function processModeratorWebhook(req: Request, res: Response): Promise<void> {
   const update = req.body as ModeratorUpdate;
   if (!Number.isInteger(update.update_id)) { res.json({ ok: true, ignored: true }); return; }
+  const dispositionMessage = update.edited_message ?? update.message;
+  if (dispositionMessage) res.once('finish', () => { void recordCommunityManagerDisposition(update, dispositionMessage).catch(err => console.error('[moderator/disposition]', (err as Error).message)); });
   try {
     if (update.callback_query && await handleCallback(update, update.callback_query, res)) return;
     if (update.message) { const command = await handleManualCommand(eventKey(update.update_id), update.message, currentToken(), currentBotId()); if (command.handled) { res.json({ ok: true, command: command.command }); return; } }

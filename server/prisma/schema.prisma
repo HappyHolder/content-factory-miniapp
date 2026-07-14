@@ -539,6 +539,7 @@ model Community {
   conversationMessages ModeratorConversationMessage[]
   conversationState ModeratorConversationState?
   managedBot        ManagedModeratorBot?
+  communityManager  CommunityManager?
 }
 
 model Moderator {
@@ -694,4 +695,140 @@ model ModerationEvent {
   community         Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
 
   @@index([communityId, createdAt])
+}
+
+model CommunityManager {
+  id               String                     @id @default(cuid())
+  communityId      String                     @unique
+  status           String                     @default("DRAFT")
+  enabled          Boolean                    @default(false)
+  mode             String                     @default("DRAFTS")
+  draftVersion     Int                        @default(1)
+  publishedVersion Int?
+  lastActionAt     DateTime?
+  lastHealthyAt    DateTime?
+  lastError        String?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  community        Community                  @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  configs          CommunityManagerConfig[]
+  messages         CommunityManagerMessage[]
+  jobs             CommunityManagerJob[]
+  actions          CommunityManagerAction[]
+  faqs             CommunityManagerFaq[]
+  activities       CommunityManagerActivity[]
+}
+
+model CommunityManagerConfig {
+  id                 String           @id @default(cuid())
+  communityManagerId String
+  version            Int
+  status             String           @default("DRAFT")
+  config             Json
+  publishedAt        DateTime?
+  createdAt          DateTime         @default(now())
+  communityManager   CommunityManager @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+
+  @@unique([communityManagerId, version])
+  @@index([communityManagerId, status])
+}
+
+model CommunityManagerMessage {
+  id                 String               @id @default(cuid())
+  communityManagerId String
+  telegramUpdateId   String               @unique
+  telegramMessageId  Int
+  tgChatId           String
+  tgUserId           String?
+  replyToMessageId   Int?
+  text               String?
+  messageType        String               @default("TEXT")
+  moderationStatus   String               @default("PENDING")
+  status             String               @default("RECEIVED")
+  expiresAt          DateTime
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  communityManager   CommunityManager     @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+  job                CommunityManagerJob?
+
+  @@unique([communityManagerId, telegramMessageId])
+  @@index([communityManagerId, createdAt])
+  @@index([expiresAt])
+}
+
+model CommunityManagerJob {
+  id                 String                   @id @default(cuid())
+  communityManagerId String
+  messageId          String?                  @unique
+  type               String                   @default("MESSAGE")
+  status             String                   @default("PENDING")
+  attempts           Int                      @default(0)
+  runAfter           DateTime                 @default(now())
+  leaseUntil         DateTime?
+  lastError          String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  communityManager   CommunityManager         @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+  message            CommunityManagerMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@index([leaseUntil])
+}
+
+model CommunityManagerAction {
+  id                 String           @id @default(cuid())
+  communityManagerId String
+  messageId          String?
+  decision           String
+  intent             String?
+  confidence         Float?
+  reason             String?
+  response           String?
+  sources            Json?
+  model              String?
+  promptVersion      String?
+  inputTokens        Int              @default(0)
+  outputTokens       Int              @default(0)
+  latencyMs          Int?
+  telegramMessageId  Int?
+  status             String           @default("COMPLETED")
+  error              String?
+  createdAt          DateTime         @default(now())
+  communityManager   CommunityManager @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+
+  @@index([communityManagerId, createdAt])
+}
+
+model CommunityManagerFaq {
+  id                 String           @id @default(cuid())
+  communityManagerId String
+  question           String
+  answer             String
+  keywords           Json?
+  enabled            Boolean          @default(true)
+  priority           Int              @default(0)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  communityManager   CommunityManager @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+
+  @@index([communityManagerId, enabled, priority])
+}
+
+model CommunityManagerActivity {
+  id                 String           @id @default(cuid())
+  communityManagerId String
+  type               String
+  topic              String?
+  status             String           @default("PENDING")
+  scheduledAt        DateTime
+  sentAt             DateTime?
+  telegramMessageId  Int?
+  result             Json?
+  lastError          String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  communityManager   CommunityManager @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledAt])
+  @@index([communityManagerId, createdAt])
 }

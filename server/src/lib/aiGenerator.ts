@@ -10,6 +10,7 @@
 
 import { env } from '../env';
 import { replicateText } from './replicateText';
+import { stripDisabledHighlightMarkers } from './richPost';
 
 type ModelTier = 'LOW' | 'HIGH';
 
@@ -280,6 +281,8 @@ function buildVariantPrompts(params: GenerateParams): { systemPrompt: string; us
 
   systemParts.push('Do NOT invent facts beyond what is given in the source content.');
 
+  systemParts.push('TEMPORARY FORMATTING RULE: highlighting is disabled. Never output ==highlight== or wrap any text in == markers. Use ordinary text or **bold** instead.');
+
   // Language hard constraint
   if (language === 'RU') {
     systemParts.push(
@@ -423,7 +426,7 @@ function parseVariantsJson(raw: string, input: string, finishReason: string): Va
     }
     drafts.push({
       label: (v as Record<string, unknown>)['label'] as string,
-      text:  (v as Record<string, unknown>)['text']  as string,
+      text:  stripDisabledHighlightMarkers((v as Record<string, unknown>)['text'] as string),
     });
   }
 

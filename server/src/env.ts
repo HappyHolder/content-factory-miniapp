@@ -56,6 +56,9 @@ export const env = {
   MODERATOR_BOT_TOKEN:      process.env['MODERATOR_BOT_TOKEN'] ?? '',
   MODERATOR_WEBHOOK_SECRET: process.env['MODERATOR_WEBHOOK_SECRET'] ?? '',
   MODERATOR_BOT_USERNAME:   (process.env['MODERATOR_BOT_USERNAME'] ?? 'publium_moder_bot').replace(/^@/, ''),
+  COMMUNITY_MANAGER_BOT_TOKEN: process.env['COMMUNITY_MANAGER_BOT_TOKEN'] ?? '',
+  COMMUNITY_MANAGER_WEBHOOK_SECRET: process.env['COMMUNITY_MANAGER_WEBHOOK_SECRET'] ?? '',
+  COMMUNITY_MANAGER_BOT_USERNAME: (process.env['COMMUNITY_MANAGER_BOT_USERNAME'] ?? 'publium_community_bot').replace(/^@/, ''),
   MANAGED_BOT_ENCRYPTION_KEY: process.env['MANAGED_BOT_ENCRYPTION_KEY'] ?? '',
   PORT: parseInt(process.env['PORT'] ?? '8787', 10),
   NODE_ENV: (process.env['NODE_ENV'] ?? 'development') as

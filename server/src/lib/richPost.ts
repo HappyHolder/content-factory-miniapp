@@ -69,6 +69,11 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Removes the temporarily disabled ==highlight== syntax from AI-generated text. */
+export function stripDisabledHighlightMarkers(s: string): string {
+  return s.replace(/==([\s\S]*?)==/g, '$1');
+}
+
 /** Escapes a value for use inside a double-quoted HTML attribute. */
 function escapeAttr(s: string): string {
   return escapeHtml(s).replace(/"/g, '&quot;');

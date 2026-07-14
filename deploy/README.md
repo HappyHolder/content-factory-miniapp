@@ -41,6 +41,7 @@ Internet ──443──> Caddy ──/api/*──> api:8787 ──> db:5432
 5. **Point the Telegram webhook at the new domain:**
    ```bash
    docker compose exec api npm run set-webhook
+   docker compose exec api npm run set-community-manager-webhook
    ```
    (or set it once via the Bot API with `WEBHOOK_URL=https://<domain>/api/bot/webhook`).
    Also set @Publiumbot's Mini App / menu-button URL to `https://<domain>`.
