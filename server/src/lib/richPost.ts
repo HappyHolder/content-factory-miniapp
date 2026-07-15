@@ -166,9 +166,35 @@ function normalizeBlock(value: unknown): PostBlock | null {
 }
 
 /** Converts persisted/remote JSON into the current safe PostBlock shape. */
+function collapseLegacyMatrix4(blocks: PostBlock[]): PostBlock[] {
+  const output: PostBlock[] = [];
+  for (let i = 0; i < blocks.length;) {
+    const candidate = blocks.slice(i, i + 4);
+    const galleries = candidate.filter((item): item is Extract<PostBlock, { type: 'gallery' }> => item.type === 'gallery');
+    let prefix: string | null = null;
+    const isLegacyMatrix = candidate.length === 4 && galleries.length === 4 && galleries.every((gallery, row) =>
+      !gallery.matrix4 && gallery.layout === 'slideshow' && gallery.urls.length === 4 && gallery.urls.every((url, column) => {
+        const match = url.match(/^(.*)-r([0-3])-c([0-3])\.png(?:\?.*)?$/);
+        if (!match || Number(match[2]) !== row || Number(match[3]) !== column) return false;
+        if (prefix === null) prefix = match[1] ?? null;
+        return prefix !== null && match[1] === prefix;
+      }),
+    );
+    if (isLegacyMatrix) {
+      const rows = galleries.map(gallery => gallery.urls);
+      output.push({ type: 'gallery', layout: 'slideshow', urls: rows.flat(), matrix4: rows });
+      i += 4;
+    } else {
+      output.push(blocks[i]!);
+      i += 1;
+    }
+  }
+  return output;
+}
+
 export function normalizePostBlocks(value: unknown): PostBlock[] | null {
   if (!Array.isArray(value)) return null;
-  return value.map(normalizeBlock).filter((block): block is PostBlock => block !== null);
+  return collapseLegacyMatrix4(value.map(normalizeBlock).filter((block): block is PostBlock => block !== null));
 }
 // ─── Escaping ───────────────────────────────────────────────────────────────────
 
