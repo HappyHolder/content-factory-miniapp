@@ -166,13 +166,12 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
       if (!res.ok || !data.urls?.length) { showToast(data.error ?? 'Не удалось нарезать', 'error'); return }
       const blk = blocks[t.gallery]
       if (blk?.type === 'gallery') {
-        if (data.groups?.length) {
-          const galleries: PostBlock[] = data.groups.map(urls => ({ type: 'gallery', layout: 'slideshow', urls }))
-          mutate([...blocks.slice(0, t.gallery), ...galleries, ...blocks.slice(t.gallery + 1)])
-        } else {
-          // One generation → one panorama: the slices REPLACE the gallery.
-          patch(t.gallery, { ...blk, urls: data.urls, layout: data.layout === 'stack' ? 'stack' : 'slideshow' })
-        }
+        patch(t.gallery, {
+          type: 'gallery',
+          urls: data.urls,
+          layout: data.layout === 'stack' ? 'stack' : 'slideshow',
+          ...(data.groups?.length === 4 ? { matrix4: data.groups } : {}),
+        })
       }
     } catch {
       showToast('Ошибка нарезки', 'error')
@@ -195,12 +194,12 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
       if (!res.ok || !data.urls?.length) { showToast(data.error ?? 'Не удалось сгенерировать', 'error'); return }
       const blk = blocks[gi]
       if (blk?.type === 'gallery') {
-        if (data.groups?.length) {
-          const galleries: PostBlock[] = data.groups.map(urls => ({ type: 'gallery', layout: 'slideshow', urls }))
-          mutate([...blocks.slice(0, gi), ...galleries, ...blocks.slice(gi + 1)])
-        } else {
-          patch(gi, { ...blk, urls: data.urls, layout: data.layout === 'stack' ? 'stack' : 'slideshow' })
-        }
+        patch(gi, {
+          type: 'gallery',
+          urls: data.urls,
+          layout: data.layout === 'stack' ? 'stack' : 'slideshow',
+          ...(data.groups?.length === 4 ? { matrix4: data.groups } : {}),
+        })
       }
     } catch {
       showToast('Ошибка генерации', 'error')
@@ -715,7 +714,7 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
   const [galPromptOpen, setGalPromptOpen] = useState(false)
   const [galPrompt, setGalPrompt] = useState('')
   // Panorama slicer (gallery): orientation + how many pieces to cut one image into.
-  const [panoOrient, setPanoOrient] = useState<PanoramaCut>('horizontal')
+  const [panoOrient, setPanoOrient] = useState<PanoramaCut>(b.type === 'gallery' && b.matrix4 ? 'grid4' : 'horizontal')
   const [panoCount, setPanoCount] = useState(3)
   const [panoPrompt, setPanoPrompt] = useState('')
   // Shared formatting toolbar for table cells — acts on the last-focused cell input.
@@ -961,14 +960,21 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
       return (
         <div className="space-y-2">
           {/* layout toggle */}
-          <div className="flex gap-1 p-0.5 rounded-[9px] bg-white/[0.04] border border-white/[0.06] w-fit">
-            {([['slideshow', 'Карусель'], ['collage', 'Сетка'], ['stack', 'Стопка']] as const).map(([lay, label]) => (
-              <button key={lay} onClick={() => onChange({ ...b, layout: lay })}
-                className={cn('px-2.5 py-1 rounded-[7px] text-[11px] font-medium', b.layout === lay ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]')}>
-                {label}
-              </button>
-            ))}
-          </div>
+          {b.matrix4 ? (
+            <div className="inline-flex items-center gap-2 rounded-[9px] bg-[rgba(255,106,0,0.1)] border border-[rgba(255,106,0,0.28)] px-2.5 py-1.5">
+              <span className="text-[11px] font-semibold text-[#FF6A00]">4×4</span>
+              <span className="text-[10px] text-[#A1A1AA]">единый блок · 4 листаемых ряда · 16 фрагментов</span>
+            </div>
+          ) : (
+            <div className="flex gap-1 p-0.5 rounded-[9px] bg-white/[0.04] border border-white/[0.06] w-fit">
+              {([['slideshow', 'Карусель'], ['collage', 'Сетка'], ['stack', 'Стопка']] as const).map(([lay, label]) => (
+                <button key={lay} onClick={() => onChange({ ...b, layout: lay })}
+                  className={cn('px-2.5 py-1 rounded-[7px] text-[11px] font-medium', b.layout === lay ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]')}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Panorama slicer — cut ONE big image into N pieces */}
           <div className="rounded-[10px] bg-white/[0.03] border border-white/[0.06] p-2 space-y-1.5">
             <span className="text-[11px] font-semibold text-[#A1A1AA]">Панорама — нарезать 1 картинку</span>
@@ -1001,13 +1007,19 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
             </div>
             <p className="text-[10px] text-[#55555D] leading-relaxed">
               {panoOrient === 'grid4'
-                ? '4×4 → квадрат 1:1 в 4K, 16 фрагментов и 4 обычные карусели по 4 элемента.'
+                ? '4×4 → квадрат 1:1 в 4K, 16 фрагментов и единый блок из 4 независимых листаемых рядов.'
                 : <>Горизонт → карусель, вертикаль → стопка. Режем на {panoCount} частей.</>}
               {' Генерация — nano-banana (Gemini).'}
             </p>
           </div>
           {/* thumbnails with remove */}
-          {b.urls.length > 0 && (
+          {b.matrix4 ? (
+            <div className="grid grid-cols-4 gap-px overflow-hidden rounded-[8px] border border-white/[0.08] bg-black">
+              {b.matrix4.flat().map((u, i) => (
+                <img key={i} src={u} alt="" className="aspect-square w-full object-cover" />
+              ))}
+            </div>
+          ) : b.urls.length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
               {b.urls.map((u, i) => (
                 <div key={i} className="relative shrink-0">
@@ -1018,17 +1030,19 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
               ))}
             </div>
           )}
-          <div className="flex gap-1.5">
-            <button onClick={onAddGalleryPhoto} disabled={uploading}
-              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
-              {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} + Фото
-            </button>
-            <button onClick={() => setGalPromptOpen(o => !o)} disabled={galleryGenLoading}
-              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] disabled:opacity-50">
-              {galleryGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} + AI-фото
-            </button>
-          </div>
-          {galPromptOpen && (
+          {!b.matrix4 && (
+            <div className="flex gap-1.5">
+              <button onClick={onAddGalleryPhoto} disabled={uploading}
+                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
+                {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} + Фото
+              </button>
+              <button onClick={() => setGalPromptOpen(o => !o)} disabled={galleryGenLoading}
+                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] disabled:opacity-50">
+                {galleryGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} + AI-фото
+              </button>
+            </div>
+          )}
+          {!b.matrix4 && galPromptOpen && (
             <div className="p-2 rounded-[10px] bg-[rgba(255,106,0,0.06)] border border-[rgba(255,106,0,0.2)] space-y-1.5">
               <textarea value={galPrompt} onChange={e => setGalPrompt(e.target.value)} rows={2}
                 placeholder="Опиши фото для карусели (пусто = по посту)"
@@ -1039,7 +1053,7 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
               </button>
             </div>
           )}
-          <p className="text-[11px] text-[#55555D]">{b.urls.length} фото{b.urls.length < 2 ? ' · нужно 2+ для галереи' : ''}</p>
+          <p className="text-[11px] text-[#55555D]">{b.matrix4 ? '4 ряда × 4 варианта' : <>{b.urls.length} фото{b.urls.length < 2 ? ' · нужно 2+ для галереи' : ''}</>}</p>
         </div>
       )
     case 'divider':

@@ -46,7 +46,7 @@ export type PostBlock =
   | { type: 'image';     url: string; prompt?: string }
   | { type: 'video';     url: string; poster?: string }
   | { type: 'document';  url: string; name: string; mime?: string; size?: number }
-  | { type: 'gallery';   layout: 'slideshow' | 'collage' | 'stack'; urls: string[] }
+  | { type: 'gallery';   layout: 'slideshow' | 'collage' | 'stack'; urls: string[]; matrix4?: string[][] }
   // A framed, filled CTA box with a centered link inside — a single bordered
   // header-cell table (Telegram: border="1" → is_bordered, <th> → fill).
   | { type: 'linkbox';   text: string; url: string }
@@ -113,6 +113,11 @@ function normalizeListItem(value: unknown): ListItem | null {
   return sub.length ? { runs, sub } : { runs };
 }
 
+function normalizeMatrix4(value: unknown): string[][] | undefined {
+  if (!Array.isArray(value) || value.length !== 4) return undefined;
+  const rows = value.map(row => Array.isArray(row) ? row.filter((v): v is string => typeof v === 'string') : []);
+  return rows.every(row => row.length === 4) ? rows : undefined;
+}
 function normalizeBlock(value: unknown): PostBlock | null {
   const block = objectValue(value);
   if (!block || typeof block['type'] !== 'string') return null;
@@ -140,9 +145,10 @@ function normalizeBlock(value: unknown): PostBlock | null {
     case 'video': return typeof block['url'] === 'string' ? { type: 'video', url: block['url'], ...(typeof block['poster'] === 'string' ? { poster: block['poster'] } : {}) } : null;
     case 'document': return typeof block['url'] === 'string' && typeof block['name'] === 'string' ? { type: 'document', url: block['url'], name: block['name'], ...(typeof block['mime'] === 'string' ? { mime: block['mime'] } : {}), ...(typeof block['size'] === 'number' ? { size: block['size'] } : {}) } : null;
     case 'gallery': {
-      const urls = Array.isArray(block['urls']) ? block['urls'].filter((v): v is string => typeof v === 'string') : [];
+      const matrix4 = normalizeMatrix4(block['matrix4']);
+      const urls = matrix4?.flat() ?? (Array.isArray(block['urls']) ? block['urls'].filter((v): v is string => typeof v === 'string') : []);
       const layout = block['layout'] === 'collage' || block['layout'] === 'stack' ? block['layout'] : 'slideshow';
-      return { type: 'gallery', layout, urls };
+      return { type: 'gallery', layout, urls, ...(matrix4 ? { matrix4 } : {}) };
     }
     case 'linkbox': return typeof block['text'] === 'string' && typeof block['url'] === 'string' ? { type: 'linkbox', text: block['text'], url: block['url'] } : null;
     case 'checklist': {
@@ -281,6 +287,12 @@ function renderBlock(b: PostBlock): string {
     case 'document':
       return '';
     case 'gallery': {
+      if (b.matrix4) {
+        return b.matrix4.map(row => {
+          const rowImages = row.filter(isHttpUrl).map(renderImg).join('');
+          return rowImages ? `<tg-slideshow>${rowImages}</tg-slideshow>` : '';
+        }).join('');
+      }
       const imgs = b.urls.filter(isHttpUrl).map(renderImg).join('');
       if (!imgs) return '';
       // 'stack' = bare consecutive <img> → Telegram renders separate stacked

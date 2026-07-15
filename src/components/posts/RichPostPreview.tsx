@@ -167,7 +167,23 @@ function Block({ b }: { b: PostBlock }) {
         </div>
       )
     case 'gallery':
-      return b.layout === 'stack' ? (
+      return b.matrix4 ? (
+        <div className="overflow-hidden rounded-[12px] bg-black" aria-label="Галерея 4 на 4: четыре независимо листаемых ряда">
+          {b.matrix4.map((row, rowIndex) => (
+            <div key={rowIndex} className="flex w-full overflow-x-auto no-scrollbar snap-x snap-mandatory overscroll-x-contain">
+              {row.map((u, columnIndex) => (
+                <img
+                  key={columnIndex}
+                  src={u}
+                  alt=""
+                  draggable={false}
+                  className="block aspect-square w-full shrink-0 snap-start object-cover bg-black"
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : b.layout === 'stack' ? (
         <div className="flex flex-col gap-0.5">
           {b.urls.map((u, i) => <img key={i} src={u} alt="" className="w-full object-cover bg-black" />)}
         </div>

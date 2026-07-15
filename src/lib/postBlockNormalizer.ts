@@ -35,6 +35,11 @@ const listItem = (value: unknown): ListItem | null => {
   return sub.length ? { runs: normalized, sub } : { runs: normalized }
 }
 
+const matrix4 = (value: unknown): string[][] | undefined => {
+  if (!Array.isArray(value) || value.length !== 4) return undefined
+  const rows = value.map(row => Array.isArray(row) ? row.filter((v): v is string => typeof v === 'string') : [])
+  return rows.every(row => row.length === 4) ? rows : undefined
+}
 const block = (value: unknown): PostBlock | null => {
   const b = record(value)
   if (!b || typeof b.type !== 'string') return null
@@ -47,7 +52,7 @@ const block = (value: unknown): PostBlock | null => {
     case 'image': return typeof b.url === 'string' ? { type: 'image', url: b.url, ...(typeof b.prompt === 'string' ? { prompt: b.prompt } : {}) } : null
     case 'video': return typeof b.url === 'string' ? { type: 'video', url: b.url, ...(typeof b.poster === 'string' ? { poster: b.poster } : {}) } : null
     case 'document': return typeof b.url === 'string' && typeof b.name === 'string' ? { type: 'document', url: b.url, name: b.name, ...(typeof b.mime === 'string' ? { mime: b.mime } : {}), ...(typeof b.size === 'number' ? { size: b.size } : {}) } : null
-    case 'gallery': return { type: 'gallery', layout: b.layout === 'collage' || b.layout === 'stack' ? b.layout : 'slideshow', urls: Array.isArray(b.urls) ? b.urls.filter((v): v is string => typeof v === 'string') : [] }
+    case 'gallery': { const grid = matrix4(b.matrix4); return { type: 'gallery', layout: b.layout === 'collage' || b.layout === 'stack' ? b.layout : 'slideshow', urls: grid?.flat() ?? (Array.isArray(b.urls) ? b.urls.filter((v): v is string => typeof v === 'string') : []), ...(grid ? { matrix4: grid } : {}) } }
     case 'linkbox': return typeof b.text === 'string' && typeof b.url === 'string' ? { type: 'linkbox', text: b.text, url: b.url } : null
     case 'checklist': return { type: 'checklist', items: Array.isArray(b.items) ? b.items.flatMap(value => { const item = record(value); return item && typeof item.text === 'string' ? [{ text: item.text, checked: item.checked === true }] : [] }) : [] }
     case 'details': return typeof b.summary === 'string' && typeof b.body === 'string' ? { type: 'details', summary: b.summary, body: b.body } : null
