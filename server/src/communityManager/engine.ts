@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { getBotIdFromToken, sendBotMessage } from '../lib/telegramBot';
 import { research, type ResearchSource } from '../lib/researchEngine';
+import { replicateText } from '../lib/replicateText';
 import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { DEFAULT_CM_CONFIG, isQuietHour, parseCommunityManagerConfig, randomInitiativeDate, type CommunityManagerConfigData } from './config';
 import { communityManagerExecutor } from './managedBot';
@@ -68,7 +69,15 @@ async function knowledge(ctx:Ctx,query:string){
     const docs=await prisma.projectDoc.findMany({where:{channelId:ctx.community.channelId},select:{name:true,text:true},take:20});
     for(const d of docs)for(const chunk of documentChunks(d.text).slice(0,800))candidates.push({text:chunk,source:d.name,priority:2});
   }
-  return rankKnowledge(query,candidates,6);
+  // Small knowledge bases (the common case) go to the model in full — a real
+  // multilingual model finds the answer far better than a keyword prefilter.
+  // Only when the docs exceed the context budget do we rank and keep the most
+  // relevant chunks that fit.
+  const budget=45000,total=candidates.reduce((sum,c)=>sum+c.text.length,0);
+  if(total<=budget)return candidates;
+  const ranked=rankKnowledge(query,candidates,candidates.length),picked:typeof candidates=[];let used=0;
+  for(const c of ranked){if(used+c.text.length>budget)continue;picked.push(c);used+=c.text.length}
+  return picked;
 }
 
 async function chatContext(id:string,current:string){
@@ -82,13 +91,10 @@ async function recentCmReplies(id:string){
 }
 
 async function ai(system:string,user:string){
-  if(env.AI_PROVIDER!=='deepseek'||!env.DEEPSEEK_API_KEY)throw new Error('CM_AI_NOT_CONFIGURED');
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
-  try{
-    const res=await fetch(env.DEEPSEEK_BASE_URL+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+env.DEEPSEEK_API_KEY},body:JSON.stringify({model:env.DEEPSEEK_MODEL,temperature:.35,max_tokens:900,messages:[{role:'system',content:system},{role:'user',content:user}]}),signal:controller.signal});
-    if(!res.ok)throw new Error('CM_AI_HTTP_'+res.status);
-    const j=await res.json() as any;return{text:String(j.choices?.[0]?.message?.content??'').trim(),input:Number(j.usage?.prompt_tokens??0),output:Number(j.usage?.completion_tokens??0)};
-  }finally{clearTimeout(timer)}
+  if(!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
+  const raw=await replicateText({model:env.CM_TEXT_MODEL,systemPrompt:system,prompt:user,maxTokens:1200,timeoutMs:45000,input:{max_completion_tokens:1200,reasoning_effort:'low',verbosity:'low'}});
+  if(!raw)throw new Error('CM_AI_EMPTY');
+  return{text:raw.trim(),input:0,output:0};
 }
 
 async function refreshConversationMemory(ctx:Ctx,history:string,state:any){
@@ -125,7 +131,7 @@ async function withinQuota(ctx:Ctx,m:any){
 }
 
 async function log(ctx:Ctx,m:any,decision:string,intent:string,confidence:number,reason:string,start:number,response?:string,sources:ResearchSource[]=[],usage={input:0,output:0},error?:unknown,telegramMessageId?:number,metadata?:Prisma.InputJsonValue){
-  await prisma.communityManagerAction.create({data:{communityManagerId:ctx.manager.id,messageId:m?.id,decision,intent,confidence,reason:reason.slice(0,500),response:response?.slice(0,5000),sources:sources as any,metadata,model:env.DEEPSEEK_MODEL,promptVersion:'community-manager-conversation-v7',inputTokens:usage.input,outputTokens:usage.output,latencyMs:Date.now()-start,telegramMessageId,status:error?'FAILED':'COMPLETED',error:error instanceof Error?error.message.slice(0,500):undefined}});
+  await prisma.communityManagerAction.create({data:{communityManagerId:ctx.manager.id,messageId:m?.id,decision,intent,confidence,reason:reason.slice(0,500),response:response?.slice(0,5000),sources:sources as any,metadata,model:env.CM_TEXT_MODEL,promptVersion:'community-manager-conversation-v7',inputTokens:usage.input,outputTokens:usage.output,latencyMs:Date.now()-start,telegramMessageId,status:error?'FAILED':'COMPLETED',error:error instanceof Error?error.message.slice(0,500):undefined}});
 }
 async function done(id:string,status:string,error?:string,runAfter?:Date){await prisma.communityManagerJob.update({where:{id},data:{status:runAfter?'RETRY_WAIT':status,lastError:error,runAfter,leaseUntil:null}})}
 
@@ -215,7 +221,7 @@ export async function runCommunityActivity(managerId:string,type:'DISCUSSION'|'P
     let mid:number|undefined;if(type==='POLL'){const j=jsonObject(out.text),options=Array.isArray(j?.options)?j.options.map(String).map((x:string)=>x.trim()).filter(Boolean).slice(0,4):[];if(!j||typeof j.question!=='string'||!j.question.trim()||options.length<2)throw new Error('Invalid poll');mid=await sendPoll(manager.community.moderatorChat.tgChatId,j.question,options,executor.token)}else{const response=plainTelegram(out.text).slice(0,700);if(!response)throw new Error('Empty activity');const ref=await sendBotMessage(manager.community.moderatorChat.tgChatId,response,executor.token);mid=ref?.messageId}
     await prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'COMPLETED',sentAt:new Date(),telegramMessageId:mid}});
     await prisma.communityManager.update({where:{id:manager.id},data:{lastActionAt:new Date(),lastHealthyAt:new Date(),lastError:null}});
-    await prisma.communityManagerAction.create({data:{communityManagerId:manager.id,decision:'ACTIVITY',intent:type.toLowerCase(),response:out.text.slice(0,5000),model:env.DEEPSEEK_MODEL,promptVersion:'community-manager-activity-v1',inputTokens:out.input,outputTokens:out.output,telegramMessageId:mid}});
+    await prisma.communityManagerAction.create({data:{communityManagerId:manager.id,decision:'ACTIVITY',intent:type.toLowerCase(),response:out.text.slice(0,5000),model:env.CM_TEXT_MODEL,promptVersion:'community-manager-activity-v1',inputTokens:out.input,outputTokens:out.output,telegramMessageId:mid}});
     return{activityId:activity.id,telegramMessageId:mid};
   }catch(e){await prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'FAILED',lastError:e instanceof Error?e.message.slice(0,500):'failed'}});throw e}
 }

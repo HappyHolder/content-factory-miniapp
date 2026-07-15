@@ -69,6 +69,9 @@ export const env = {
   DEEPSEEK_API_KEY:  process.env['DEEPSEEK_API_KEY']  ?? '',
   DEEPSEEK_BASE_URL: process.env['DEEPSEEK_BASE_URL'] ?? 'https://api.deepseek.com',
   DEEPSEEK_MODEL:    process.env['DEEPSEEK_MODEL']    ?? 'deepseek-chat',
+  // Community Manager chat model. Runs on Replicate via replicateText — the same
+  // transport the Moderator's Terra uses. Needs REPLICATE_API_TOKEN.
+  CM_TEXT_MODEL:     process.env['CM_TEXT_MODEL']     ?? 'openai/gpt-5.6-terra',
   // Layout/formatting model (richPostGenerator). 'replicate' → LAYOUT_MODEL
   // (GPT-5.6 Terra) with a DeepSeek fallback; 'deepseek' → DeepSeek only. Needs
   // REPLICATE_API_TOKEN for the replicate path; otherwise falls back to DeepSeek.
