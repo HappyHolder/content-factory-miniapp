@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { LayoutTemplate, Loader2, Check } from 'lucide-react'
-import { PageHeader } from '@/components/layout/PageHeader'
 import { StyleDetailSheet } from '@/components/styles/StyleDetailSheet'
 import { useApp } from '@/context/AppContext'
 import { fetchStyles, isStyleOwned } from '@/lib/styles'
@@ -34,8 +33,7 @@ export function StylesScreen() {
   }
 
   return (
-    <div className="pb-8">
-      <PageHeader title={t('styles.title')} subtitle={t('styles.subtitle')} />
+    <div className="pb-8 pt-3">
 
       {loading ? (
         <div className="flex flex-col items-center justify-center gap-3 py-20">

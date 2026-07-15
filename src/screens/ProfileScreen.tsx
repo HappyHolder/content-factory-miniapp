@@ -9,7 +9,6 @@ import { API_BASE } from '@/lib/api'
 import { channelLabel } from '@/lib/utils'
 import { useWalkthrough } from '@/context/WalkthroughContext'
 import { Coachmark, HighlightRing } from '@/components/onboarding/Coachmark'
-import { PageHeader } from '@/components/layout/PageHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
@@ -77,19 +76,16 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
 
   return (
     <div>
-      <PageHeader
-        title={t('nav.profile')}
-        right={
-          <motion.button
-            whileTap={{ scale: 0.92 }}
-            onClick={() => setSettingsOpen(true)}
-            aria-label={t('profile.appSettings')}
-            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-[#8A8A93] transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"
-          >
-            <Settings size={17} />
-          </motion.button>
-        }
-      />
+      <div className="flex justify-end px-4 pt-3 pb-1">
+        <motion.button
+          whileTap={{ scale: 0.92 }}
+          onClick={() => setSettingsOpen(true)}
+          aria-label={t('profile.appSettings')}
+          className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-[#8A8A93] transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"
+        >
+          <Settings size={17} />
+        </motion.button>
+      </div>
 
       <div className="px-4 space-y-2.5">
 
