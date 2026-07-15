@@ -1,16 +1,46 @@
-const tokens=(value:string)=>[...new Set(value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').split(' ').filter(token=>token.length>2))];
+// Cross-language platform vocabulary: Russian questions must reach English feature
+// names used inside the docs (модератора -> moderator, паблиум -> publium, ...).
+const NORMALIZE:[RegExp,string][]=[
+  [/модерир\p{L}*/giu,'moderation'],
+  [/модерат\p{L}*/giu,'moderator'],
+  [/паблиум\p{L}*/giu,'publium'],
+  [/комьюнити[- ]?менеджер\p{L}*/giu,'community manager'],
+  [/комьюнити\p{L}*/giu,'community'],
+  [/капч\p{L}*/giu,'captcha'],
+  [/антиспам\p{L}*/giu,'antispam spam'],
+  [/бренд[- ]?кит\p{L}*/giu,'brand kit'],
+];
+const normalize=(s:string)=>NORMALIZE.reduce((acc,[re,to])=>acc.replace(re,to),s.toLowerCase());
+// Generic Russian/English filler that must not dominate lexical coverage.
+const STOP=new Set(['как','или','что','это','для','его','ему','свой','свое','своего','своих','лучше','использовать','подскажите','пожалуйста','можно','если','при','про','там','где','чтобы','вообще','нужно','надо','быть','есть','этот','весь','все','так','под','чем','тут','вот','они','оно','кто','тоже','уже','еще','ещё','the','and','for','you']);
+// Light Russian suffix stripping so declensions collapse to a shared stem
+// (модератора/модератору -> модератор, кастомного/кастомным -> кастомн).
+const RU_SUFFIX=/(ами|ями|ого|его|ому|ему|ыми|ими|ов|ев|ей|ий|ый|ая|яя|ое|ее|ую|юю|ам|ям|ом|ем|ах|ях|ы|и|а|я|о|е|у|ю|й|ь)$/u;
+const stem=(t:string)=>{const s=t.replace(RU_SUFFIX,'');return s.length>=4?s:t;};
+const tokens=(value:string)=>[...new Set(normalize(value).replace(/[^\p{L}\p{N}]+/gu,' ').split(' ').filter(t=>t.length>2&&!STOP.has(t)).map(stem))];
 
 export type KnowledgeCandidate={text:string;source:string;priority?:number};
 export type KnowledgeMatch=KnowledgeCandidate&{score:number;matchedTerms:string[]};
 
-export function rankKnowledge(query:string,candidates:KnowledgeCandidate[],limit=5):KnowledgeMatch[]{
-  const terms=tokens(query),phrase=query.trim().toLowerCase();
+export function rankKnowledge(query:string,candidates:KnowledgeCandidate[],limit=6):KnowledgeMatch[]{
+  const terms=tokens(query),phrase=normalize(query).trim();
   if(!terms.length)return[];
-  return candidates.map(candidate=>{
-    const haystack=(candidate.source+' '+candidate.text).toLowerCase(),matchedTerms=terms.filter(term=>haystack.includes(term));
-    const coverage=matchedTerms.length/terms.length,exact=phrase.length>8&&haystack.includes(phrase)?8:0,sourceHits=terms.filter(term=>candidate.source.toLowerCase().includes(term)).length*3;
+  const scored=candidates.map(candidate=>{
+    const hay=normalize(candidate.source+' '+candidate.text),haySet=new Set(tokens(candidate.source+' '+candidate.text));
+    const matchedTerms=terms.filter(term=>haySet.has(term));
+    const coverage=matchedTerms.length/terms.length,exact=phrase.length>8&&hay.includes(phrase)?8:0;
+    const srcSet=new Set(tokens(candidate.source)),sourceHits=terms.filter(term=>srcSet.has(term)).length*3;
     return{...candidate,matchedTerms,score:Math.round((matchedTerms.length*2+coverage*6+exact+sourceHits+(candidate.priority??0))*100)/100};
-  }).filter(item=>item.matchedTerms.length>0).sort((a,b)=>b.score-a.score||b.matchedTerms.length-a.matchedTerms.length).slice(0,limit);
+  }).filter(item=>item.matchedTerms.length>0).sort((a,b)=>b.score-a.score||b.matchedTerms.length-a.matchedTerms.length);
+  // Keep at most two chunks per heading so one section cannot crowd out the rest.
+  const out:KnowledgeMatch[]=[],perSection=new Map<string,number>();
+  for(const item of scored){
+    const section=(item.source+'|'+item.text.split('\n')[0]).toLowerCase(),used=perSection.get(section)??0;
+    if(used>=2)continue;
+    perSection.set(section,used+1);out.push(item);
+    if(out.length>=limit)break;
+  }
+  return out;
 }
 
 export function documentChunks(text:string,maxChars=2200){

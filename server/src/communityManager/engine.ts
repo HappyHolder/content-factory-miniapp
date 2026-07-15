@@ -68,7 +68,7 @@ async function knowledge(ctx:Ctx,query:string){
     const docs=await prisma.projectDoc.findMany({where:{channelId:ctx.community.channelId},select:{name:true,text:true},take:20});
     for(const d of docs)for(const chunk of documentChunks(d.text).slice(0,800))candidates.push({text:chunk,source:d.name,priority:2});
   }
-  return rankKnowledge(query,candidates,5);
+  return rankKnowledge(query,candidates,6);
 }
 
 async function chatContext(id:string,current:string){
