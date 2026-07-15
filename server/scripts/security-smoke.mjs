@@ -17,7 +17,7 @@ const { acceptableInterventionResponse, moderatorFallback, responseSimilarity } 
 const { shouldJoinAmbient } = require(path.join(root, 'dist/communityManager/responsePolicy.js'));
 const { allowConversationGreeting, needsNaturalConversationRewrite, sanitizeConversationReply } = require(path.join(root, 'dist/communityManager/conversationStyle.js'));
 const { parseCommunityManagerConfig, randomInitiativeDate } = require(path.join(root, 'dist/communityManager/config.js'));
-const { canJoinThematicConversation } = require(path.join(root, 'dist/communityManager/conversationIntelligence.js'));
+const { applyConversationPolicy, canJoinThematicConversation, isAddressedToCommunityManager, participationDecisionContext } = require(path.join(root, 'dist/communityManager/conversationIntelligence.js'));
 const { personalityPrompt } = require(path.join(root, 'dist/communityManager/personality.js'));
 const { interventionCooldownSeconds, selectRepeatedParticipant } = require(path.join(root, 'dist/moderator/interventionPolicy.js'));
 const { normalizePostBlocks, blocksToPlainText, blocksToRichHtml } = require(path.join(root, 'dist/lib/richPost.js'));
@@ -42,6 +42,19 @@ assert.equal(randomInitiativeDate(legacyCmConfig,new Date('2026-07-15T00:00:00Z'
 const conversationDecision={intent:'conversation',respond:true,research:false,confidence:.9,reason:'useful',engagementLevel:'contribute',conversationScore:.75,topic:'рынок',valueAdd:'контраргумент',moderatorFollowup:false,usage:{input:0,output:0}};
 assert.equal(canJoinThematicConversation({config:{...legacyCmConfig,replies:{...legacyCmConfig.replies,ambientConversation:true,thematicConversation:true,participationLevel:'selective'}},decision:conversationDecision,participantCount:2,messageCount:4,cooldownFree:true}),true);
 assert.equal(canJoinThematicConversation({config:{...legacyCmConfig,replies:{...legacyCmConfig.replies,ambientConversation:true,thematicConversation:true,participationLevel:'quiet'}},decision:conversationDecision,participantCount:2,messageCount:4,cooldownFree:true}),false);
+const activeCmConfig={...legacyCmConfig,identity:{...legacyCmConfig.identity,displayName:'\u0410\u043b\u0435\u043a\u0441',socialRoles:['\u0417\u0430\u0432\u043e\u0434\u0438\u043b\u0430','\u0421\u0432\u043e\u0439 \u0447\u0435\u043b\u043e\u0432\u0435\u043a'],debateStyle:'fact_check'},replies:{...legacyCmConfig.replies,ambientConversation:true,thematicConversation:true,moderatorFollowups:true,participationLevel:'active'}};
+assert.equal(isAddressedToCommunityManager('\u041a\u041c, \u043c\u0435\u043d\u044f \u0442\u0443\u0442 \u043e\u0431\u0438\u0436\u0430\u044e\u0442',activeCmConfig),true);
+assert.equal(isAddressedToCommunityManager('\u0410\u043b\u0435\u043a\u0441, \u0442\u044b \u0447\u0435\u0433\u043e \u043c\u043e\u043b\u0447\u0438\u0448\u044c?',activeCmConfig),true);
+assert.equal(isAddressedToCommunityManager('\u043e\u0431\u0441\u0443\u0436\u0434\u0430\u0435\u043c \u0438\u043d\u0434\u0435\u043a\u0441 \u0441\u0442\u0440\u0430\u0445\u0430',activeCmConfig),false);
+assert.match(participationDecisionContext(activeCmConfig),/Participation level: active/);
+const ignoredConflict={...conversationDecision,respond:false,engagementLevel:'ignore',conversationScore:.1,valueAdd:'',moderatorFollowup:false};
+const socialDecision=applyConversationPolicy({config:activeCmConfig,decision:ignoredConflict,text:'\u041a\u041c, \u043c\u0435\u043d\u044f \u0442\u0443\u0442 \u043e\u0431\u0438\u0436\u0430\u044e\u0442',socialAddress:true,recentModerator:true,participantCount:4,messageCount:12});
+assert.equal(socialDecision.respond,true);
+assert.equal(socialDecision.moderatorFollowup,true);
+assert.equal(socialDecision.engagementLevel,'contribute');
+const unsafeDecision=applyConversationPolicy({config:activeCmConfig,decision:{...ignoredConflict,intent:'unsafe'},text:'CM unsafe request',socialAddress:true,recentModerator:true,participantCount:4,messageCount:12});
+assert.equal(unsafeDecision.respond,false);
+assert.equal(unsafeDecision.moderatorFollowup,false);
 assert.match(personalityPrompt({...legacyCmConfig,identity:{...legacyCmConfig.identity,profanityLevel:'rough',debateStyle:'provoke'}}),/never use slurs/i);
 assert.equal(actionPresentation({decision:'RESPOND',intent:'conversation',metadata:{engagementLevel:'contribute',conversationScore:.82,thematic:true}}).engagementLabel,'Добавить по существу');
 assert.equal(documentChunks('Раздел один с достаточно длинным содержанием для индексации и проверки поиска.').length, 1);
