@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText, Copy, X } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText, Copy, X, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -461,6 +461,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
               <div className="p-2.5">
                 <BlockEditor
                   b={b}
+                  allowGrid4={state.user.isAdmin === true}
                   onChange={next => patch(i, next)}
                   onReplace={() => (b.type === 'video' ? pickVideo(i) : b.type === 'document' ? pickDocument(i) : pickImage(i))}
                   onAddGalleryPhoto={() => pickImage({ gallery: i })}
@@ -702,8 +703,9 @@ function MarkableTextarea({ value, onChange, rows = 3, placeholder }: {
 
 // ─── Per-block editors ──────────────────────────────────────────────────────────
 
-function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGalleryPhoto, galleryGenLoading, onRegenerate, regenLoading, uploading, onSlicePanorama, onGeneratePanorama, panoGenLoading }: {
+function BlockEditor({ b, allowGrid4, onChange, onReplace, onAddGalleryPhoto, onGenerateGalleryPhoto, galleryGenLoading, onRegenerate, regenLoading, uploading, onSlicePanorama, onGeneratePanorama, panoGenLoading }: {
   b: PostBlock; onChange: (next: PostBlock) => void; onReplace?: () => void; onAddGalleryPhoto?: () => void
+  allowGrid4: boolean
   onGenerateGalleryPhoto?: (prompt: string) => void; galleryGenLoading?: boolean
   onRegenerate?: (prompt: string) => void; regenLoading?: boolean; uploading?: boolean
   onSlicePanorama?: (orientation: PanoramaCut, count: number) => void
@@ -1045,12 +1047,16 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
               <div className="space-y-1.5">
                 <p className="text-[11px] font-semibold text-[#A1A1AA]">Как нарезать исходное изображение</p>
                 <div className="grid grid-cols-3 gap-1 rounded-[9px] bg-white/[0.04] border border-white/[0.06] p-1">
-                  {([['horizontal', 'Горизонт'], ['vertical', 'Вертикаль'], ['grid4', '4×4']] as const).map(([orientation, label]) => (
-                    <button type="button" key={orientation} onClick={() => setPanoOrient(orientation)}
-                      className={cn('min-h-9 rounded-[7px] px-2 text-[11px] font-medium transition-colors', panoOrient === orientation ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA] hover:text-white')}>
-                      {label}
-                    </button>
-                  ))}
+                  {([['horizontal', 'Горизонт'], ['vertical', 'Вертикаль'], ['grid4', '4×4']] as const).map(([orientation, label]) => {
+                    const locked = orientation === 'grid4' && !allowGrid4
+                    return (
+                      <button type="button" key={orientation} onClick={() => !locked && setPanoOrient(orientation)} disabled={locked}
+                        title={locked ? 'Сложный коллаж 4×4 временно доступен только администратору' : undefined}
+                        className={cn('min-h-9 rounded-[7px] px-2 text-[11px] font-medium transition-colors flex items-center justify-center gap-1', panoOrient === orientation ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA] hover:text-white', locked && 'cursor-not-allowed opacity-40 hover:text-[#A1A1AA]')}>
+                        {label}{locked && <Lock size={10} />}
+                      </button>
+                    )
+                  })}
                 </div>
                 <p className="text-[10px] leading-relaxed text-[#66666E]">
                   {panoOrient === 'horizontal' && 'Одна широкая сцена → горизонтальная карусель.'}
@@ -1077,11 +1083,11 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => onSlicePanorama?.(panoOrient, panoCount)} disabled={uploading || panoGenLoading}
+                <button type="button" onClick={() => onSlicePanorama?.(panoOrient, panoCount)} disabled={uploading || panoGenLoading || (panoOrient === 'grid4' && !allowGrid4)}
                   className="min-h-11 flex items-center justify-center gap-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
                   {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Загрузить исходник
                 </button>
-                <button type="button" onClick={() => onGeneratePanorama?.(panoOrient, panoCount, panoPrompt)} disabled={panoGenLoading || uploading || !panoPrompt.trim()}
+                <button type="button" onClick={() => onGeneratePanorama?.(panoOrient, panoCount, panoPrompt)} disabled={panoGenLoading || uploading || !panoPrompt.trim() || (panoOrient === 'grid4' && !allowGrid4)}
                   className="min-h-11 flex items-center justify-center gap-1.5 rounded-[9px] bg-[#FF6A00] text-white text-[12px] font-semibold disabled:opacity-50">
                   {panoGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Сгенерировать
                 </button>

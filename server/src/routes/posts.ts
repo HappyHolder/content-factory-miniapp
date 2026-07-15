@@ -1050,6 +1050,10 @@ router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Req
 
   const rawOrientation = req.body['orientation'];
   const orientation = rawOrientation === 'grid4' ? 'grid4' : rawOrientation === 'vertical' ? 'vertical' : 'horizontal';
+  if (orientation === 'grid4' && !env.ADMIN_TELEGRAM_IDS.includes(String(parsed.user.id))) {
+    res.status(403).json({ error: 'Режим 4×4 временно доступен только администратору Publium.' });
+    return;
+  }
 
   try {
     const meta = await sharp(file.buffer).metadata();
@@ -1129,6 +1133,10 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
 
   const rawOrientation = (req.body as { orientation?: unknown }).orientation;
   const orientation = rawOrientation === 'grid4' ? 'grid4' : rawOrientation === 'vertical' ? 'vertical' : 'horizontal';
+  if (orientation === 'grid4' && !env.ADMIN_TELEGRAM_IDS.includes(String(parsed.user.id))) {
+    res.status(403).json({ error: 'Режим 4×4 временно доступен только администратору Publium.' });
+    return;
+  }
   let count = parseInt(String((req.body as { count?: unknown }).count ?? ''), 10);
   if (!Number.isFinite(count)) count = 4;
   count = Math.min(Math.max(count, 2), 8);
