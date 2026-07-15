@@ -1077,11 +1077,12 @@ router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Req
 // Generates ONE long panorama via nano-banana-2 (prompt + orientation), then
 // slices it into `count` pieces. 'horizontal' → 4:1/8:1 → slideshow carousel;
 // 'vertical' → 1:4/1:8 → stacked. Does NOT touch the DB.
-// Request: JSON { initData, prompt, orientation?, count? }
+// Request: JSON { initData, postId, prompt, orientation?, count? }
 // Response 200: { urls: string[], layout: 'slideshow' | 'stack', count }
 router.post('/generate-panorama', async (req: Request, res: Response): Promise<void> => {
-  const { initData, prompt } = req.body as { initData?: unknown; prompt?: unknown };
+  const { initData, postId, prompt } = req.body as { initData?: unknown; postId?: unknown; prompt?: unknown };
   if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (typeof postId !== 'string' || !postId.trim()) { res.status(400).json({ error: 'postId is required' }); return; }
   if (typeof prompt !== 'string' || !prompt.trim()) { res.status(400).json({ error: 'prompt is required' }); return; }
 
   let parsed;
@@ -1089,6 +1090,21 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
   catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
   const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
   if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+
+  const post = await prisma.generatedPost.findUnique({
+    where: { id: postId },
+    select: {
+      channel: {
+        select: {
+          userId: true,
+          brandKit: { select: { visualKit: true } },
+        },
+      },
+    },
+  }).catch(() => null);
+  if (!post) { res.status(404).json({ error: 'Post not found.' }); return; }
+  if (post.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
+  const visualKit = post.channel.brandKit?.visualKit ?? undefined;
 
   const orientation = (req.body as { orientation?: unknown }).orientation === 'vertical' ? 'vertical' : 'horizontal';
   let count = parseInt(String((req.body as { count?: unknown }).count ?? ''), 10);
@@ -1100,7 +1116,7 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
     : (count > 4 ? '8:1' : '4:1');
 
   try {
-    const image = await generatePanoramaImage(prompt.slice(0, 1200), aspectRatio, orientation, count);
+    const image = await generatePanoramaImage(prompt.slice(0, 1200), aspectRatio, orientation, count, visualKit);
     if (!image) { res.status(502).json({ error: 'Генерация не удалась. Попробуйте ещё раз.' }); return; }
 
     const slices = await sliceImage(image, orientation, count);

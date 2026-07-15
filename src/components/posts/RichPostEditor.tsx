@@ -182,7 +182,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
     try {
       const res = await fetch(`${API_BASE}/api/posts/generate-panorama`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData, prompt, orientation, count }),
+        body: JSON.stringify({ initData, postId, prompt, orientation, count }),
       })
       const data = await res.json().catch(() => ({})) as { urls?: string[]; layout?: string; error?: string }
       if (!res.ok || !data.urls?.length) { showToast(data.error ?? 'Не удалось сгенерировать', 'error'); return }

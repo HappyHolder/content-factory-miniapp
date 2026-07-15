@@ -234,7 +234,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       orderBy: { createdAt: 'asc' },
       select:  {
         id: true, handle: true, name: true,
-        brandKit: { select: { channelAbout: true, voiceProfile: true, postRules: true } },
+        brandKit: { select: { channelAbout: true, voiceProfile: true, postRules: true, visualKit: true } },
       },
     }).catch(() => []),
   ]);
@@ -281,6 +281,42 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         lines.push(`  Structure: ${pr['defaultStructure']}`);
       if (typeof pr['customNote'] === 'string' && pr['customNote'].trim())
         lines.push(`  Owner guidance (format): ${pr['customNote'].trim()}`);
+    }
+    if (bk?.visualKit && typeof bk.visualKit === 'object') {
+      const vk = bk.visualKit as Record<string, unknown>;
+      if (typeof vk['coverBgStyle'] === 'string' && vk['coverBgStyle'] !== 'auto')
+        lines.push('  Required image style: ' + vk['coverBgStyle']);
+      if (typeof vk['coverBgDetail'] === 'string')
+        lines.push('  Image detail: ' + vk['coverBgDetail']);
+      if (typeof vk['visualCoverStyle'] === 'string' && vk['visualCoverStyle'].trim())
+        lines.push('  Visual style guide: ' + vk['visualCoverStyle'].trim().replace(/\s+/g, ' ').slice(0, 600));
+      if (Array.isArray(vk['brandColors'])) {
+        const colors = (vk['brandColors'] as unknown[]).slice(0, 5).flatMap(item => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+          const color = item as Record<string, unknown>;
+          const hex = typeof color['hex'] === 'string' ? color['hex'] : '';
+          if (!/^#[0-9a-f]{6}$/i.test(hex)) return [];
+          const name = typeof color['name'] === 'string' ? color['name'].trim().slice(0, 50) : '';
+          return [(name ? name + ' ' : '') + hex];
+        });
+        if (colors.length) lines.push('  Brand colors: ' + colors.join(', '));
+      }
+      if (Array.isArray(vk['references'])) {
+        const refs = (vk['references'] as unknown[]).slice(0, 5).flatMap(item => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+          const description = (item as Record<string, unknown>)['description'];
+          return typeof description === 'string' && description.trim()
+            ? [description.trim().replace(/\s+/g, ' ').slice(0, 240)]
+            : [];
+        });
+        if (refs.length) lines.push('  Visual references: ' + refs.join(' | '));
+      }
+      if (Array.isArray(vk['avoidList'])) {
+        const avoid = (vk['avoidList'] as unknown[])
+          .flatMap(item => typeof item === 'string' && item.trim() ? [item.trim().slice(0, 100)] : [])
+          .slice(0, 12);
+        if (avoid.length) lines.push('  Avoid in images: ' + avoid.join(', '));
+      }
     }
     return lines;
   }
