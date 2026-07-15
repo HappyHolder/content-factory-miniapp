@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { putObject, deleteObject } from '../lib/storage';
-import { generatePanoramaImage, sliceImage } from '../lib/panoramaGenerator';
+import { generatePanoramaImage, sliceGrid4Image, sliceImage } from '../lib/panoramaGenerator';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -1048,12 +1048,33 @@ router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Req
   const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
   if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
 
-  const orientation = req.body['orientation'] === 'vertical' ? 'vertical' : 'horizontal';
+  const rawOrientation = req.body['orientation'];
+  const orientation = rawOrientation === 'grid4' ? 'grid4' : rawOrientation === 'vertical' ? 'vertical' : 'horizontal';
 
   try {
     const meta = await sharp(file.buffer).metadata();
     const W = meta.width ?? 0, H = meta.height ?? 0;
     if (W < 2 || H < 2) { res.status(400).json({ error: 'Image too small' }); return; }
+
+    if (orientation === 'grid4') {
+      const rows = await sliceGrid4Image(file.buffer);
+      if (rows.length !== 4 || rows.some(row => row.length !== 4)) {
+        res.status(400).json({ error: 'Grid slicing failed' });
+        return;
+      }
+      const stamp = Date.now();
+      const groups = await Promise.all(rows.map((row, rowIndex) =>
+        Promise.all(row.map((buf, colIndex) =>
+          putObject(
+            'posts/panorama/' + dbUser.id + '-' + stamp + '-r' + rowIndex + '-c' + colIndex + '.png',
+            buf,
+            { contentType: 'image/png' },
+          ).then(o => o.url),
+        )),
+      ));
+      res.json({ urls: groups.flat(), groups, layout: 'slideshow', count: 16, rows: 4, columns: 4 });
+      return;
+    }
 
     // Explicit count, else derive from the aspect ratio (how many squares fit).
     let count = parseInt(String(req.body['count'] ?? ''), 10);
@@ -1106,18 +1127,41 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
   if (post.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
   const visualKit = post.channel.brandKit?.visualKit ?? undefined;
 
-  const orientation = (req.body as { orientation?: unknown }).orientation === 'vertical' ? 'vertical' : 'horizontal';
+  const rawOrientation = (req.body as { orientation?: unknown }).orientation;
+  const orientation = rawOrientation === 'grid4' ? 'grid4' : rawOrientation === 'vertical' ? 'vertical' : 'horizontal';
   let count = parseInt(String((req.body as { count?: unknown }).count ?? ''), 10);
   if (!Number.isFinite(count)) count = 4;
   count = Math.min(Math.max(count, 2), 8);
-  // Pick the extreme ratio that gives enough source dimension for `count` squares.
-  const aspectRatio = orientation === 'vertical'
-    ? (count > 4 ? '1:8' : '1:4')
-    : (count > 4 ? '8:1' : '4:1');
+  // Grid uses a 1:1 4K source; one-dimensional panoramas keep extreme ratios.
+  const aspectRatio = orientation === 'grid4'
+    ? '1:1'
+    : orientation === 'vertical'
+      ? (count > 4 ? '1:8' : '1:4')
+      : (count > 4 ? '8:1' : '4:1');
 
   try {
     const image = await generatePanoramaImage(prompt.slice(0, 1200), aspectRatio, orientation, count, visualKit);
     if (!image) { res.status(502).json({ error: 'Генерация не удалась. Попробуйте ещё раз.' }); return; }
+
+    if (orientation === 'grid4') {
+      const rows = await sliceGrid4Image(image);
+      if (rows.length !== 4 || rows.some(row => row.length !== 4)) {
+        res.status(500).json({ error: 'Grid slicing failed' });
+        return;
+      }
+      const stamp = Date.now();
+      const groups = await Promise.all(rows.map((row, rowIndex) =>
+        Promise.all(row.map((buf, colIndex) =>
+          putObject(
+            'posts/panorama/' + dbUser.id + '-' + stamp + '-r' + rowIndex + '-c' + colIndex + '.png',
+            buf,
+            { contentType: 'image/png' },
+          ).then(o => o.url),
+        )),
+      ));
+      res.json({ urls: groups.flat(), groups, layout: 'slideshow', count: 16, rows: 4, columns: 4 });
+      return;
+    }
 
     const slices = await sliceImage(image, orientation, count);
     if (!slices.length) { res.status(500).json({ error: 'Slice failed' }); return; }

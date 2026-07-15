@@ -20,7 +20,7 @@ interface Prediction {
   error:   string | null;
 }
 
-export type PanoramaOrientation = 'horizontal' | 'vertical';
+export type PanoramaOrientation = 'horizontal' | 'vertical' | 'grid4';
 const PANORAMA_STYLE_PHRASES: Record<string, string> = {
   hyperreal:  'hyperrealistic, ultra-detailed, lifelike photography',
   cinematic:  'cinematic film still, dramatic lighting, shallow depth of field, professionally color-graded',
@@ -117,6 +117,30 @@ export function buildPanoramaPrompt(
   aspectRatio: string,
   visualKit?: unknown,
 ): string {
+  const brandStyle = buildPanoramaBrandStyle(visualKit);
+
+  if (orientation === 'grid4') {
+    return [
+      'Create ONE square modular source image at 1:1 aspect ratio and 4K resolution.',
+      'INVISIBLE 4 BY 4 CUTTING MATRIX:',
+      '- The image will be cut mechanically into exactly 4 equal columns and 4 equal rows, producing 16 square tiles.',
+      '- The four tiles in each row will become one independent horizontal slideshow. The four rows will be stacked vertically.',
+      '- Design four compatible alternatives across the columns and four interchangeable horizontal bands across the rows. The content can be characters, clothing, products, interfaces, objects, environments, or any other subject requested by the user.',
+      '- Keep scale, camera, perspective, lighting, background, and connection anchors identical across all alternatives so any tile from one row can align with any tile above or below it.',
+      '- Place important connection points at the same horizontal position in every column and exactly on the invisible row boundaries.',
+      '- Fill every tile intentionally. Do not draw visible grid lines, borders, gutters, labels, numbering, captions, UI guides, or empty separator space.',
+      '- No text, letters, numbers, logos, watermarks, frames, or mockup annotations.',
+      'SUBJECT: ' + brief.trim(),
+      ...(brandStyle
+        ? [
+            'MANDATORY CHANNEL BRAND ART DIRECTION:',
+            brandStyle,
+            'The saved channel style controls the rendering, palette, detail, and mood. It overrides conflicting style adjectives in the subject brief without changing the requested subject.',
+          ]
+        : []),
+    ].join('\n');
+  }
+
   const frames = Math.min(Math.max(Math.round(count), 2), 8);
   const direction = orientation === 'vertical'
     ? 'top to bottom through an ultra-tall canvas'
@@ -124,7 +148,6 @@ export function buildPanoramaPrompt(
   const seamDirection = orientation === 'vertical'
     ? 'horizontal cut lines'
     : 'vertical cut lines';
-  const brandStyle = buildPanoramaBrandStyle(visualKit);
 
   return [
     `Create ONE seamless ${orientation} panorama at ${aspectRatio}.`,
@@ -177,10 +200,12 @@ export async function generatePanoramaImage(
   if (!token) { console.warn('[panoramaGenerator] REPLICATE_API_TOKEN not set'); return null; }
   try {
     const productionPrompt = buildPanoramaPrompt(prompt, orientation, count, aspectRatio, visualKit);
+    const modelInput: Record<string, unknown> = { prompt: productionPrompt, aspect_ratio: aspectRatio };
+    if (orientation === 'grid4') modelInput['resolution'] = '4K';
     const res = await fetch(`https://api.replicate.com/v1/models/${NANO_MODEL}/predictions`, {
       method:  'POST',
       headers: { Authorization: `Token ${token}`, 'Content-Type': 'application/json', Prefer: 'wait' },
-      body:    JSON.stringify({ input: { prompt: productionPrompt, aspect_ratio: aspectRatio } }),
+      body:    JSON.stringify({ input: modelInput }),
     });
     if (!res.ok) { console.warn('[panoramaGenerator] create failed', res.status, (await res.text()).slice(0, 200)); return null; }
     let p = await res.json() as Prediction;
@@ -197,11 +222,49 @@ export async function generatePanoramaImage(
 }
 
 /**
- * Cuts one image into `count` equal pieces (2–8): 'vertical' → horizontal strips
- * (stacked), 'horizontal' → vertical strips (carousel). Each slice is upscaled so
- * its width reaches `upscaleTo` (crisp on Telegram). The last slice absorbs the
- * rounding remainder so nothing is cropped.
+ * Center-crops an image to 1:1 and cuts it into a row-major 4x4 matrix.
+ * Each returned row is ready to become one independent slideshow block.
  */
+export async function sliceGrid4Image(
+  buffer: Buffer,
+  tileSize = 1024,
+): Promise<Buffer[][]> {
+  const meta = await sharp(buffer).metadata();
+  const width = meta.width ?? 0;
+  const height = meta.height ?? 0;
+  if (width < 4 || height < 4) return [];
+
+  const side = Math.min(width, height);
+  const left = Math.floor((width - side) / 2);
+  const top = Math.floor((height - side) / 2);
+  const square = await sharp(buffer)
+    .extract({ left, top, width: side, height: side })
+    .png()
+    .toBuffer();
+
+  const cell = Math.floor(side / 4);
+  const rows: Buffer[][] = [];
+  for (let row = 0; row < 4; row++) {
+    const outputRow: Buffer[] = [];
+    for (let col = 0; col < 4; col++) {
+      const region = {
+        left: col * cell,
+        top: row * cell,
+        width: col === 3 ? side - col * cell : cell,
+        height: row === 3 ? side - row * cell : cell,
+      };
+      outputRow.push(await sharp(square)
+        .extract(region)
+        .resize({ width: tileSize, height: tileSize, fit: 'fill' })
+        .png()
+        .toBuffer());
+    }
+    rows.push(outputRow);
+  }
+  return rows;
+}
+
+/** Cuts a one-dimensional panorama into equal carousel or stack pieces. */
 export async function sliceImage(
   buffer: Buffer,
   orientation: 'horizontal' | 'vertical',
