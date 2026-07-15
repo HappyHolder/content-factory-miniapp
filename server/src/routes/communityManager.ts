@@ -8,6 +8,7 @@ import { acceptCommunityManagerUpdate, previewCommunityManagerPersonality, runCo
 import { communityManagerExecutor, incomingManagedCommunityBot, managedCommunityBotPublic, updateManagedCommunityBotProfile } from '../communityManager/managedBot';
 import { decryptManagedBotToken } from '../moderator/managedBotCrypto';
 import { actionPresentation } from '../communityManager/actionPresentation';
+import { participantPublic } from '../communityManager/participantMemory';
 
 const router=Router();
 async function auth(req:Request){
@@ -112,6 +113,37 @@ router.get('/:id/actions',async(req,res)=>{
   const actions=await prisma.communityManagerAction.findMany({where:{communityManagerId:c.manager.id},orderBy:{createdAt:'desc'},take});
   res.json({actions:actions.map(action=>({...action,presentation:actionPresentation(action)}))});
 });
+router.get('/:id/participants',async(req,res)=>{
+  let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
+  const participants=await prisma.communityManagerParticipant.findMany({where:{communityManagerId:c.manager.id},orderBy:[{expertConfirmed:'desc'},{lastSeenAt:'desc'}],take:200});
+  res.json({participants:participants.map(participantPublic)});
+});
+
+router.patch('/:id/participants/:participantId',async(req,res)=>{
+  let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
+  const current=await prisma.communityManagerParticipant.findFirst({where:{id:req.params.participantId,communityManagerId:c.manager.id}});
+  if(!current){res.status(404).json({error:'Участник не найден'});return}
+  const list=(value:unknown,max:number)=>Array.isArray(value)?[...new Set(value.flatMap(item=>typeof item==='string'&&item.trim()?[item.trim().slice(0,80)]:[]))].slice(0,max):undefined;
+  const relationship=['NEW','ACTIVE','REGULAR','FRIEND','EXPERT'].includes(String(req.body?.relationship))?String(req.body.relationship):undefined;
+  const expertConfirmed=typeof req.body?.expertConfirmed==='boolean'?req.body.expertConfirmed:undefined;
+  const roles=list(req.body?.roles,8),expertise=list(req.body?.expertise,12);
+  const participant=await prisma.communityManagerParticipant.update({where:{id:current.id},data:{
+    ...(relationship?{relationship}:{}),
+    ...(expertConfirmed!==undefined?{expertConfirmed,relationship:expertConfirmed?'EXPERT':relationship??(current.relationship==='EXPERT'?'REGULAR':current.relationship)}:{}),
+    ...(typeof req.body?.mentionEnabled==='boolean'?{mentionEnabled:req.body.mentionEnabled}:{}),
+    ...(roles?{roles}:{}),...(expertise?{expertise}:{}),
+  }});
+  res.json({participant:participantPublic(participant)});
+});
+
+router.delete('/:id/participants/:participantId',async(req,res)=>{
+  let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
+  const deleted=await prisma.communityManagerParticipant.deleteMany({where:{id:req.params.participantId,communityManagerId:c.manager.id}});
+  if(!deleted.count){res.status(404).json({error:'Участник не найден'});return}
+  res.json({ok:true});
+});
+
+
 
 router.post('/:id/actions/:actionId/send',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}

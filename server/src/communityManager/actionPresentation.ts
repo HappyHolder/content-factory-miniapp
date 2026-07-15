@@ -26,5 +26,7 @@ export function actionPresentation(action:{decision:string;intent?:string|null;r
     topic:typeof metadata.topic==='string'?metadata.topic:null,
     thematic:Boolean(metadata.thematic),
     moderatorFollowup:Boolean(metadata.moderatorFollowup),
+    researchRequested:Boolean(metadata.researchRequested),
+    expertInvite:typeof metadata.expertInvite==='string'?metadata.expertInvite:null,
   };
 }

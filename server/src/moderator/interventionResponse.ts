@@ -25,3 +25,26 @@ export function moderatorFallback(category:string,previous:string[],seed:number)
   const list=variants[category]??variants.other;
   return list.find((value,index)=>index===Math.abs(seed)%list.length&&!previous.some(old=>responseSimilarity(value,old)>=.68))??list.find(value=>!previous.some(old=>responseSimilarity(value,old)>=.68))??list[0];
 }
+
+export function moderatorSanctionNotice(action:string,count:number,threshold:string,seed:number){
+  const warning=[
+    `Предупреждение ${count}${threshold}. Не продолжайте нарушение после замечания.`,
+    `Фиксирую предупреждение ${count}${threshold}: граница уже была обозначена.`,
+    `Это предупреждение ${count}${threshold}. Дальше без повторения нарушения.`,
+    `Замечание проигнорировано — предупреждение ${count}${threshold}.`,
+  ];
+  const mute=[
+    `Предупреждение ${count}${threshold}; участник временно ограничен.`,
+    `После повторного нарушения включено временное ограничение. Счёт: ${count}${threshold}.`,
+    `Участник получает паузу за повтор. Предупреждений: ${count}${threshold}.`,
+    `Повтор зафиксирован: предупреждение ${count}${threshold} и временное ограничение.`,
+  ];
+  const ban=[
+    'Участник заблокирован за повторные нарушения.',
+    'Лимит нарушений исчерпан — участник заблокирован.',
+    'Повторные нарушения привели к блокировке участника.',
+    'Участник заблокирован: предыдущие предупреждения не помогли.',
+  ];
+  const values=action==='BAN'?ban:action==='MUTE'?mute:warning;
+  return values[Math.abs(seed)%values.length]!;
+}

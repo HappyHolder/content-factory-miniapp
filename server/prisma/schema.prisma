@@ -745,7 +745,37 @@ model CommunityManager {
   actions          CommunityManagerAction[]
   faqs             CommunityManagerFaq[]
   activities       CommunityManagerActivity[]
+  participants     CommunityManagerParticipant[]
   conversationState CommunityManagerConversationState?
+}
+
+model CommunityManagerParticipant {
+  id                    String           @id @default(cuid())
+  communityManagerId    String
+  tgUserId              String
+  username              String?
+  firstName             String?
+  lastName              String?
+  displayName           String
+  relationship          String           @default("NEW")
+  roles                 Json?
+  expertise             Json?
+  messageCount          Int              @default(0)
+  cmExchangeCount       Int              @default(0)
+  activeDayKeys         Json?
+  helpfulSignals        Int              @default(0)
+  expertConfirmed       Boolean          @default(false)
+  mentionEnabled        Boolean          @default(true)
+  lastSeenAt            DateTime         @default(now())
+  lastCmExchangeAt      DateTime?
+  lastMentionedAt       DateTime?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  communityManager      CommunityManager @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+
+  @@unique([communityManagerId, tgUserId])
+  @@index([communityManagerId, relationship, lastSeenAt])
+  @@index([communityManagerId, expertConfirmed, mentionEnabled])
 }
 
 model CommunityManagerConversationState {
