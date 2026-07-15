@@ -145,6 +145,7 @@ export function buildPanoramaPrompt(
         : []),
     ].join('\n');
   }
+
   const frames = Math.min(Math.max(Math.round(count), 2), 8);
   const direction = orientation === 'vertical'
     ? 'top to bottom through an ultra-tall canvas'
@@ -189,9 +190,53 @@ async function poll(id: string, token: string, timeoutMs = 90_000): Promise<Pred
   return null;
 }
 
+async function runNanoImage(
+  productionPrompt: string,
+  aspectRatio: string,
+  options?: { resolution?: '1K' | '2K' | '4K'; imageInput?: string[] },
+): Promise<Buffer | null> {
+  const token = env.REPLICATE_API_TOKEN;
+  if (!token) { console.warn('[panoramaGenerator] REPLICATE_API_TOKEN not set'); return null; }
+
+  try {
+    const modelInput: Record<string, unknown> = {
+      prompt: productionPrompt,
+      aspect_ratio: aspectRatio,
+      output_format: 'png',
+    };
+    if (options?.resolution) modelInput['resolution'] = options.resolution;
+    if (options?.imageInput?.length) modelInput['image_input'] = options.imageInput;
+
+    const res = await fetch(`https://api.replicate.com/v1/models/${NANO_MODEL}/predictions`, {
+      method: 'POST',
+      headers: { Authorization: `Token ${token}`, 'Content-Type': 'application/json', Prefer: 'wait' },
+      body: JSON.stringify({ input: modelInput }),
+    });
+    if (!res.ok) {
+      console.warn('[panoramaGenerator] create failed', res.status, (await res.text()).slice(0, 200));
+      return null;
+    }
+
+    let prediction = await res.json() as Prediction;
+    if (prediction.status !== 'succeeded' && prediction.id) {
+      const polled = await poll(prediction.id, token);
+      if (polled) prediction = polled;
+    }
+
+    const url = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+    if (!url) return null;
+    const image = await fetch(url);
+    if (!image.ok) return null;
+    return Buffer.from(await image.arrayBuffer());
+  } catch (err) {
+    console.warn('[panoramaGenerator] error:', (err as Error).message);
+    return null;
+  }
+}
+
 /**
- * Generates ONE long panorama image (aspectRatio e.g. '1:4' / '4:1' / '1:8' /
- * '8:1') via nano-banana-2 and returns its raw bytes, or null on any failure.
+ * Generates a regular one-dimensional panorama. Grid4 uses the separate
+ * reference-template pipeline below.
  */
 export async function generatePanoramaImage(
   prompt: string,
@@ -200,29 +245,96 @@ export async function generatePanoramaImage(
   count: number,
   visualKit?: unknown,
 ): Promise<Buffer | null> {
-  const token = env.REPLICATE_API_TOKEN;
-  if (!token) { console.warn('[panoramaGenerator] REPLICATE_API_TOKEN not set'); return null; }
-  try {
-    const productionPrompt = buildPanoramaPrompt(prompt, orientation, count, aspectRatio, visualKit);
-    const modelInput: Record<string, unknown> = { prompt: productionPrompt, aspect_ratio: aspectRatio };
-    if (orientation === 'grid4') modelInput['resolution'] = '4K';
-    const res = await fetch(`https://api.replicate.com/v1/models/${NANO_MODEL}/predictions`, {
-      method:  'POST',
-      headers: { Authorization: `Token ${token}`, 'Content-Type': 'application/json', Prefer: 'wait' },
-      body:    JSON.stringify({ input: modelInput }),
-    });
-    if (!res.ok) { console.warn('[panoramaGenerator] create failed', res.status, (await res.text()).slice(0, 200)); return null; }
-    let p = await res.json() as Prediction;
-    if (p.status !== 'succeeded' && p.id) { const polled = await poll(p.id, token); if (polled) p = polled; }
-    const url = Array.isArray(p.output) ? p.output[0] : p.output;
-    if (!url) return null;
-    const img = await fetch(url);
-    if (!img.ok) return null;
-    return Buffer.from(await img.arrayBuffer());
-  } catch (err) {
-    console.warn('[panoramaGenerator] error:', (err as Error).message);
-    return null;
-  }
+  const productionPrompt = buildPanoramaPrompt(prompt, orientation, count, aspectRatio, visualKit);
+  return runNanoImage(productionPrompt, aspectRatio, {
+    resolution: orientation === 'grid4' ? '4K' : undefined,
+  });
+}
+
+function buildGrid4BasePrompt(brief: string, visualKit?: unknown): string {
+  const brandStyle = buildPanoramaBrandStyle(visualKit);
+  return [
+    'Create ONE complete canonical base composition as a tall 1:4 portrait image.',
+    'ORIGINAL CREATIVE BRIEF:',
+    brief.trim(),
+    'BASE TEMPLATE RULES:',
+    '- Extract the common subject and underlying composition from the brief and render exactly ONE neutral canonical version.',
+    '- If the brief requests four variants, multiple states, personalities, seasons, styles, or labels, do not render those differences yet. Do not render any label or text.',
+    '- Use a centered, stable composition with clear top, upper-middle, lower-middle, and bottom content.',
+    '- Fill the full height intentionally with minimal empty space above and below.',
+    '- Keep the camera, perspective, geometry, silhouette, horizon, and structural anchors clean and easy to preserve during a later visual edit.',
+    '- Present only polished finished artwork on one continuous unframed background.',
+    ...(brandStyle
+      ? [
+          'MANDATORY CHANNEL BRAND ART DIRECTION:',
+          brandStyle,
+        ]
+      : []),
+  ].join('\n');
+}
+
+/** Generates the single canonical 1:4 column used as the geometry template. */
+export async function generateGrid4BaseImage(
+  brief: string,
+  visualKit?: unknown,
+): Promise<Buffer | null> {
+  return runNanoImage(buildGrid4BasePrompt(brief, visualKit), '1:4', { resolution: '4K' });
+}
+
+/**
+ * Converts one canonical 1:4 composition into a deterministic square containing
+ * four pixel-identical columns. The image model receives this as its edit input.
+ */
+export async function buildGrid4ReferenceImage(
+  baseImage: Buffer,
+  side = 4096,
+): Promise<Buffer> {
+  const columnWidth = Math.floor(side / 4);
+  const column = await sharp(baseImage)
+    .resize({ width: columnWidth, height: side, fit: 'cover', position: 'centre' })
+    .png()
+    .toBuffer();
+
+  return sharp({
+    create: {
+      width: columnWidth * 4,
+      height: side,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 1 },
+    },
+  })
+    .composite(Array.from({ length: 4 }, (_, index) => ({
+      input: column,
+      left: index * columnWidth,
+      top: 0,
+    })))
+    .png()
+    .toBuffer();
+}
+
+/**
+ * Edits one square reference image containing four identical columns. Nano
+ * Banana changes only the requested state of each column while the supplied
+ * geometry remains the common structural source.
+ */
+export async function generateGrid4FromReference(
+  brief: string,
+  referenceUrl: string,
+  visualKit?: unknown,
+): Promise<Buffer | null> {
+  const productionPrompt = [
+    'Edit the supplied square reference image; do not create a new composition.',
+    'The reference contains four pixel-identical copies of one canonical composition.',
+    'Preserve the exact camera, crop, placement, pose where applicable, perspective, scale, major geometry, horizon, visual anchors, and background structure of all four copies.',
+    'Keep all corresponding features at the same pixel-space height and width.',
+    'Apply the requested four variants only as controlled visual changes inside the existing structure.',
+    buildPanoramaPrompt(brief, 'grid4', 4, '1:1', visualKit),
+  ].join('\n');
+
+  return runNanoImage(productionPrompt, 'match_input_image', {
+    resolution: '4K',
+    imageInput: [referenceUrl],
+  });
 }
 
 /**

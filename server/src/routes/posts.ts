@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { putObject, deleteObject } from '../lib/storage';
-import { generatePanoramaImage, sliceGrid4Image, sliceImage } from '../lib/panoramaGenerator';
+import { buildGrid4ReferenceImage, generateGrid4BaseImage, generateGrid4FromReference, generatePanoramaImage, sliceGrid4Image, sliceImage } from '../lib/panoramaGenerator';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -1140,7 +1140,33 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
       : (count > 4 ? '8:1' : '4:1');
 
   try {
-    const image = await generatePanoramaImage(prompt.slice(0, 1200), aspectRatio, orientation, count, visualKit);
+    const brief = prompt.slice(0, 1200);
+    let image: Buffer | null;
+
+    if (orientation === 'grid4') {
+      const baseImage = await generateGrid4BaseImage(brief, visualKit);
+      if (!baseImage) {
+        res.status(502).json({ error: 'Не удалось создать базовую композицию. Попробуйте ещё раз.' });
+        return;
+      }
+
+      const referenceImage = await buildGrid4ReferenceImage(baseImage);
+      const stamp = Date.now();
+      const referenceObject = await putObject(
+        `posts/panorama/work/${dbUser.id}-${stamp}-reference.png`,
+        referenceImage,
+        { contentType: 'image/png' },
+      );
+
+      try {
+        image = await generateGrid4FromReference(brief, referenceObject.url, visualKit);
+      } finally {
+        await deleteObject(referenceObject.url);
+      }
+    } else {
+      image = await generatePanoramaImage(brief, aspectRatio, orientation, count, visualKit);
+    }
+
     if (!image) { res.status(502).json({ error: 'Генерация не удалась. Попробуйте ещё раз.' }); return; }
 
     if (orientation === 'grid4') {
