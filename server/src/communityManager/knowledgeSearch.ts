@@ -14,10 +14,14 @@ export function rankKnowledge(query:string,candidates:KnowledgeCandidate[],limit
 }
 
 export function documentChunks(text:string,maxChars=2200){
-  const blocks=text.split(/\n{2,}|(?=^#{1,4}\s)/gm).map(block=>block.trim()).filter(block=>block.length>40),chunks:string[]=[];
+  const blocks=text.split(/\n{2,}/g).map(block=>block.trim()).filter(Boolean),chunks:string[]=[];
+  let heading='';
   for(const block of blocks){
-    if(block.length<=maxChars){chunks.push(block);continue}
-    for(let offset=0;offset<block.length;offset+=maxChars-200)chunks.push(block.slice(offset,offset+maxChars));
+    if(/^#{1,4}\s/.test(block)){heading=block;continue}
+    const contextual=heading?heading+'\n'+block:block;
+    if(contextual.length<=40)continue;
+    if(contextual.length<=maxChars){chunks.push(contextual);continue}
+    for(let offset=0;offset<contextual.length;offset+=maxChars-200)chunks.push(contextual.slice(offset,offset+maxChars));
   }
   return chunks;
 }
