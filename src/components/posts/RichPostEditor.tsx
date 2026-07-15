@@ -1071,7 +1071,7 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
               <div className="space-y-1.5">
                 <label className="block text-[11px] font-semibold text-[#A1A1AA]" htmlFor={editorId + '-panorama-subject'}>Что должно быть на исходной картинке</label>
                 <textarea id={editorId + '-panorama-subject'} value={panoPrompt} onChange={e => setPanoPrompt(e.target.value)} rows={3}
-                  placeholder={panoOrient === 'grid4' ? 'Например: четыре гиперреалистичных робота в одинаковой фронтальной позе' : 'Коротко опишите сюжет изображения'}
+                  placeholder={panoOrient === 'grid4' ? 'Например: один горный пейзаж в четырёх временах года' : 'Коротко опишите сюжет изображения'}
                   className="glass-input w-full px-3 py-2 text-[12px] resize-none" />
                 <p className="text-[10px] leading-relaxed text-[#66666E]">Пишите только сюжет. Размер, композицию, линии нарезки и BrandKit Publium добавит сам.</p>
               </div>
@@ -1090,7 +1090,7 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
               {b.matrix4 && (
                 <div className="space-y-1.5">
                   <p className="text-[11px] font-semibold text-[#A1A1AA]">Нарезка 4×4</p>
-                  <div className="grid grid-cols-4 gap-px overflow-hidden rounded-[8px] border border-white/[0.08] bg-black">
+                  <div className="grid grid-cols-4 gap-0 overflow-hidden rounded-[8px] bg-black">
                     {b.matrix4.flat().map((u, i) => <img key={i} src={u} alt="" className="aspect-square w-full object-cover" />)}
                   </div>
                 </div>
