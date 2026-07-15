@@ -1,5 +1,5 @@
 import { prisma } from '../db';
-import { isQuietHour, parseCommunityManagerConfig } from './config';
+import { isQuietHour, parseCommunityManagerConfig, randomInitiativeDate } from './config';
 import { chooseActivityTopic, chooseAdaptiveActivityType, consecutiveIgnored, initiativeBackoffHours, type CommunityActivityType } from './activityPolicy';
 import { runCommunityActivity } from './engine';
 
@@ -47,19 +47,25 @@ async function considerManager(manager:any,now:Date){
   const latestAuto=automatic[0],latestAutoResult=latestAuto?resultOf(latestAuto.result):null;
   if(latestAuto&&latestAutoResult&&!latestAutoResult.evaluated)return;
   const ignored=consecutiveIgnored(automatic.map(x=>resultOf(x.result)));
-  const minGap=initiativeBackoffHours(config.activities.everyHours,ignored)*3600_000;
+  const minGap=ignored?initiativeBackoffHours(Math.max(1,config.activities.everyHours),ignored)*3600_000:0;
   const latestActivity=recent[0];
   if(latestActivity?.sentAt&&now.getTime()-latestActivity.sentAt.getTime()<minGap)return;
 
   const lastHuman=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id},orderBy:{createdAt:'desc'},select:{createdAt:true}});
   const silenceFrom=lastHuman?.createdAt??manager.updatedAt;
-  if(now.getTime()-silenceFrom.getTime()<config.activities.silenceMinutes*60_000)return;
+  let state=await prisma.communityManagerConversationState.findUnique({where:{communityManagerId:manager.id}});
+  if(!state?.nextInitiativeAt){
+    const target=randomInitiativeDate(config,silenceFrom);
+    state=await prisma.communityManagerConversationState.upsert({where:{communityManagerId:manager.id},create:{communityManagerId:manager.id,lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target},update:{lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target}});
+  }
+  if(!state.nextInitiativeAt||state.nextInitiativeAt>now)return;
   const newer=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id,createdAt:{gt:silenceFrom}},select:{id:true}});
   if(newer)return;
   const type=chooseAdaptiveActivityType(types,recent.map(x=>{const result=resultOf(x.result);return{type:x.type,engaged:result.engaged,evaluated:result.evaluated}}));
   if(!type)return;
   const topic=chooseActivityTopic(config.activities.topics,recent.map(x=>x.topic));
-  await runCommunityActivity(manager.id,type,topic,{automatic:true,reason:'chat_idle_'+config.activities.silenceMinutes+'m'});
+  await runCommunityActivity(manager.id,type,topic,{automatic:true,reason:'chat_idle_random_'+config.activities.silenceMinMinutes+'-'+config.activities.silenceMaxMinutes+'m'});
+  await prisma.communityManagerConversationState.update({where:{communityManagerId:manager.id},data:{nextInitiativeAt:randomInitiativeDate(config,now)}});
 }
 
 export async function sweepCommunityActivities(now=new Date()){

@@ -745,6 +745,30 @@ model CommunityManager {
   actions          CommunityManagerAction[]
   faqs             CommunityManagerFaq[]
   activities       CommunityManagerActivity[]
+  conversationState CommunityManagerConversationState?
+}
+
+model CommunityManagerConversationState {
+  id                        String           @id @default(cuid())
+  communityManagerId        String           @unique
+  summary                   String           @default("")
+  activeTopics              Json?
+  openQuestions             Json?
+  participantMemory         Json?
+  mood                      String?
+  messagesSinceAnalysis     Int              @default(0)
+  lastAnalyzedAt            DateTime?
+  lastHumanAt               DateTime?
+  lastCmAt                  DateTime?
+  nextInitiativeAt          DateTime?
+  pendingModeratorMessageId Int?
+  pendingModeratorText      String?
+  pendingModeratorAt        DateTime?
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
+  communityManager          CommunityManager @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+
+  @@index([nextInitiativeAt])
 }
 
 model CommunityManagerConfig {
@@ -815,6 +839,7 @@ model CommunityManagerAction {
   sources            Json?
   model              String?
   promptVersion      String?
+  metadata           Json?
   inputTokens        Int              @default(0)
   outputTokens       Int              @default(0)
   latencyMs          Int?

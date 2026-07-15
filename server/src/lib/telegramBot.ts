@@ -288,6 +288,7 @@ export async function sendBotMessage(
   token: string,
   replyMarkup?: AnyInlineKeyboard,
   linkPreview?: LinkPreviewOptions,
+  replyToMessageId?: number,
 ): Promise<SentMessageRef | null> {
   const url = `${TG_API}/bot${token}/sendMessage`;
   let res: Response;
@@ -300,6 +301,7 @@ export async function sendBotMessage(
         text,
         ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
         ...(linkPreview ? { link_preview_options: linkPreview } : {}),
+        ...(replyToMessageId ? { reply_parameters: { message_id: replyToMessageId, allow_sending_without_reply: true } } : {}),
       }),
     });
   } catch (err) {

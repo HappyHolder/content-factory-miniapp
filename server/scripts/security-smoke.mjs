@@ -16,6 +16,9 @@ const { canRetryJob, retryDelayMs } = require(path.join(root, 'dist/communityMan
 const { acceptableInterventionResponse, moderatorFallback, responseSimilarity } = require(path.join(root, 'dist/moderator/interventionResponse.js'));
 const { shouldJoinAmbient } = require(path.join(root, 'dist/communityManager/responsePolicy.js'));
 const { allowConversationGreeting, needsNaturalConversationRewrite, sanitizeConversationReply } = require(path.join(root, 'dist/communityManager/conversationStyle.js'));
+const { parseCommunityManagerConfig, randomInitiativeDate } = require(path.join(root, 'dist/communityManager/config.js'));
+const { canJoinThematicConversation } = require(path.join(root, 'dist/communityManager/conversationIntelligence.js'));
+const { personalityPrompt } = require(path.join(root, 'dist/communityManager/personality.js'));
 const { interventionCooldownSeconds, selectRepeatedParticipant } = require(path.join(root, 'dist/moderator/interventionPolicy.js'));
 const { normalizePostBlocks, blocksToPlainText, blocksToRichHtml } = require(path.join(root, 'dist/lib/richPost.js'));
 
@@ -30,6 +33,17 @@ assert.equal(chooseActivityTopic(['BTC','Prediction'], ['BTC']), 'Prediction');
 assert.equal(canRetryJob(2), true);
 assert.equal(canRetryJob(3), false);
 assert.equal(retryDelayMs(1), 15000);
+const legacyCmConfig = parseCommunityManagerConfig({identity:{displayName:'Test',role:'CM',bio:'Bio',tone:'friendly',addressForm:'ты'},activities:{silenceMinutes:60}});
+assert.deepEqual(legacyCmConfig.identity.socialRoles, ['Свой человек','Помощник новичков']);
+assert.equal(legacyCmConfig.activities.silenceMinMinutes, 40);
+assert.equal(legacyCmConfig.activities.silenceMaxMinutes, 80);
+assert.equal(randomInitiativeDate(legacyCmConfig,new Date('2026-07-15T00:00:00Z'),()=>0).toISOString(),'2026-07-15T00:40:00.000Z');
+assert.equal(randomInitiativeDate(legacyCmConfig,new Date('2026-07-15T00:00:00Z'),()=>.999).toISOString(),'2026-07-15T01:20:00.000Z');
+const conversationDecision={intent:'conversation',respond:true,research:false,confidence:.9,reason:'useful',engagementLevel:'contribute',conversationScore:.75,topic:'рынок',valueAdd:'контраргумент',moderatorFollowup:false,usage:{input:0,output:0}};
+assert.equal(canJoinThematicConversation({config:{...legacyCmConfig,replies:{...legacyCmConfig.replies,ambientConversation:true,thematicConversation:true,participationLevel:'selective'}},decision:conversationDecision,participantCount:2,messageCount:4,cooldownFree:true}),true);
+assert.equal(canJoinThematicConversation({config:{...legacyCmConfig,replies:{...legacyCmConfig.replies,ambientConversation:true,thematicConversation:true,participationLevel:'quiet'}},decision:conversationDecision,participantCount:2,messageCount:4,cooldownFree:true}),false);
+assert.match(personalityPrompt({...legacyCmConfig,identity:{...legacyCmConfig.identity,profanityLevel:'rough',debateStyle:'provoke'}}),/never use slurs/i);
+assert.equal(actionPresentation({decision:'RESPOND',intent:'conversation',metadata:{engagementLevel:'contribute',conversationScore:.82,thematic:true}}).engagementLabel,'Добавить по существу');
 assert.equal(documentChunks('Раздел один с достаточно длинным содержанием для индексации и проверки поиска.').length, 1);
 assert.equal(rankKnowledge('комиссия вывода', [{source:'FAQ',text:'Комиссия за вывод составляет один процент',priority:5}])[0].source, 'FAQ');
 assert.equal(actionPresentation({decision:'SILENT',intent:'limits',reason:'Quiet hours or quota'}).decisionLabel, 'Промолчал');

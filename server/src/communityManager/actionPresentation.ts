@@ -10,8 +10,9 @@ const reasonLabels:Record<string,string>={
   'Already delivered':'Ответ уже был доставлен — повтор предотвращён',
 };
 
-export function actionPresentation(action:{decision:string;intent?:string|null;reason?:string|null;sources?:unknown;inputTokens?:number;outputTokens?:number;latencyMs?:number|null}){
+export function actionPresentation(action:{decision:string;intent?:string|null;reason?:string|null;sources?:unknown;metadata?:unknown;inputTokens?:number;outputTokens?:number;latencyMs?:number|null}){
   const sources=Array.isArray(action.sources)?action.sources:[],domains=[...new Set(sources.flatMap(source=>{try{return typeof source==='object'&&source&&'url'in source?[new URL(String((source as {url:unknown}).url)).hostname.replace(/^www\./,'')]:[]}catch{return[]}}))];
+  const metadata=action.metadata&&typeof action.metadata==='object'?action.metadata as Record<string,unknown>:{},engagement=String(metadata.engagementLevel??'');
   return{
     decisionLabel:decisionLabels[action.decision]??action.decision,
     intentLabel:action.intent?(intentLabels[action.intent]??action.intent):'Системное действие',
@@ -20,5 +21,10 @@ export function actionPresentation(action:{decision:string;intent?:string|null;r
     usedResearch:domains.length>0,
     tokens:Number(action.inputTokens??0)+Number(action.outputTokens??0),
     latencyMs:Number(action.latencyMs??0),
+    engagementLabel:({ignore:'Не вмешиваться',acknowledge:'Короткая реакция',contribute:'Добавить по существу',lead:'Повести обсуждение'} as Record<string,string>)[engagement]??null,
+    conversationScore:typeof metadata.conversationScore==='number'?metadata.conversationScore:null,
+    topic:typeof metadata.topic==='string'?metadata.topic:null,
+    thematic:Boolean(metadata.thematic),
+    moderatorFollowup:Boolean(metadata.moderatorFollowup),
   };
 }

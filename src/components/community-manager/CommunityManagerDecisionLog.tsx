@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, Globe2, Send } from '
 
 export type CommunityManagerActionRow={
  id:string;decision:string;intent:string|null;reason:string|null;response:string|null;status:string;createdAt:string;confidence?:number|null;error?:string|null
- presentation?:{decisionLabel:string;intentLabel:string;reasonLabel:string|null;domains:string[];usedResearch:boolean;tokens:number;latencyMs:number}
+ presentation?:{decisionLabel:string;intentLabel:string;reasonLabel:string|null;domains:string[];usedResearch:boolean;tokens:number;latencyMs:number;engagementLabel?:string|null;conversationScore?:number|null;topic?:string|null;thematic?:boolean;moderatorFollowup?:boolean}
 }
 type Health={pending:number;retrying:number;failed24h:number;lastHealthyAt:string|null;lastError:string|null}
 
@@ -26,8 +26,8 @@ export function CommunityManagerDecisionLog({actions,health,onSendDraft}:{action
    </button>
    {expanded&&<div className="mt-2 space-y-2 border-t border-white/[.06] pt-3 text-[10px] text-[#8A8A93]">
     {action.response&&<div><p className="font-semibold text-[#B4B4BC]">Текст CM</p><p className="mt-1 whitespace-pre-wrap leading-relaxed text-[#D4D4D8]">{action.response}</p></div>}
-    <div className="flex flex-wrap gap-2"><Chip>{Math.round((action.confidence??0)*100)}% уверенности</Chip>{p?.latencyMs?<Chip>{(p.latencyMs/1000).toFixed(1)} с</Chip>:null}{p?.tokens?<Chip>{p.tokens} токенов</Chip>:null}</div>
-    {p?.domains?.length?<div className="flex items-start gap-2"><Globe2 size={13} className="mt-0.5 shrink-0"/><p>Внутренний ресёрч: {p.domains.join(', ')}</p></div>:null}
+    <div className="flex flex-wrap gap-2"><Chip>{Math.round((action.confidence??0)*100)}% уверенности</Chip>{p?.engagementLabel&&<Chip>{p.engagementLabel}</Chip>}{typeof p?.conversationScore==='number'&&<Chip>ценность {Math.round(p.conversationScore*100)}%</Chip>}{p?.thematic&&<Chip>тематическая беседа</Chip>}{p?.moderatorFollowup&&<Chip>после Moderator</Chip>}{p?.latencyMs?<Chip>{(p.latencyMs/1000).toFixed(1)} с</Chip>:null}{p?.tokens?<Chip>{p.tokens} токенов</Chip>:null}</div>
+    {p?.topic&&<p>Тема: {p.topic}</p>}{p?.domains?.length?<div className="flex items-start gap-2"><Globe2 size={13} className="mt-0.5 shrink-0"/><p>Внутренний ресёрч: {p.domains.join(', ')}</p></div>:null}
     {action.error&&<p className="text-red-300">Ошибка: {action.error}</p>}
     {action.decision==='DRAFT'&&<button type="button" onClick={()=>onSendDraft(action.id)} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-[9px] bg-[rgba(255,106,0,.12)] px-3 font-semibold text-[#FF8A3D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"><Send size={13}/> Отправить</button>}
    </div>}

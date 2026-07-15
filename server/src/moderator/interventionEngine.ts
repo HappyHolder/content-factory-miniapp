@@ -4,6 +4,7 @@ import { deleteBotMessage, getChatMember, sendBotMessage } from '../lib/telegram
 import { replicateText } from '../lib/replicateText';
 import type { AiModerationBlock, WarningPolicyBlock } from './config';
 import { issueWarning } from './warningEngine';
+import { rememberModeratorIntervention } from '../communityManager/moderatorBridge';
 import { interventionCooldownSeconds, selectRepeatedParticipant } from './interventionPolicy';
 import { acceptableInterventionResponse, moderatorFallback } from './interventionResponse';
 
@@ -51,7 +52,7 @@ export async function processIntervention(input: { updateId:number|string; commu
   const decision:ConversationDecision|null=data&&typeof data['intervene']==='boolean'&&typeof data['confidence']==='number'?{intervene:data['intervene'],category:typeof data['category']==='string'?data['category'].slice(0,64):'other',severity:['low','medium','high'].includes(String(data['severity']))?String(data['severity']) as 'low'|'medium'|'high':'medium',confidence:Math.max(0,Math.min(1,data['confidence'])),reason:typeof data['reason']==='string'?data['reason'].slice(0,500):'',response:typeof data['response']==='string'?data['response'].replace(/https?:\/\/\S+/g,'').slice(0,250):'',participantIds:Array.isArray(data['participantIds'])?data['participantIds'].flatMap(v=>typeof v==='string'&&/^\d+$/.test(v)?[v]:[]).slice(0,20):[]}:null;
   if(!decision||!decision.intervene||decision.confidence<input.block.confidenceThreshold)return {analyzed:true,intervened:false};
   if(!acceptableInterventionResponse(decision.response,previousResponses))decision.response=moderatorFallback(decision.category,previousResponses,Number(input.telegramMessageId));
-  const repeated=state.stage!=='NORMAL'&&Boolean(state.lastInterventionAt)&&now.getTime()-state.lastInterventionAt!.getTime()<3600_000&&state.lastCategory===decision.category; let sentMessageId:number|undefined;
+  const repeated=state.stage!=='NORMAL'&&Boolean(state.lastInterventionAt)&&now.getTime()-state.lastInterventionAt!.getTime()<3600_000&&state.lastCategory===decision.category; let sentMessageId:number|undefined,sentText=decision.response;
   let sanction='NONE',sanctionCount=0,sanctionTarget:string|null=null;
   if(repeated&&input.block.repeatAction==='warn'&&input.block.interventionMode==='respond_warn'&&input.warningPolicy){
     const previousParticipants=Array.isArray(state.lastParticipants)?state.lastParticipants.flatMap(value=>typeof value==='string'?[value]:[]):[];
@@ -66,12 +67,13 @@ export async function processIntervention(input: { updateId:number|string; commu
       if(input.warningPolicy.notifyUser){
         const threshold=input.warningPolicy.banAfterWarnings>0?' из '+input.warningPolicy.banAfterWarnings:'';
         const notice=sanction==='BAN'?'Участник заблокирован за повторные нарушения.':sanction==='MUTE'?'Участник получил предупреждение '+sanctionCount+threshold+' и временно ограничен.':'Участнику выдано предупреждение '+sanctionCount+threshold+' за продолжение нарушения после вмешательства модератора.';
-        await sendBotMessage(input.chatId,notice,input.token).catch(()=>undefined);
+        const noticeRef=await sendBotMessage(input.chatId,notice,input.token).catch(()=>undefined);sentMessageId=noticeRef?.messageId;sentText=notice;
       }
     }
   }
   if(input.block.interventionMode!=='observe'&&decision.response&&!sanctionTarget){const ref=await sendBotMessage(input.chatId,decision.response,input.token);sentMessageId=ref?.messageId;if(sentMessageId&&input.block.responseAutoDeleteSeconds>0)await prisma.scheduledModerationAction.create({data:{communityId:input.communityId,actionType:'DELETE_MESSAGE',tgChatId:String(input.chatId),telegramMessageId:sentMessageId,executeAt:new Date(Date.now()+input.block.responseAutoDeleteSeconds*1000)}})}
   await prisma.$transaction([prisma.moderatorConversationState.update({where:{id:state.id},data:{stage:repeated?'ESCALATED':'INTERVENED',lastInterventionAt:now,interventionsInWindow:hourCount+1,lastCategory:decision.category,lastParticipants:decision.participantIds}}),prisma.moderationEvent.create({data:{communityId:input.communityId,telegramUpdateId:`intervention:${input.updateId}`,telegramMessageId:input.telegramMessageId,tgUserId:sanctionTarget??input.tgUserId,blockId:input.block.id,eventType:'AI_INTERVENTION',decision:decision.category,confidence:decision.confidence,reason:decision.reason,action:input.block.interventionMode==='observe'?'OBSERVE':`RESPOND_${sanction}`,status:'PROCESSED',model:env.LAYOUT_MODEL,promptVersion:'moderator-intervention-v3',metadata:{response:decision.response,severity:decision.severity,recentViolationCount,sentMessageId,contextSize:messages.length,repeated,sanctionCount,sanctionTarget,participantIds:decision.participantIds,inputTokens,outputTokens,estimatedCostMicros:cost}}})]);
+  if(sentMessageId)await rememberModeratorIntervention({communityId:input.communityId,messageId:sentMessageId,text:sentText,category:decision.category,severity:decision.severity}).catch(()=>undefined);
   return {analyzed:true,intervened:true};
 }
 
