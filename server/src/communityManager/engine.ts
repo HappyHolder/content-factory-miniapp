@@ -174,7 +174,7 @@ async function processJob(job:any){
     response=sanitizeConversationReply(plainTelegram(rewrite.text),false).slice(0,1200);out.input+=rewrite.input;out.output+=rewrite.output;
   }catch{}
   let supportGroundingFallback=false;
-  if(decision.intent==='product_support'&&!supportReplyIsGrounded(response,k)){
+  if(!supportReplyIsGrounded(response,k)){
     response=ctx.config.support.escalationText.trim()||'Я не могу подтвердить точный порядок действий. Уточню у команды Publium.';
     supportGroundingFallback=true;
   }
