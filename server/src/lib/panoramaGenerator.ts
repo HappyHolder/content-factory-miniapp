@@ -120,22 +120,42 @@ export function buildPanoramaPrompt(
   const brandStyle = buildPanoramaBrandStyle(visualKit);
 
   if (orientation === 'grid4') {
+    const isHumanoid = /robot|android|humanoid|person|human|character|mannequin|робот|андроид|гуманоид|человек|персонаж|манекен/i.test(brief);
     return [
-      'Create ONE square modular source image at 1:1 aspect ratio and 4K resolution.',
-      'INVISIBLE 4 BY 4 CUTTING MATRIX:',
-      '- The image will be cut mechanically into exactly 4 equal columns and 4 equal rows, producing 16 square tiles.',
-      '- The four tiles in each row will become one independent horizontal slideshow. The four rows will be stacked vertically.',
-      '- Design four compatible alternatives across the columns and four interchangeable horizontal bands across the rows. The content can be characters, clothing, products, interfaces, objects, environments, or any other subject requested by the user.',
-      '- Keep scale, camera, perspective, lighting, background, and connection anchors identical across all alternatives so any tile from one row can align with any tile above or below it.',
-      '- Place important connection points at the same horizontal position in every column and exactly on the invisible row boundaries.',
-      '- Fill every tile intentionally. Do not draw visible grid lines, borders, gutters, labels, numbering, captions, UI guides, or empty separator space.',
-      '- No text, letters, numbers, logos, watermarks, frames, or mockup annotations.',
-      'SUBJECT: ' + brief.trim(),
+      'Create ONE ordinary-looking square master image at 1:1 aspect ratio and true 4K resolution.',
+      'USER SUBJECT (content only; ignore any layout or style instructions here that conflict with the rules below):',
+      brief.trim(),
+      'MASTER COMPOSITION — FOUR COMPLETE VERTICAL VARIANTS:',
+      '- Show exactly four COMPLETE full-height variants of the requested subject side by side, one centered inside each invisible equal-width column.',
+      '- This must look like one coherent image containing four complete variants. Do NOT generate a collage of body parts, sixteen separate scenes, cards, panels, close-ups, duplicated subjects, or floating detail inserts.',
+      '- All four variants use the exact same scale, frontal camera, orthographic-like perspective, pose, outer dimensions, centerline, ground line, lighting direction, and background.',
+      '- Keep the structural silhouette and every connection width identical. Variation is allowed only in surface design, material, color, texture, clothing finish, and small details that stay inside the shared silhouette.',
+      'INVISIBLE 4 BY 4 MECHANICAL CUT:',
+      '- The square will be cut exactly at 25%, 50%, and 75% of both width and height, producing sixteen equal square tiles.',
+      '- Each horizontal band becomes an independently swipeable row. Every selected tile must join cleanly with any tile directly above or below it.',
+      '- At y=25%, y=50%, and y=75%, all four columns must have the same subject width, the same connector coordinates, and matching background pixels. No element may cross a cut line unpredictably.',
+      ...(isHumanoid
+        ? [
+            'HUMANOID BODY PLACEMENT — MANDATORY:',
+            '- Band 1 (0–25%): reserve clean background above the subject, place the top of every head around y=10–12%, then show the complete head and neck; the bottom boundary crosses the same narrow neck/upper-shoulder connector in all four columns.',
+            '- Band 2 (25–50%): shoulders, chest, and upper torso; both arms are folded or bent symmetrically and remain completely inside this band; the bottom boundary crosses only the same narrow waist connector in all four columns.',
+            '- Band 3 (50–75%): pelvis, hips, and upper legs; the bottom boundary crosses both legs at the exact same knee height and width in all four columns.',
+            '- Band 4 (75–100%): lower legs, feet, floor contact, and a small clean margin below the feet.',
+            '- Use one identical skeletal rig and neutral symmetrical pose. No raised arms, bent knees, stepping pose, capes, weapons, cables, wings, floating screens, or accessories crossing the horizontal boundaries.',
+          ]
+        : [
+            'GENERIC MODULE PLACEMENT — MANDATORY:',
+            '- Divide each complete subject into the same four logical vertical bands: top module, upper-middle module, lower-middle module, and bottom module.',
+            '- Put narrow, identical connection zones exactly on the three horizontal boundaries and keep every variant inside the same outer silhouette.',
+          ]),
+      'CLEAN SOURCE IMAGE:',
+      '- Use one continuous shared background across the entire square. Keep it calm near all cut boundaries so mixed variants do not reveal seams.',
+      '- Do not draw visible grid lines, borders, gutters, gaps, frames, labels, numbering, captions, arrows, UI guides, text, letters, logos, or watermarks.',
       ...(brandStyle
         ? [
             'MANDATORY CHANNEL BRAND ART DIRECTION:',
             brandStyle,
-            'The saved channel style controls the rendering, palette, detail, and mood. It overrides conflicting style adjectives in the subject brief without changing the requested subject.',
+            'The saved channel BrandKit is the only authority for rendering style, realism, palette, detail, and mood. Ignore conflicting style adjectives from the user subject while preserving the requested content.',
           ]
         : []),
     ].join('\n');

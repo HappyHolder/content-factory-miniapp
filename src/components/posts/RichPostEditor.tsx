@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText, Copy, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
@@ -711,8 +711,10 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
   panoGenLoading?: boolean
 }) {
   // Local prompt state for the gallery "+ AI-фото" panel (one photo at a time).
+  const editorId = useId()
   const [galPromptOpen, setGalPromptOpen] = useState(false)
   const [galPrompt, setGalPrompt] = useState('')
+  const [galleryTool, setGalleryTool] = useState<'photos' | 'slice'>(() => b.type === 'gallery' && b.matrix4 ? 'slice' : 'photos')
   // Panorama slicer (gallery): orientation + how many pieces to cut one image into.
   const [panoOrient, setPanoOrient] = useState<PanoramaCut>(b.type === 'gallery' && b.matrix4 ? 'grid4' : 'horizontal')
   const [panoCount, setPanoCount] = useState(3)
@@ -958,102 +960,143 @@ function BlockEditor({ b, onChange, onReplace, onAddGalleryPhoto, onGenerateGall
       )
     case 'gallery':
       return (
-        <div className="space-y-2">
-          {/* layout toggle */}
-          {b.matrix4 ? (
-            <div className="inline-flex items-center gap-2 rounded-[9px] bg-[rgba(255,106,0,0.1)] border border-[rgba(255,106,0,0.28)] px-2.5 py-1.5">
-              <span className="text-[11px] font-semibold text-[#FF6A00]">4×4</span>
-              <span className="text-[10px] text-[#A1A1AA]">единый блок · 4 листаемых ряда · 16 фрагментов</span>
-            </div>
-          ) : (
-            <div className="flex gap-1 p-0.5 rounded-[9px] bg-white/[0.04] border border-white/[0.06] w-fit">
-              {([['slideshow', 'Карусель'], ['collage', 'Сетка'], ['stack', 'Стопка']] as const).map(([lay, label]) => (
-                <button key={lay} onClick={() => onChange({ ...b, layout: lay })}
-                  className={cn('px-2.5 py-1 rounded-[7px] text-[11px] font-medium', b.layout === lay ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]')}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-          {/* Panorama slicer — cut ONE big image into N pieces */}
-          <div className="rounded-[10px] bg-white/[0.03] border border-white/[0.06] p-2 space-y-1.5">
-            <span className="text-[11px] font-semibold text-[#A1A1AA]">Панорама — нарезать 1 картинку</span>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <div className="flex gap-1 p-0.5 rounded-[8px] bg-white/[0.04] border border-white/[0.06]">
-                {([['horizontal', 'Горизонт'], ['vertical', 'Вертикаль'], ['grid4', '4×4']] as const).map(([o, l]) => (
-                  <button key={o} onClick={() => setPanoOrient(o)}
-                    className={cn('px-2 py-0.5 rounded-[6px] text-[11px]', panoOrient === o ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]')}>{l}</button>
-                ))}
-              </div>
-              {panoOrient !== 'grid4' && (
-                <input type="number" min={2} max={8} value={panoCount}
-                  onChange={e => setPanoCount(Math.min(8, Math.max(2, parseInt(e.target.value, 10) || 2)))}
-                  className="glass-input w-12 px-2 py-1 text-[12px]" title="Сколько частей" />
-              )}
-              <button onClick={() => onSlicePanorama?.(panoOrient, panoCount)} disabled={uploading || panoGenLoading}
-                className="px-2.5 py-1 rounded-[8px] bg-white/[0.06] border border-white/[0.08] text-[11px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50 flex items-center gap-1">
-                {uploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />} Загрузить и нарезать
-              </button>
-            </div>
-            {/* Generate the panorama with AI (nano-banana-2), then slice */}
-            <div className="flex items-start gap-1.5">
-              <textarea value={panoPrompt} onChange={e => setPanoPrompt(e.target.value)} rows={2}
-                placeholder={panoOrient === 'grid4' ? 'Опиши модульную композицию 4×4 — любой сюжет или объект' : 'Или опиши панораму: «ракета стартует в звёздное небо, луна сверху, огонь снизу»'}
-                className="glass-input flex-1 min-w-0 px-2.5 py-1.5 text-[12px] resize-none" />
-              <button onClick={() => onGeneratePanorama?.(panoOrient, panoCount, panoPrompt)} disabled={panoGenLoading || uploading || !panoPrompt.trim()}
-                className="shrink-0 px-2.5 py-2 rounded-[8px] bg-[#FF6A00] text-white text-[11px] font-semibold hover:bg-[#FF6A00]/90 disabled:opacity-50 flex items-center gap-1">
-                {panoGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Сгенерировать
-              </button>
-            </div>
-            <p className="text-[10px] text-[#55555D] leading-relaxed">
-              {panoOrient === 'grid4'
-                ? '4×4 → квадрат 1:1 в 4K, 16 фрагментов и единый блок из 4 независимых листаемых рядов.'
-                : <>Горизонт → карусель, вертикаль → стопка. Режем на {panoCount} частей.</>}
-              {' Генерация — nano-banana (Gemini).'}
-            </p>
+        <div className="space-y-3">
+          <div role="tablist" aria-label="Способ создания галереи" className="grid grid-cols-2 gap-1 rounded-[10px] bg-white/[0.04] border border-white/[0.07] p-1">
+            <button type="button" role="tab" aria-selected={galleryTool === 'photos'} onClick={() => setGalleryTool('photos')}
+              className={cn('min-h-9 rounded-[8px] px-3 text-[12px] font-semibold transition-colors', galleryTool === 'photos' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA] hover:text-white')}>
+              Галерея из фото
+            </button>
+            <button type="button" role="tab" aria-selected={galleryTool === 'slice'} onClick={() => setGalleryTool('slice')}
+              className={cn('min-h-9 rounded-[8px] px-3 text-[12px] font-semibold transition-colors', galleryTool === 'slice' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA] hover:text-white')}>
+              Нарезать изображение
+            </button>
           </div>
-          {/* thumbnails with remove */}
-          {b.matrix4 ? (
-            <div className="grid grid-cols-4 gap-px overflow-hidden rounded-[8px] border border-white/[0.08] bg-black">
-              {b.matrix4.flat().map((u, i) => (
-                <img key={i} src={u} alt="" className="aspect-square w-full object-cover" />
-              ))}
-            </div>
-          ) : b.urls.length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-              {b.urls.map((u, i) => (
-                <div key={i} className="relative shrink-0">
-                  <img src={u} alt="" className="h-16 w-16 rounded-[8px] object-cover" />
-                  <button onClick={() => onChange({ ...b, urls: b.urls.filter((_, k) => k !== i) })}
-                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center text-[10px]">×</button>
+
+          {galleryTool === 'photos' ? (
+            b.matrix4 ? (
+              <div className="rounded-[10px] border border-[rgba(255,106,0,0.25)] bg-[rgba(255,106,0,0.07)] p-3 space-y-2">
+                <p className="text-[12px] font-semibold text-white">Это составная нарезка 4×4</p>
+                <p className="text-[11px] leading-relaxed text-[#A1A1AA]">Внутри четыре независимо листаемых ряда. Генерация и замена исходника находятся во вкладке «Нарезать изображение».</p>
+                <button type="button" onClick={() => setGalleryTool('slice')} className="text-[11px] font-semibold text-[#FF6A00]">Открыть нарезку →</button>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-semibold text-[#A1A1AA]">Как показывать фотографии</p>
+                  <div className="grid grid-cols-3 gap-1 rounded-[9px] bg-white/[0.04] border border-white/[0.06] p-1">
+                    {([['slideshow', 'Карусель'], ['collage', 'Сетка'], ['stack', 'Стопка']] as const).map(([lay, label]) => (
+                      <button type="button" key={lay} onClick={() => onChange({ ...b, layout: lay })}
+                        className={cn('min-h-9 rounded-[7px] px-2 text-[11px] font-medium transition-colors', b.layout === lay ? 'bg-white/[0.1] text-white' : 'text-[#A1A1AA] hover:text-white')}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
+
+                {b.urls.length > 0 ? (
+                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+                    {b.urls.map((u, i) => (
+                      <div key={i} className="relative shrink-0">
+                        <img src={u} alt="" className="h-16 w-16 rounded-[8px] object-cover" />
+                        <button type="button" aria-label="Удалить фотографию" onClick={() => onChange({ ...b, urls: b.urls.filter((_, k) => k !== i) })}
+                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-black/80 text-white flex items-center justify-center text-[11px]">×</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-[9px] border border-dashed border-white/[0.1] px-3 py-4 text-center text-[11px] text-[#66666E]">Добавьте минимум две фотографии</div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={onAddGalleryPhoto} disabled={uploading}
+                    className="min-h-10 flex items-center justify-center gap-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
+                    {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Добавить фото
+                  </button>
+                  <button type="button" onClick={() => setGalPromptOpen(o => !o)} disabled={galleryGenLoading}
+                    className="min-h-10 flex items-center justify-center gap-1.5 rounded-[9px] bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] disabled:opacity-50">
+                    {galleryGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Создать AI-фото
+                  </button>
+                </div>
+
+                {galPromptOpen && (
+                  <div className="rounded-[10px] bg-[rgba(255,106,0,0.06)] border border-[rgba(255,106,0,0.2)] p-2.5 space-y-2">
+                    <label className="block text-[11px] font-semibold text-[#A1A1AA]" htmlFor={editorId + '-gallery-ai-prompt'}>Что должно быть на фотографии</label>
+                    <textarea id={editorId + '-gallery-ai-prompt'} value={galPrompt} onChange={e => setGalPrompt(e.target.value)} rows={2}
+                      placeholder="Коротко опишите изображение"
+                      className="glass-input w-full px-2.5 py-2 text-[12px] resize-none" />
+                    <button type="button" onClick={() => { onGenerateGalleryPhoto?.(galPrompt); setGalPrompt('') }} disabled={galleryGenLoading}
+                      className="w-full min-h-10 flex items-center justify-center gap-1.5 rounded-[9px] bg-[#FF6A00] text-white text-[12px] font-semibold disabled:opacity-50">
+                      {galleryGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Сгенерировать фото
+                    </button>
+                  </div>
+                )}
+                <p className="text-[11px] text-[#55555D]">{b.urls.length} фото{b.urls.length < 2 ? ' · нужно 2+ для галереи' : ''}</p>
+              </>
+            )
+          ) : (
+            <>
+              {b.matrix4 && (
+                <div className="inline-flex items-center gap-2 rounded-[9px] bg-[rgba(255,106,0,0.1)] border border-[rgba(255,106,0,0.28)] px-2.5 py-1.5">
+                  <span className="text-[11px] font-semibold text-[#FF6A00]">4×4</span>
+                  <span className="text-[10px] text-[#A1A1AA]">единый блок · 4 листаемых ряда · 16 фрагментов</span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-semibold text-[#A1A1AA]">Как нарезать исходное изображение</p>
+                <div className="grid grid-cols-3 gap-1 rounded-[9px] bg-white/[0.04] border border-white/[0.06] p-1">
+                  {([['horizontal', 'Горизонт'], ['vertical', 'Вертикаль'], ['grid4', '4×4']] as const).map(([orientation, label]) => (
+                    <button type="button" key={orientation} onClick={() => setPanoOrient(orientation)}
+                      className={cn('min-h-9 rounded-[7px] px-2 text-[11px] font-medium transition-colors', panoOrient === orientation ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA] hover:text-white')}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] leading-relaxed text-[#66666E]">
+                  {panoOrient === 'horizontal' && 'Одна широкая сцена → горизонтальная карусель.'}
+                  {panoOrient === 'vertical' && 'Одна высокая сцена → вертикальная стопка.'}
+                  {panoOrient === 'grid4' && 'Квадрат 1:1 в 4K → 16 частей → 4 независимо листаемых ряда.'}
+                </p>
+              </div>
+
+              {panoOrient !== 'grid4' && (
+                <label className="flex items-center justify-between gap-3 rounded-[9px] bg-white/[0.03] border border-white/[0.06] px-3 py-2 text-[11px] text-[#A1A1AA]">
+                  Количество частей
+                  <input type="number" min={2} max={8} value={panoCount}
+                    onChange={e => setPanoCount(Math.min(8, Math.max(2, parseInt(e.target.value, 10) || 2)))}
+                    className="glass-input w-16 px-2 py-1.5 text-center text-[12px]" />
+                </label>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-semibold text-[#A1A1AA]" htmlFor={editorId + '-panorama-subject'}>Что должно быть на исходной картинке</label>
+                <textarea id={editorId + '-panorama-subject'} value={panoPrompt} onChange={e => setPanoPrompt(e.target.value)} rows={3}
+                  placeholder={panoOrient === 'grid4' ? 'Например: четыре гиперреалистичных робота в одинаковой фронтальной позе' : 'Коротко опишите сюжет изображения'}
+                  className="glass-input w-full px-3 py-2 text-[12px] resize-none" />
+                <p className="text-[10px] leading-relaxed text-[#66666E]">Пишите только сюжет. Размер, композицию, линии нарезки и BrandKit Publium добавит сам.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => onSlicePanorama?.(panoOrient, panoCount)} disabled={uploading || panoGenLoading}
+                  className="min-h-11 flex items-center justify-center gap-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
+                  {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Загрузить исходник
+                </button>
+                <button type="button" onClick={() => onGeneratePanorama?.(panoOrient, panoCount, panoPrompt)} disabled={panoGenLoading || uploading || !panoPrompt.trim()}
+                  className="min-h-11 flex items-center justify-center gap-1.5 rounded-[9px] bg-[#FF6A00] text-white text-[12px] font-semibold disabled:opacity-50">
+                  {panoGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Сгенерировать
+                </button>
+              </div>
+
+              {b.matrix4 && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-semibold text-[#A1A1AA]">Нарезка 4×4</p>
+                  <div className="grid grid-cols-4 gap-px overflow-hidden rounded-[8px] border border-white/[0.08] bg-black">
+                    {b.matrix4.flat().map((u, i) => <img key={i} src={u} alt="" className="aspect-square w-full object-cover" />)}
+                  </div>
+                </div>
+              )}
+            </>
           )}
-          {!b.matrix4 && (
-            <div className="flex gap-1.5">
-              <button onClick={onAddGalleryPhoto} disabled={uploading}
-                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
-                {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} + Фото
-              </button>
-              <button onClick={() => setGalPromptOpen(o => !o)} disabled={galleryGenLoading}
-                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.3)] text-[12px] text-[#FF6A00] hover:bg-[rgba(255,106,0,0.18)] disabled:opacity-50">
-                {galleryGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} + AI-фото
-              </button>
-            </div>
-          )}
-          {!b.matrix4 && galPromptOpen && (
-            <div className="p-2 rounded-[10px] bg-[rgba(255,106,0,0.06)] border border-[rgba(255,106,0,0.2)] space-y-1.5">
-              <textarea value={galPrompt} onChange={e => setGalPrompt(e.target.value)} rows={2}
-                placeholder="Опиши фото для карусели (пусто = по посту)"
-                className="glass-input w-full px-2.5 py-1.5 text-[12px] resize-none" />
-              <button onClick={() => { onGenerateGalleryPhoto?.(galPrompt); setGalPrompt('') }} disabled={galleryGenLoading}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] bg-[#FF6A00] text-white text-[12px] font-semibold disabled:opacity-50">
-                {galleryGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Сгенерировать фото
-              </button>
-            </div>
-          )}
-          <p className="text-[11px] text-[#55555D]">{b.matrix4 ? '4 ряда × 4 варианта' : <>{b.urls.length} фото{b.urls.length < 2 ? ' · нужно 2+ для галереи' : ''}</>}</p>
         </div>
       )
     case 'divider':
