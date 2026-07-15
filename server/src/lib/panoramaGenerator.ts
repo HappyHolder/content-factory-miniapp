@@ -21,6 +21,10 @@ interface Prediction {
 }
 
 export type PanoramaOrientation = 'horizontal' | 'vertical' | 'grid4';
+export interface Grid4Brief {
+  cleanBrief: string;
+  labels: string[];
+}
 const PANORAMA_STYLE_PHRASES: Record<string, string> = {
   hyperreal:  'hyperrealistic, ultra-detailed, lifelike photography',
   cinematic:  'cinematic film still, dramatic lighting, shallow depth of field, professionally color-graded',
@@ -43,6 +47,22 @@ const PANORAMA_STYLE_PHRASES: Record<string, string> = {
 
 function compactText(value: unknown, maxLength: number): string {
   return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, maxLength) : '';
+}
+
+export function parseGrid4Brief(brief: string): Grid4Brief {
+  const patterns = [
+    /(?:labels?|captions?)\s+(?:above\s+(?:them|their\s+heads?)|at\s+the\s+top)\s*:\s*([^\n.]+)/i,
+    /(?:подписи?|названия?)\s+(?:над\s+(?:ними|головами)|сверху)\s*:\s*([^\n.]+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = brief.match(pattern);
+    if (!match?.[1]) continue;
+    const labels = match[1].split(/[,;|]/).map(value => value.trim()).filter(Boolean);
+    if (labels.length !== 4 || labels.some(label => label.length > 40)) continue;
+    const cleanBrief = brief.replace(match[0], '').replace(/\s{2,}/g, ' ').replace(/([.!?])\s*[.!?]+/g, '$1').trim();
+    return { cleanBrief, labels };
+  }
+  return { cleanBrief: brief.trim(), labels: [] };
 }
 
 /**
@@ -253,15 +273,15 @@ export async function generatePanoramaImage(
 
 function buildGrid4BasePrompt(brief: string, visualKit?: unknown): string {
   const brandStyle = buildPanoramaBrandStyle(visualKit);
+  const { cleanBrief } = parseGrid4Brief(brief);
   return [
     'Create ONE complete canonical base composition as a tall 1:4 portrait image.',
     'ORIGINAL CREATIVE BRIEF:',
-    brief.trim(),
+    cleanBrief,
     'BASE TEMPLATE RULES:',
     '- Extract the common subject and underlying composition from the brief and render exactly ONE neutral canonical version.',
-    '- If the brief requests four variants, multiple states, personalities, seasons, styles, or labels, do not render those differences yet. Do not render any label or text.',
-    '- Use a centered, stable composition with clear top, upper-middle, lower-middle, and bottom content.',
-    '- Fill the full height intentionally with minimal empty space above and below.',
+    '- Do not render multiple variants, comparison views, close-ups, inset images, labels, captions, or any text.',
+    '- Use one centered, stable composition that fills the full height with minimal empty space.',
     '- Keep the camera, perspective, geometry, silhouette, horizon, and structural anchors clean and easy to preserve during a later visual edit.',
     '- Present only polished finished artwork on one continuous unframed background.',
     ...(brandStyle
@@ -273,12 +293,12 @@ function buildGrid4BasePrompt(brief: string, visualKit?: unknown): string {
   ].join('\n');
 }
 
-/** Generates the single canonical 1:4 column used as the geometry template. */
+/** Generates a low-cost canonical 1:4 geometry template. */
 export async function generateGrid4BaseImage(
   brief: string,
   visualKit?: unknown,
 ): Promise<Buffer | null> {
-  return runNanoImage(buildGrid4BasePrompt(brief, visualKit), '1:4', { resolution: '4K' });
+  return runNanoImage(buildGrid4BasePrompt(brief, visualKit), '1:4', { resolution: '1K' });
 }
 
 /**
@@ -313,22 +333,39 @@ export async function buildGrid4ReferenceImage(
 }
 
 /**
- * Edits one square reference image containing four identical columns. Nano
- * Banana changes only the requested state of each column while the supplied
- * geometry remains the common structural source.
+ * Performs an edit-only pass over the four existing copies. Labels are excluded
+ * from the model prompt and rendered deterministically by the server afterwards.
  */
 export async function generateGrid4FromReference(
   brief: string,
   referenceUrl: string,
   visualKit?: unknown,
 ): Promise<Buffer | null> {
+  const { cleanBrief, labels } = parseGrid4Brief(brief);
+  const brandStyle = buildPanoramaBrandStyle(visualKit);
+  const variantDirection = labels.length === 4
+    ? 'Apply these four visual traits from left to right, but never render the words themselves: ' + labels.join(' | ')
+    : 'Infer exactly four requested visual states and apply one state to each existing copy from left to right.';
+
   const productionPrompt = [
-    'Edit the supplied square reference image; do not create a new composition.',
-    'The reference contains four pixel-identical copies of one canonical composition.',
-    'Preserve the exact camera, crop, placement, pose where applicable, perspective, scale, major geometry, horizon, visual anchors, and background structure of all four copies.',
-    'Keep all corresponding features at the same pixel-space height and width.',
-    'Apply the requested four variants only as controlled visual changes inside the existing structure.',
-    buildPanoramaPrompt(brief, 'grid4', 4, '1:1', visualKit),
+    'STRICT IMAGE EDIT. Modify the supplied image in place. Do not redesign or recompose it.',
+    'The input already contains four full-height, pixel-identical copies of one composition.',
+    'Keep exactly those four existing copies in exactly their current positions.',
+    'Do not add, remove, duplicate, crop, resize, or move any subject or object.',
+    'Do not create a second row, close-up, portrait, thumbnail, inset, comparison sheet, card, diagram, poster, or character sheet.',
+    'Preserve the exact camera, crop, pose, perspective, scale, silhouette, horizon, background geometry, and vertical anchors.',
+    'Every corresponding feature must remain at the same height in all four copies.',
+    variantDirection,
+    'Change only surface appearance and the explicitly requested state: color, material, clothing, lighting, weather, mood, or other requested visual attributes.',
+    'Render no text, labels, letters, numbers, captions, logos, badges, guides, borders, separators, or watermarks.',
+    'CREATIVE BRIEF WITHOUT LABEL INSTRUCTIONS:',
+    cleanBrief,
+    ...(brandStyle
+      ? [
+          'MANDATORY CHANNEL BRAND ART DIRECTION:',
+          brandStyle,
+        ]
+      : []),
   ].join('\n');
 
   return runNanoImage(productionPrompt, 'match_input_image', {
@@ -337,6 +374,123 @@ export async function generateGrid4FromReference(
   });
 }
 
+function profileCorrelation(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  const meanA = a.reduce((sum, value) => sum + value, 0) / a.length;
+  const meanB = b.reduce((sum, value) => sum + value, 0) / b.length;
+  let numerator = 0;
+  let denominatorA = 0;
+  let denominatorB = 0;
+  for (let i = 0; i < a.length; i++) {
+    const da = a[i] - meanA;
+    const db = b[i] - meanB;
+    numerator += da * db;
+    denominatorA += da * da;
+    denominatorB += db * db;
+  }
+  const denominator = Math.sqrt(denominatorA * denominatorB);
+  return denominator > 0 ? numerator / denominator : 0;
+}
+
+function verticalStructureProfile(data: Buffer, width: number, height: number, column: number): number[] {
+  const left = Math.floor(width * column / 4);
+  const right = Math.floor(width * (column + 1) / 4);
+  const profile: number[] = [];
+  for (let y = 1; y < height; y++) {
+    let total = 0;
+    for (let x = left; x < right; x++) {
+      total += Math.abs(data[y * width + x] - data[(y - 1) * width + x]);
+    }
+    profile.push(total / Math.max(1, right - left));
+  }
+  return profile;
+}
+
+/**
+ * Rejects obvious presentation/contact-sheet layouts before any slicing.
+ * It never retries automatically, so a failed quality gate cannot create another
+ * paid prediction behind the user's back.
+ */
+export async function validateGrid4Structure(
+  reference: Buffer,
+  candidate: Buffer,
+): Promise<{ ok: boolean; reason?: string }> {
+  const size = 128;
+  const [referenceRaw, candidateRaw] = await Promise.all([
+    sharp(reference).resize(size, size, { fit: 'fill' }).greyscale().raw().toBuffer(),
+    sharp(candidate).resize(size, size, { fit: 'fill' }).greyscale().raw().toBuffer(),
+  ]);
+
+  // A contact sheet normally introduces a near-full-width hard row boundary.
+  for (let y = 8; y < size - 8; y++) {
+    let changed = 0;
+    let totalDelta = 0;
+    for (let x = 0; x < size; x++) {
+      const delta = Math.abs(candidateRaw[y * size + x] - candidateRaw[(y - 1) * size + x]);
+      totalDelta += delta;
+      if (delta >= 28) changed++;
+    }
+    if (changed / size >= 0.72 && totalDelta / size >= 32) {
+      return { ok: false, reason: 'detected an extra horizontal presentation row' };
+    }
+  }
+
+  const referenceProfile = verticalStructureProfile(referenceRaw, size, size, 0);
+  const correlations = [0, 1, 2, 3].map(column =>
+    profileCorrelation(referenceProfile, verticalStructureProfile(candidateRaw, size, size, column)));
+  const averageCorrelation = correlations.reduce((sum, value) => sum + value, 0) / correlations.length;
+  if (averageCorrelation < 0.12 || correlations.some(value => value < -0.1)) {
+    return { ok: false, reason: 'the edited columns no longer match the reference geometry' };
+  }
+
+  return { ok: true };
+}
+
+function escapeSvgText(value: string): string {
+  return value.replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&apos;',
+  }[char] ?? char));
+}
+
+/** Draws exact requested labels after generation so text cannot alter composition. */
+export async function overlayGrid4Labels(image: Buffer, labels: string[]): Promise<Buffer> {
+  if (labels.length !== 4) return image;
+  const meta = await sharp(image).metadata();
+  const width = meta.width ?? 0;
+  const height = meta.height ?? 0;
+  if (width < 4 || height < 4) return image;
+
+  const side = Math.min(width, height);
+  const left = Math.floor((width - side) / 2);
+  const top = Math.floor((height - side) / 2);
+  const columnWidth = side / 4;
+  const fontSize = Math.max(24, Math.round(side * 0.034));
+  const boxHeight = Math.round(fontSize * 1.55);
+  const boxY = Math.round(side * 0.025);
+  const boxInset = Math.round(columnWidth * 0.08);
+  const labelSvg = labels.map((label, index) => {
+    const x = Math.round(index * columnWidth + boxInset);
+    const center = Math.round((index + 0.5) * columnWidth);
+    const boxWidth = Math.round(columnWidth - boxInset * 2);
+    return '<rect x="' + x + '" y="' + boxY + '" width="' + boxWidth + '" height="' + boxHeight +
+      '" rx="' + Math.round(boxHeight / 4) + '" fill="rgba(12,12,16,0.78)" stroke="rgba(255,255,255,0.28)" stroke-width="' +
+      Math.max(2, Math.round(side / 1500)) + '"/><text x="' + center + '" y="' + Math.round(boxY + boxHeight * 0.69) +
+      '" text-anchor="middle" font-family="Arial,DejaVu Sans,sans-serif" font-size="' + fontSize +
+      '" font-weight="700" fill="#ffffff">' + escapeSvgText(label) + '</text>';
+  }).join('');
+
+  const overlay = Buffer.from(
+    '<svg width="' + side + '" height="' + side + '" xmlns="http://www.w3.org/2000/svg">' + labelSvg + '</svg>');
+  return sharp(image)
+    .extract({ left, top, width: side, height: side })
+    .composite([{ input: overlay, left: 0, top: 0 }])
+    .png()
+    .toBuffer();
+}
 /**
  * Center-crops an image to 1:1 and cuts it into a row-major 4x4 matrix.
  * Each returned row is ready to become one independent slideshow block.

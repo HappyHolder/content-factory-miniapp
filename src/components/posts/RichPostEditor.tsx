@@ -721,6 +721,10 @@ function BlockEditor({ b, allowGrid4, onChange, onReplace, onAddGalleryPhoto, on
   const [panoOrient, setPanoOrient] = useState<PanoramaCut>(b.type === 'gallery' && b.matrix4 ? 'grid4' : 'horizontal')
   const [panoCount, setPanoCount] = useState(3)
   const [panoPrompt, setPanoPrompt] = useState('')
+  const runPanoramaGeneration = () => {
+    if (panoOrient === 'grid4' && !window.confirm('Запустить платную генерацию 4×4? Будут выполнены два прохода Replicate: технический 1K и финальный 4K.')) return
+    onGeneratePanorama?.(panoOrient, panoCount, panoPrompt)
+  }
   // Shared formatting toolbar for table cells — acts on the last-focused cell input.
   const cellTarget = useRef<{ el: HTMLInputElement; ri: number | 'h'; ci: number } | null>(null)
   const cellLinkTarget = useRef<{ el: HTMLInputElement; ri: number | 'h'; ci: number; s: number; e: number } | null>(null)
@@ -1061,7 +1065,7 @@ function BlockEditor({ b, allowGrid4, onChange, onReplace, onAddGalleryPhoto, on
                 <p className="text-[10px] leading-relaxed text-[#66666E]">
                   {panoOrient === 'horizontal' && 'Одна широкая сцена → горизонтальная карусель.'}
                   {panoOrient === 'vertical' && 'Одна высокая сцена → вертикальная стопка.'}
-                  {panoOrient === 'grid4' && 'Квадрат 1:1 в 4K → 16 частей → 4 независимо листаемых ряда.'}
+                  {panoOrient === 'grid4' && 'Квадрат 1:1 в 4K → 16 частей → 4 независимо листаемых ряда. Два платных прохода: технический 1K и финальный 4K.'}
                 </p>
               </div>
 
@@ -1087,7 +1091,7 @@ function BlockEditor({ b, allowGrid4, onChange, onReplace, onAddGalleryPhoto, on
                   className="min-h-11 flex items-center justify-center gap-1.5 rounded-[9px] bg-white/[0.05] border border-white/[0.08] text-[12px] text-[#D4D4D8] hover:border-[#FF6A00]/40 disabled:opacity-50">
                   {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Загрузить исходник
                 </button>
-                <button type="button" onClick={() => onGeneratePanorama?.(panoOrient, panoCount, panoPrompt)} disabled={panoGenLoading || uploading || !panoPrompt.trim() || (panoOrient === 'grid4' && !allowGrid4)}
+                <button type="button" onClick={runPanoramaGeneration} disabled={panoGenLoading || uploading || !panoPrompt.trim() || (panoOrient === 'grid4' && !allowGrid4)}
                   className="min-h-11 flex items-center justify-center gap-1.5 rounded-[9px] bg-[#FF6A00] text-white text-[12px] font-semibold disabled:opacity-50">
                   {panoGenLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Сгенерировать
                 </button>

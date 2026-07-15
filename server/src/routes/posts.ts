@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { putObject, deleteObject } from '../lib/storage';
-import { buildGrid4ReferenceImage, generateGrid4BaseImage, generateGrid4FromReference, generatePanoramaImage, sliceGrid4Image, sliceImage } from '../lib/panoramaGenerator';
+import { buildGrid4ReferenceImage, generateGrid4BaseImage, generateGrid4FromReference, generatePanoramaImage, overlayGrid4Labels, parseGrid4Brief, sliceGrid4Image, sliceImage, validateGrid4Structure } from '../lib/panoramaGenerator';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -1150,8 +1150,11 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
   try {
     const brief = prompt.slice(0, 1200);
     let image: Buffer | null;
+    let gridReference: Buffer | null = null;
+    let gridLabels: string[] = [];
 
     if (orientation === 'grid4') {
+      gridLabels = parseGrid4Brief(brief).labels;
       const baseImage = await generateGrid4BaseImage(brief, visualKit);
       if (!baseImage) {
         res.status(502).json({ error: 'Не удалось создать базовую композицию. Попробуйте ещё раз.' });
@@ -1159,6 +1162,7 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
       }
 
       const referenceImage = await buildGrid4ReferenceImage(baseImage);
+      gridReference = referenceImage;
       const stamp = Date.now();
       const referenceObject = await putObject(
         `posts/panorama/work/${dbUser.id}-${stamp}-reference.png`,
@@ -1178,6 +1182,17 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
     if (!image) { res.status(502).json({ error: 'Генерация не удалась. Попробуйте ещё раз.' }); return; }
 
     if (orientation === 'grid4') {
+      if (!gridReference) {
+        res.status(500).json({ error: 'Не удалось проверить композицию 4×4.' });
+        return;
+      }
+      const quality = await validateGrid4Structure(gridReference, image);
+      if (!quality.ok) {
+        console.warn('[posts/generate-panorama] rejected grid4 output:', quality.reason);
+        res.status(422).json({ error: 'Модель нарушила компоновку 4×4. Результат отклонён, автоматический повтор не запускался.' });
+        return;
+      }
+      image = await overlayGrid4Labels(image, gridLabels);
       const rows = await sliceGrid4Image(image);
       if (rows.length !== 4 || rows.some(row => row.length !== 4)) {
         res.status(500).json({ error: 'Grid slicing failed' });
