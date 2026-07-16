@@ -374,6 +374,144 @@ export async function generateGrid4FromReference(
   });
 }
 
+// ─── Per-column grid4 pipeline ───────────────────────────────────────────────
+// Four cheap 1K calls: one base column (= variant #1) plus three single-figure
+// edits. The server assembles the square, so the model never has to respect an
+// invisible 4-column layout — the failure mode of the sheet-based approaches.
+
+const GRID4_ORDINALS = ['first', 'second', 'third', 'fourth'];
+
+export function buildGrid4ColumnBasePrompt(brief: string, visualKit?: unknown): string {
+  const { cleanBrief, labels } = parseGrid4Brief(brief);
+  const brandStyle = buildPanoramaBrandStyle(visualKit);
+  const target = labels.length === 4
+    ? 'Render specifically this variant: ' + labels[0] + '.'
+    : 'Render the FIRST of the four distinct variants implied by the brief.';
+  return [
+    'Create ONE tall 1:4 portrait image containing exactly ONE complete subject.',
+    'CREATIVE BRIEF (four variants will be produced as separate images):',
+    cleanBrief,
+    target,
+    'COMPOSITION RULES:',
+    '- Exactly one full subject filling the full height: its top near the top edge, its base near the bottom edge, centered horizontally.',
+    '- No duplicates, close-ups, insets, alternate views, panels, grids, or comparison layouts.',
+    '- One continuous, softly detailed background that stays consistent from top to bottom.',
+    '- The image will be cut into four equal horizontal segments at 25%, 50% and 75% height: keep eyes, hands, joints and other critical details away from those heights.',
+    '- Polished finished artwork. No text, letters, numbers, captions, logos, or watermarks.',
+    ...(brandStyle ? ['MANDATORY CHANNEL BRAND ART DIRECTION:', brandStyle] : []),
+  ].join('\n');
+}
+
+/** Generates the 1:4 base column at 1K — it doubles as variant #1. */
+export async function generateGrid4ColumnBase(brief: string, visualKit?: unknown): Promise<Buffer | null> {
+  return runNanoImage(buildGrid4ColumnBasePrompt(brief, visualKit), '1:4', { resolution: '1K' });
+}
+
+export function buildGrid4ColumnVariantPrompt(brief: string, variantIndex: number, visualKit?: unknown): string {
+  const { cleanBrief, labels } = parseGrid4Brief(brief);
+  const brandStyle = buildPanoramaBrandStyle(visualKit);
+  const target = labels.length === 4
+    ? 'Transform it into this variant: ' + labels[variantIndex] + '.'
+    : 'Transform it into the ' + GRID4_ORDINALS[variantIndex] + ' of the four distinct variants implied by the brief.';
+  return [
+    'STRICT IMAGE EDIT of the supplied tall portrait. It contains exactly one subject.',
+    target,
+    'CREATIVE BRIEF:',
+    cleanBrief,
+    'EDIT RULES:',
+    '- Keep the exact camera, crop, scale, position, pose, and overall silhouette of the subject.',
+    '- Every major part of the subject must stay at the same height as in the input image.',
+    '- Keep the same background structure and lighting direction; restyle surfaces, materials, colors, mood, and details that express the requested variant.',
+    '- Exactly one subject. Do not add duplicates, close-ups, insets, panels, borders, or any layout elements.',
+    '- No text, letters, numbers, captions, logos, or watermarks.',
+    ...(brandStyle ? ['MANDATORY CHANNEL BRAND ART DIRECTION:', brandStyle] : []),
+  ].join('\n');
+}
+
+/** Edits the base column into variant #variantIndex (1..3) at 1K. */
+export async function generateGrid4ColumnVariant(
+  brief: string,
+  variantIndex: number,
+  baseColumnUrl: string,
+  visualKit?: unknown,
+): Promise<Buffer | null> {
+  return runNanoImage(buildGrid4ColumnVariantPrompt(brief, variantIndex, visualKit), 'match_input_image', {
+    resolution: '1K',
+    imageInput: [baseColumnUrl],
+  });
+}
+
+/** Places the four columns side by side into one deterministic square. */
+export async function assembleGrid4Columns(
+  columns: Buffer[],
+  columnWidth = 512,
+  height = 2048,
+): Promise<Buffer> {
+  const resized = await Promise.all(columns.map(column =>
+    sharp(column).resize({ width: columnWidth, height, fit: 'cover', position: 'centre' }).png().toBuffer()));
+  return sharp({
+    create: { width: columnWidth * columns.length, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+  })
+    .composite(resized.map((input, index) => ({ input, left: index * columnWidth, top: 0 })))
+    .png()
+    .toBuffer();
+}
+
+function fullWidthVerticalProfile(data: Buffer, width: number, height: number): number[] {
+  const profile: number[] = [];
+  for (let y = 1; y < height; y++) {
+    let total = 0;
+    for (let x = 0; x < width; x++) total += Math.abs(data[y * width + x] - data[(y - 1) * width + x]);
+    profile.push(total / width);
+  }
+  return profile;
+}
+
+function horizontalEdgeProfile(data: Buffer, width: number, rowStart: number, rowEnd: number): number[] {
+  const profile: number[] = [];
+  for (let x = 1; x < width; x++) {
+    let total = 0;
+    for (let y = rowStart; y < rowEnd; y++) total += Math.abs(data[y * width + x] - data[y * width + x - 1]);
+    profile.push(total / Math.max(1, rowEnd - rowStart));
+  }
+  return profile;
+}
+
+/**
+ * Verifies an edited column against the base column: overall vertical geometry
+ * plus edge alignment inside a thin strip around each 25/50/75% cut line, so a
+ * head from one column keeps docking onto a torso from another. Gradient-based
+ * profiles are invariant to the restyle itself (color/material changes pass;
+ * pose, scale, or position drift fails). Deterministic — no model calls.
+ */
+export async function validateGrid4Column(
+  base: Buffer,
+  candidate: Buffer,
+): Promise<{ ok: boolean; reason?: string }> {
+  const width = 96;
+  const height = 384;
+  const [a, b] = await Promise.all([base, candidate].map(buffer =>
+    sharp(buffer).resize(width, height, { fit: 'fill' }).greyscale().raw().toBuffer()));
+
+  const overall = profileCorrelation(fullWidthVerticalProfile(a, width, height), fullWidthVerticalProfile(b, width, height));
+  if (overall < 0.25) {
+    return { ok: false, reason: 'variant lost the base column geometry (profile correlation ' + overall.toFixed(2) + ')' };
+  }
+
+  for (const line of [1, 2, 3]) {
+    const y = Math.round(height * line / 4);
+    const strip = 8;
+    const corr = profileCorrelation(
+      horizontalEdgeProfile(a, width, y - strip, y + strip),
+      horizontalEdgeProfile(b, width, y - strip, y + strip));
+    if (corr < 0.2) {
+      return { ok: false, reason: 'silhouette mismatch at the ' + (line * 25) + '% cut line (correlation ' + corr.toFixed(2) + ')' };
+    }
+  }
+
+  return { ok: true };
+}
+
 function profileCorrelation(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
   const meanA = a.reduce((sum, value) => sum + value, 0) / a.length;

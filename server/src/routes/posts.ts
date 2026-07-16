@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { putObject, deleteObject } from '../lib/storage';
-import { buildGrid4ReferenceImage, generateGrid4BaseImage, generateGrid4FromReference, generatePanoramaImage, overlayGrid4Labels, parseGrid4Brief, sliceGrid4Image, sliceImage, validateGrid4Structure } from '../lib/panoramaGenerator';
+import { assembleGrid4Columns, generateGrid4ColumnBase, generateGrid4ColumnVariant, generatePanoramaImage, overlayGrid4Labels, parseGrid4Brief, sliceGrid4Image, sliceImage, validateGrid4Column } from '../lib/panoramaGenerator';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -1150,31 +1150,45 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
   try {
     const brief = prompt.slice(0, 1200);
     let image: Buffer | null;
-    let gridReference: Buffer | null = null;
     let gridLabels: string[] = [];
 
     if (orientation === 'grid4') {
+      // Per-column pipeline: one 1K base column (= variant #1) + three 1K
+      // single-figure edits. The server assembles the square and verifies seam
+      // geometry against the base, so the model never has to obey an invisible
+      // 4-column layout — no 4K pass, no contact-sheet failure mode.
       gridLabels = parseGrid4Brief(brief).labels;
-      const baseImage = await generateGrid4BaseImage(brief, visualKit);
-      if (!baseImage) {
-        res.status(502).json({ error: 'Не удалось создать базовую композицию. Попробуйте ещё раз.' });
+      const baseColumn = await generateGrid4ColumnBase(brief, visualKit);
+      if (!baseColumn) {
+        res.status(502).json({ error: 'Не удалось создать базовую колонку. Попробуйте ещё раз.' });
         return;
       }
 
-      const referenceImage = await buildGrid4ReferenceImage(baseImage);
-      gridReference = referenceImage;
-      const stamp = Date.now();
-      const referenceObject = await putObject(
-        `posts/panorama/work/${dbUser.id}-${stamp}-reference.png`,
-        referenceImage,
+      const baseObject = await putObject(
+        `posts/panorama/work/${dbUser.id}-${Date.now()}-column.png`,
+        baseColumn,
         { contentType: 'image/png' },
       );
-
+      let variants: (Buffer | null)[];
       try {
-        image = await generateGrid4FromReference(brief, referenceObject.url, visualKit);
+        variants = await Promise.all([1, 2, 3].map(index =>
+          generateGrid4ColumnVariant(brief, index, baseObject.url, visualKit)));
       } finally {
-        await deleteObject(referenceObject.url);
+        await deleteObject(baseObject.url);
       }
+      if (variants.some(variant => !variant)) {
+        res.status(502).json({ error: 'Не удалось сгенерировать все четыре варианта. Попробуйте ещё раз.' });
+        return;
+      }
+      for (const [index, variant] of variants.entries()) {
+        const quality = await validateGrid4Column(baseColumn, variant as Buffer);
+        if (!quality.ok) {
+          console.warn('[posts/generate-panorama] rejected grid4 column', index + 2, ':', quality.reason);
+          res.status(422).json({ error: 'Вариант ' + (index + 2) + ' нарушил геометрию колонки. Результат отклонён, автоматический повтор не запускался.' });
+          return;
+        }
+      }
+      image = await assembleGrid4Columns([baseColumn, ...(variants as Buffer[])]);
     } else {
       image = await generatePanoramaImage(brief, aspectRatio, orientation, count, visualKit);
     }
@@ -1182,16 +1196,6 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
     if (!image) { res.status(502).json({ error: 'Генерация не удалась. Попробуйте ещё раз.' }); return; }
 
     if (orientation === 'grid4') {
-      if (!gridReference) {
-        res.status(500).json({ error: 'Не удалось проверить композицию 4×4.' });
-        return;
-      }
-      const quality = await validateGrid4Structure(gridReference, image);
-      if (!quality.ok) {
-        console.warn('[posts/generate-panorama] rejected grid4 output:', quality.reason);
-        res.status(422).json({ error: 'Модель нарушила компоновку 4×4. Результат отклонён, автоматический повтор не запускался.' });
-        return;
-      }
       image = await overlayGrid4Labels(image, gridLabels);
       const rows = await sliceGrid4Image(image);
       if (rows.length !== 4 || rows.some(row => row.length !== 4)) {

@@ -722,7 +722,7 @@ function BlockEditor({ b, allowGrid4, onChange, onReplace, onAddGalleryPhoto, on
   const [panoCount, setPanoCount] = useState(3)
   const [panoPrompt, setPanoPrompt] = useState('')
   const runPanoramaGeneration = () => {
-    if (panoOrient === 'grid4' && !window.confirm('Запустить платную генерацию 4×4? Будут выполнены два прохода Replicate: технический 1K и финальный 4K.')) return
+    if (panoOrient === 'grid4' && !window.confirm('Запустить платную генерацию 4×4? Будут выполнены четыре экономных прохода Replicate в 1K: базовая колонка и три варианта.')) return
     onGeneratePanorama?.(panoOrient, panoCount, panoPrompt)
   }
   // Shared formatting toolbar for table cells — acts on the last-focused cell input.
@@ -1065,7 +1065,7 @@ function BlockEditor({ b, allowGrid4, onChange, onReplace, onAddGalleryPhoto, on
                 <p className="text-[10px] leading-relaxed text-[#66666E]">
                   {panoOrient === 'horizontal' && 'Одна широкая сцена → горизонтальная карусель.'}
                   {panoOrient === 'vertical' && 'Одна высокая сцена → вертикальная стопка.'}
-                  {panoOrient === 'grid4' && 'Квадрат 1:1 в 4K → 16 частей → 4 независимо листаемых ряда. Два платных прохода: технический 1K и финальный 4K.'}
+                  {panoOrient === 'grid4' && '4 колонки 1:4 → квадрат → 16 частей → 4 независимо листаемых ряда. Четыре экономных прохода 1K, квадрат собирает сервер.'}
                 </p>
               </div>
 
