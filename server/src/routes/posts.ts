@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { putObject, deleteObject } from '../lib/storage';
-import { assembleGrid4Columns, generateGrid4ColumnBase, generateGrid4ColumnVariant, generatePanoramaImage, overlayGrid4Labels, parseGrid4Brief, sliceGrid4Image, sliceImage, validateGrid4Column } from '../lib/panoramaGenerator';
+import { alignGrid4Column, assembleGrid4Columns, generateGrid4ColumnBase, generateGrid4ColumnVariant, generatePanoramaImage, overlayGrid4Labels, parseGrid4Brief, sliceGrid4Image, sliceImage, validateGrid4Column } from '../lib/panoramaGenerator';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -1180,15 +1180,16 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
         res.status(502).json({ error: 'Не удалось сгенерировать все четыре варианта. Попробуйте ещё раз.' });
         return;
       }
+      // Paid output is never discarded: drifted columns are re-docked onto the
+      // base geometry with free pixel math; the validator only logs leftovers.
+      const alignedColumns: Buffer[] = [baseColumn];
       for (const [index, variant] of variants.entries()) {
-        const quality = await validateGrid4Column(baseColumn, variant as Buffer);
-        if (!quality.ok) {
-          console.warn('[posts/generate-panorama] rejected grid4 column', index + 2, ':', quality.reason);
-          res.status(422).json({ error: 'Вариант ' + (index + 2) + ' нарушил геометрию колонки. Результат отклонён, автоматический повтор не запускался.' });
-          return;
-        }
+        const aligned = await alignGrid4Column(baseColumn, variant as Buffer);
+        const quality = await validateGrid4Column(baseColumn, aligned);
+        if (!quality.ok) console.warn('[posts/generate-panorama] grid4 column', index + 2, 'still off after align:', quality.reason);
+        alignedColumns.push(aligned);
       }
-      image = await assembleGrid4Columns([baseColumn, ...(variants as Buffer[])]);
+      image = await assembleGrid4Columns(alignedColumns);
     } else {
       image = await generatePanoramaImage(brief, aspectRatio, orientation, count, visualKit);
     }

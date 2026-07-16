@@ -477,6 +477,69 @@ function horizontalEdgeProfile(data: Buffer, width: number, rowStart: number, ro
   return profile;
 }
 
+function bestProfileShift(reference: number[], sample: number[], maxShift: number): { shift: number; corr: number } {
+  let bestShiftValue = 0;
+  let bestCorr = -2;
+  for (let shift = -maxShift; shift <= maxShift; shift++) {
+    const overlap = reference.length - Math.abs(shift);
+    if (overlap < 24) continue;
+    const refSlice = reference.slice(Math.max(0, -shift), Math.max(0, -shift) + overlap);
+    const sampleSlice = sample.slice(Math.max(0, shift), Math.max(0, shift) + overlap);
+    const corr = profileCorrelation(refSlice, sampleSlice);
+    if (corr > bestCorr) { bestCorr = corr; bestShiftValue = shift; }
+  }
+  return { shift: bestShiftValue, corr: bestCorr };
+}
+
+/**
+ * Deterministically re-docks an edited column onto the base geometry: measures
+ * the vertical/horizontal drift via gradient-profile cross-correlation and
+ * compensates it with a crop + resize. Free pixel math — the paid model output
+ * is corrected, never discarded, and no second paid call is ever made.
+ */
+export async function alignGrid4Column(base: Buffer, candidate: Buffer): Promise<Buffer> {
+  const width = 96;
+  const height = 384;
+  const [a, b] = await Promise.all([base, candidate].map(buffer =>
+    sharp(buffer).resize(width, height, { fit: 'fill' }).greyscale().raw().toBuffer()));
+
+  const vertical = bestProfileShift(
+    fullWidthVerticalProfile(a, width, height),
+    fullWidthVerticalProfile(b, width, height),
+    Math.round(height * 0.12));
+  const horizontal = bestProfileShift(
+    horizontalEdgeProfile(a, width, 0, height),
+    horizontalEdgeProfile(b, width, 0, height),
+    Math.round(width * 0.15));
+
+  const meta = await sharp(candidate).metadata();
+  const realWidth = meta.width ?? 0;
+  const realHeight = meta.height ?? 0;
+  if (realWidth < 8 || realHeight < 8) return candidate;
+
+  const dy = Math.round(vertical.shift * realHeight / height);
+  const dx = Math.round(horizontal.shift * realWidth / width);
+  if (Math.abs(dx) < realWidth * 0.01 && Math.abs(dy) < realHeight * 0.01) return candidate;
+
+  // Pure translation: extend with copied edge pixels, then crop the shifted
+  // window back to the original size — no stretching, heights stay intact.
+  // Two separate sharp passes: within one pipeline extract would run first.
+  const extended = await sharp(candidate)
+    .extend({
+      top: dy < 0 ? -dy : 0,
+      bottom: dy > 0 ? dy : 0,
+      left: dx < 0 ? -dx : 0,
+      right: dx > 0 ? dx : 0,
+      extendWith: 'copy',
+    })
+    .png()
+    .toBuffer();
+  return sharp(extended)
+    .extract({ left: Math.max(0, dx), top: Math.max(0, dy), width: realWidth, height: realHeight })
+    .png()
+    .toBuffer();
+}
+
 /**
  * Verifies an edited column against the base column: overall vertical geometry
  * plus edge alignment inside a thin strip around each 25/50/75% cut line, so a
