@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Check, Loader2, Pause, Play, Plus, Trash2, UserRound, Phone, Sparkles } from 'lucide-react'
+import { Check, Loader2, Pause, Play, Plus, Trash2, UserRound, Phone, Sparkles, Eye, EyeOff } from 'lucide-react'
 import { API_BASE } from '@/lib/api'
 import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -64,10 +64,11 @@ function PersonaCard({ persona, api, reload }: { persona: Persona; api: (p: stri
   // login flow
   const [loginStep, setLoginStep] = useState<'phone' | 'code' | 'password' | 'done'>(persona.connected ? 'done' : 'phone')
   const [phone, setPhone] = useState(''); const [code, setCode] = useState(''); const [password, setPassword] = useState('')
+  const [showPass, setShowPass] = useState(false); const [hint, setHint] = useState('')
 
   const run = async (key: string, fn: () => Promise<void>) => { setBusy(key); setErr(''); try { await fn() } catch (e) { setErr(e instanceof Error ? e.message : 'Ошибка') } finally { setBusy('') } }
   const startLogin = () => run('login', async () => { await api('/' + persona.id + '/login/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) }); setLoginStep('code') })
-  const sendCode = () => run('login', async () => { const d = await api('/' + persona.id + '/login/code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) }); if (d.status === 'PASSWORD_NEEDED') setLoginStep('password'); else { setLoginStep('done'); await reload() } })
+  const sendCode = () => run('login', async () => { const d = await api('/' + persona.id + '/login/code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) }); if (d.status === 'PASSWORD_NEEDED') { setHint(typeof d.hint === 'string' ? d.hint : ''); setLoginStep('password') } else { setLoginStep('done'); await reload() } })
   const sendPassword = () => run('login', async () => { await api('/' + persona.id + '/login/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); setLoginStep('done'); await reload() })
   const saveDraft = () => run('save', async () => { await api('/' + persona.id + '/draft', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config }) }) })
   const apply = () => run('apply', async () => { await api('/' + persona.id + '/draft', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config }) }); await api('/' + persona.id + '/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); await reload() })
@@ -96,7 +97,12 @@ function PersonaCard({ persona, api, reload }: { persona: Persona; api: (p: stri
         <p className="mt-1 text-[10px] leading-relaxed text-[#8A8A93]">Войдите со второго аккаунта, который станет этой личностью. Код придёт в Telegram этого номера.</p>
         {loginStep === 'phone' && <><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+79991234567" inputMode="tel" className={input} /><Button className="mt-2" variant="primary" size="sm" fullWidth disabled={busy === 'login' || !phone} onClick={startLogin}>{busy === 'login' ? <Loader2 size={14} className="animate-spin" /> : 'Отправить код'}</Button></>}
         {loginStep === 'code' && <><input value={code} onChange={e => setCode(e.target.value)} placeholder="Код из Telegram" inputMode="numeric" className={input} /><Button className="mt-2" variant="primary" size="sm" fullWidth disabled={busy === 'login' || !code} onClick={sendCode}>{busy === 'login' ? <Loader2 size={14} className="animate-spin" /> : 'Подтвердить'}</Button></>}
-        {loginStep === 'password' && <><input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Пароль 2FA (облачный)" className={input} /><Button className="mt-2" variant="primary" size="sm" fullWidth disabled={busy === 'login' || !password} onClick={sendPassword}>{busy === 'login' ? <Loader2 size={14} className="animate-spin" /> : 'Войти'}</Button></>}
+        {loginStep === 'password' && <>
+          {hint && <p className="mt-2 rounded-[10px] border border-white/[.08] bg-white/[.03] px-3 py-2 text-[11px] text-[#A1A1AA]">Подсказка к паролю: <span className="text-white">{hint}</span></p>}
+          <div className="relative mt-1.5"><input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Пароль 2FA (облачный)" className={'min-h-11 w-full rounded-[11px] border border-white/[0.08] bg-[#0B0B0D] pl-3 pr-11 text-[13px] text-white outline-none focus:border-[rgba(255,106,0,0.5)]'} /><button type="button" aria-label={showPass ? 'Скрыть пароль' : 'Показать пароль'} onClick={() => setShowPass(v => !v)} className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-[8px] text-[#8A8A93] hover:text-white">{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+          <Button className="mt-2" variant="primary" size="sm" fullWidth disabled={busy === 'login' || !password} onClick={sendPassword}>{busy === 'login' ? <Loader2 size={14} className="animate-spin" /> : 'Войти'}</Button>
+        </>}
+        {err && <p role="alert" className="mt-2 rounded-[10px] bg-red-400/[.1] px-3 py-2 text-[11px] font-medium text-red-300">{err}</p>}
       </div> : <div className="flex items-center gap-2 rounded-[12px] border border-emerald-400/15 bg-emerald-400/[.05] px-3 py-2.5 text-[11px] text-emerald-300"><Check size={14} /> Аккаунт подключён{persona.username ? ' · @' + persona.username : ''}</div>}
 
       {/* 2. Personality editor */}

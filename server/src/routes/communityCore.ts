@@ -45,7 +45,7 @@ router.post('/channels/:channelId/personas', async (req, res) => {
 router.post('/:id/login/start', async (req, res) => {
   try {
     const { persona } = await ownedPersona(req, req.params.id);
-    const phone = String((req.body as { phone?: unknown }).phone ?? '').trim();
+    const phone = String((req.body as { phone?: unknown }).phone ?? '').replace(/[\s()\-]/g, '');
     if (!/^\+?\d{7,15}$/.test(phone)) { res.status(400).json({ error: 'Введите номер в международном формате' }); return; }
     const start = await startLogin(phone);
     await prisma.persona.update({ where: { id: persona.id }, data: { phone, loginPhoneCodeHash: start.phoneCodeHash, loginTempSession: start.tempSession, loginExpiresAt: new Date(Date.now() + 10 * 60_000) } });
@@ -62,7 +62,7 @@ router.post('/:id/login/code', async (req, res) => {
     const result = await confirmCode(persona.loginTempSession, persona.phone, persona.loginPhoneCodeHash, code);
     if (result.status === 'PASSWORD_NEEDED') {
       await prisma.persona.update({ where: { id: persona.id }, data: { loginTempSession: result.tempSession } });
-      res.json({ status: 'PASSWORD_NEEDED' });
+      res.json({ status: 'PASSWORD_NEEDED', hint: result.hint });
       return;
     }
     await storeSession(persona.id, persona.communityId, result);

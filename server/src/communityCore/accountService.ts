@@ -40,7 +40,7 @@ export async function startLogin(phone: string): Promise<LoginStart> {
 
 export type LoginResult =
   | { status: 'DONE'; session: string; tgUserId: string; username: string | null }
-  | { status: 'PASSWORD_NEEDED'; tempSession: string };
+  | { status: 'PASSWORD_NEEDED'; tempSession: string; hint: string };
 
 /** Step 2: submit the code. May return PASSWORD_NEEDED for 2FA accounts. */
 export async function confirmCode(tempSession: string, phone: string, phoneCodeHash: string, code: string): Promise<LoginResult> {
@@ -50,7 +50,9 @@ export async function confirmCode(tempSession: string, phone: string, phoneCodeH
       await client.invoke(new Api.auth.SignIn({ phoneNumber: phone, phoneCodeHash, phoneCode: code }));
     } catch (err) {
       if ((err as Error).message?.includes('SESSION_PASSWORD_NEEDED')) {
-        return { status: 'PASSWORD_NEEDED', tempSession: (client.session.save() as unknown as string) || tempSession };
+        let hint = '';
+        try { const pwd = await client.invoke(new Api.account.GetPassword()); hint = pwd.hint ?? ''; } catch { /* hint is optional */ }
+        return { status: 'PASSWORD_NEEDED', tempSession: (client.session.save() as unknown as string) || tempSession, hint };
       }
       throw err;
     }
