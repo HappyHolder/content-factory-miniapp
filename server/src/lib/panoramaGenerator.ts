@@ -21,10 +21,6 @@ interface Prediction {
 }
 
 export type PanoramaOrientation = 'horizontal' | 'vertical' | 'grid4';
-export interface Grid4Brief {
-  cleanBrief: string;
-  labels: string[];
-}
 const PANORAMA_STYLE_PHRASES: Record<string, string> = {
   hyperreal:  'hyperrealistic, ultra-detailed, lifelike photography',
   cinematic:  'cinematic film still, dramatic lighting, shallow depth of field, professionally color-graded',
@@ -47,22 +43,6 @@ const PANORAMA_STYLE_PHRASES: Record<string, string> = {
 
 function compactText(value: unknown, maxLength: number): string {
   return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, maxLength) : '';
-}
-
-export function parseGrid4Brief(brief: string): Grid4Brief {
-  const patterns = [
-    /(?:labels?|captions?)\s+(?:above\s+(?:them|their\s+heads?)|at\s+the\s+top)\s*:\s*([^\n.]+)/i,
-    /(?:подписи?|названия?)\s+(?:над\s+(?:ними|головами)|сверху)\s*:\s*([^\n.]+)/i,
-  ];
-  for (const pattern of patterns) {
-    const match = brief.match(pattern);
-    if (!match?.[1]) continue;
-    const labels = match[1].split(/[,;|]/).map(value => value.trim()).filter(Boolean);
-    if (labels.length !== 4 || labels.some(label => label.length > 40)) continue;
-    const cleanBrief = brief.replace(match[0], '').replace(/\s{2,}/g, ' ').replace(/([.!?])\s*[.!?]+/g, '$1').trim();
-    return { cleanBrief, labels };
-  }
-  return { cleanBrief: brief.trim(), labels: [] };
 }
 
 /**
@@ -273,15 +253,15 @@ export async function generatePanoramaImage(
 
 function buildGrid4BasePrompt(brief: string, visualKit?: unknown): string {
   const brandStyle = buildPanoramaBrandStyle(visualKit);
-  const { cleanBrief } = parseGrid4Brief(brief);
   return [
     'Create ONE complete canonical base composition as a tall 1:4 portrait image.',
     'ORIGINAL CREATIVE BRIEF:',
-    cleanBrief,
+    brief.trim(),
     'BASE TEMPLATE RULES:',
     '- Extract the common subject and underlying composition from the brief and render exactly ONE neutral canonical version.',
-    '- Do not render multiple variants, comparison views, close-ups, inset images, labels, captions, or any text.',
-    '- Use one centered, stable composition that fills the full height with minimal empty space.',
+    '- If the brief requests four variants, multiple states, personalities, seasons, styles, or labels, do not render those differences yet. Do not render any label or text.',
+    '- Use a centered, stable composition with clear top, upper-middle, lower-middle, and bottom content.',
+    '- Fill the full height intentionally with minimal empty space above and below.',
     '- Keep the camera, perspective, geometry, silhouette, horizon, and structural anchors clean and easy to preserve during a later visual edit.',
     '- Present only polished finished artwork on one continuous unframed background.',
     ...(brandStyle
@@ -293,12 +273,12 @@ function buildGrid4BasePrompt(brief: string, visualKit?: unknown): string {
   ].join('\n');
 }
 
-/** Generates a low-cost canonical 1:4 geometry template. */
+/** Generates the single canonical 1:4 column used as the geometry template. */
 export async function generateGrid4BaseImage(
   brief: string,
   visualKit?: unknown,
 ): Promise<Buffer | null> {
-  return runNanoImage(buildGrid4BasePrompt(brief, visualKit), '1:4', { resolution: '1K' });
+  return runNanoImage(buildGrid4BasePrompt(brief, visualKit), '1:4', { resolution: '4K' });
 }
 
 /**
@@ -333,39 +313,22 @@ export async function buildGrid4ReferenceImage(
 }
 
 /**
- * Performs an edit-only pass over the four existing copies. Labels are excluded
- * from the model prompt and rendered deterministically by the server afterwards.
+ * Edits one square reference image containing four identical columns. Nano
+ * Banana changes only the requested state of each column while the supplied
+ * geometry remains the common structural source.
  */
 export async function generateGrid4FromReference(
   brief: string,
   referenceUrl: string,
   visualKit?: unknown,
 ): Promise<Buffer | null> {
-  const { cleanBrief, labels } = parseGrid4Brief(brief);
-  const brandStyle = buildPanoramaBrandStyle(visualKit);
-  const variantDirection = labels.length === 4
-    ? 'Apply these four visual traits from left to right, but never render the words themselves: ' + labels.join(' | ')
-    : 'Infer exactly four requested visual states and apply one state to each existing copy from left to right.';
-
   const productionPrompt = [
-    'STRICT IMAGE EDIT. Modify the supplied image in place. Do not redesign or recompose it.',
-    'The input already contains four full-height, pixel-identical copies of one composition.',
-    'Keep exactly those four existing copies in exactly their current positions.',
-    'Do not add, remove, duplicate, crop, resize, or move any subject or object.',
-    'Do not create a second row, close-up, portrait, thumbnail, inset, comparison sheet, card, diagram, poster, or character sheet.',
-    'Preserve the exact camera, crop, pose, perspective, scale, silhouette, horizon, background geometry, and vertical anchors.',
-    'Every corresponding feature must remain at the same height in all four copies.',
-    variantDirection,
-    'Change only surface appearance and the explicitly requested state: color, material, clothing, lighting, weather, mood, or other requested visual attributes.',
-    'Render no text, labels, letters, numbers, captions, logos, badges, guides, borders, separators, or watermarks.',
-    'CREATIVE BRIEF WITHOUT LABEL INSTRUCTIONS:',
-    cleanBrief,
-    ...(brandStyle
-      ? [
-          'MANDATORY CHANNEL BRAND ART DIRECTION:',
-          brandStyle,
-        ]
-      : []),
+    'Edit the supplied square reference image; do not create a new composition.',
+    'The reference contains four pixel-identical copies of one canonical composition.',
+    'Preserve the exact camera, crop, placement, pose where applicable, perspective, scale, major geometry, horizon, visual anchors, and background structure of all four copies.',
+    'Keep all corresponding features at the same pixel-space height and width.',
+    'Apply the requested four variants only as controlled visual changes inside the existing structure.',
+    buildPanoramaPrompt(brief, 'grid4', 4, '1:1', visualKit),
   ].join('\n');
 
   return runNanoImage(productionPrompt, 'match_input_image', {
@@ -374,324 +337,6 @@ export async function generateGrid4FromReference(
   });
 }
 
-// ─── Per-column grid4 pipeline ───────────────────────────────────────────────
-// Four cheap 1K calls: one base column (= variant #1) plus three single-figure
-// edits. The server assembles the square, so the model never has to respect an
-// invisible 4-column layout — the failure mode of the sheet-based approaches.
-
-const GRID4_ORDINALS = ['first', 'second', 'third', 'fourth'];
-
-export function buildGrid4ColumnBasePrompt(brief: string, visualKit?: unknown): string {
-  const { cleanBrief, labels } = parseGrid4Brief(brief);
-  const brandStyle = buildPanoramaBrandStyle(visualKit);
-  const target = labels.length === 4
-    ? 'Render specifically this variant: ' + labels[0] + '.'
-    : 'Render the FIRST of the four distinct variants implied by the brief.';
-  return [
-    'Create ONE tall 1:4 portrait image containing exactly ONE complete subject.',
-    'CREATIVE BRIEF (four variants will be produced as separate images):',
-    cleanBrief,
-    target,
-    'COMPOSITION RULES:',
-    '- Exactly one full subject filling the full height: its top near the top edge, its base near the bottom edge, centered horizontally.',
-    '- No duplicates, close-ups, insets, alternate views, panels, grids, or comparison layouts.',
-    '- One continuous, softly detailed background that stays consistent from top to bottom.',
-    '- The image will be cut into four equal horizontal segments at 25%, 50% and 75% height: keep eyes, hands, joints and other critical details away from those heights.',
-    '- Polished finished artwork. No text, letters, numbers, captions, logos, or watermarks.',
-    ...(brandStyle ? ['MANDATORY CHANNEL BRAND ART DIRECTION:', brandStyle] : []),
-  ].join('\n');
-}
-
-/** Generates the 1:4 base column at 1K — it doubles as variant #1. */
-export async function generateGrid4ColumnBase(brief: string, visualKit?: unknown): Promise<Buffer | null> {
-  return runNanoImage(buildGrid4ColumnBasePrompt(brief, visualKit), '1:4', { resolution: '1K' });
-}
-
-export function buildGrid4ColumnVariantPrompt(brief: string, variantIndex: number, visualKit?: unknown): string {
-  const { cleanBrief, labels } = parseGrid4Brief(brief);
-  const brandStyle = buildPanoramaBrandStyle(visualKit);
-  const target = labels.length === 4
-    ? 'Transform it into this variant: ' + labels[variantIndex] + '.'
-    : 'Transform it into the ' + GRID4_ORDINALS[variantIndex] + ' of the four distinct variants implied by the brief.';
-  return [
-    'STRICT IMAGE EDIT of the supplied tall portrait. It contains exactly one subject.',
-    target,
-    'CREATIVE BRIEF:',
-    cleanBrief,
-    'EDIT RULES:',
-    '- Keep the exact camera, crop, scale, position, pose, and overall silhouette of the subject.',
-    '- Every major part of the subject must stay at the same height as in the input image.',
-    '- Keep the same background structure and lighting direction; restyle surfaces, materials, colors, mood, and details that express the requested variant.',
-    '- Exactly one subject. Do not add duplicates, close-ups, insets, panels, borders, or any layout elements.',
-    '- No text, letters, numbers, captions, logos, or watermarks.',
-    ...(brandStyle ? ['MANDATORY CHANNEL BRAND ART DIRECTION:', brandStyle] : []),
-  ].join('\n');
-}
-
-/** Edits the base column into variant #variantIndex (1..3) at 1K. */
-export async function generateGrid4ColumnVariant(
-  brief: string,
-  variantIndex: number,
-  baseColumnUrl: string,
-  visualKit?: unknown,
-): Promise<Buffer | null> {
-  return runNanoImage(buildGrid4ColumnVariantPrompt(brief, variantIndex, visualKit), 'match_input_image', {
-    resolution: '1K',
-    imageInput: [baseColumnUrl],
-  });
-}
-
-/** Places the four columns side by side into one deterministic square. */
-export async function assembleGrid4Columns(
-  columns: Buffer[],
-  columnWidth = 512,
-  height = 2048,
-): Promise<Buffer> {
-  const resized = await Promise.all(columns.map(column =>
-    sharp(column).resize({ width: columnWidth, height, fit: 'cover', position: 'centre' }).png().toBuffer()));
-  return sharp({
-    create: { width: columnWidth * columns.length, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
-  })
-    .composite(resized.map((input, index) => ({ input, left: index * columnWidth, top: 0 })))
-    .png()
-    .toBuffer();
-}
-
-function fullWidthVerticalProfile(data: Buffer, width: number, height: number): number[] {
-  const profile: number[] = [];
-  for (let y = 1; y < height; y++) {
-    let total = 0;
-    for (let x = 0; x < width; x++) total += Math.abs(data[y * width + x] - data[(y - 1) * width + x]);
-    profile.push(total / width);
-  }
-  return profile;
-}
-
-function horizontalEdgeProfile(data: Buffer, width: number, rowStart: number, rowEnd: number): number[] {
-  const profile: number[] = [];
-  for (let x = 1; x < width; x++) {
-    let total = 0;
-    for (let y = rowStart; y < rowEnd; y++) total += Math.abs(data[y * width + x] - data[y * width + x - 1]);
-    profile.push(total / Math.max(1, rowEnd - rowStart));
-  }
-  return profile;
-}
-
-function bestProfileShift(reference: number[], sample: number[], maxShift: number): { shift: number; corr: number } {
-  let bestShiftValue = 0;
-  let bestCorr = -2;
-  for (let shift = -maxShift; shift <= maxShift; shift++) {
-    const overlap = reference.length - Math.abs(shift);
-    if (overlap < 24) continue;
-    const refSlice = reference.slice(Math.max(0, -shift), Math.max(0, -shift) + overlap);
-    const sampleSlice = sample.slice(Math.max(0, shift), Math.max(0, shift) + overlap);
-    const corr = profileCorrelation(refSlice, sampleSlice);
-    if (corr > bestCorr) { bestCorr = corr; bestShiftValue = shift; }
-  }
-  return { shift: bestShiftValue, corr: bestCorr };
-}
-
-/**
- * Deterministically re-docks an edited column onto the base geometry: measures
- * the vertical/horizontal drift via gradient-profile cross-correlation and
- * compensates it with a crop + resize. Free pixel math — the paid model output
- * is corrected, never discarded, and no second paid call is ever made.
- */
-export async function alignGrid4Column(base: Buffer, candidate: Buffer): Promise<Buffer> {
-  const width = 96;
-  const height = 384;
-  const [a, b] = await Promise.all([base, candidate].map(buffer =>
-    sharp(buffer).resize(width, height, { fit: 'fill' }).greyscale().raw().toBuffer()));
-
-  const vertical = bestProfileShift(
-    fullWidthVerticalProfile(a, width, height),
-    fullWidthVerticalProfile(b, width, height),
-    Math.round(height * 0.12));
-  const horizontal = bestProfileShift(
-    horizontalEdgeProfile(a, width, 0, height),
-    horizontalEdgeProfile(b, width, 0, height),
-    Math.round(width * 0.15));
-
-  const meta = await sharp(candidate).metadata();
-  const realWidth = meta.width ?? 0;
-  const realHeight = meta.height ?? 0;
-  if (realWidth < 8 || realHeight < 8) return candidate;
-
-  const dy = Math.round(vertical.shift * realHeight / height);
-  const dx = Math.round(horizontal.shift * realWidth / width);
-  if (Math.abs(dx) < realWidth * 0.01 && Math.abs(dy) < realHeight * 0.01) return candidate;
-
-  // Pure translation: extend with copied edge pixels, then crop the shifted
-  // window back to the original size — no stretching, heights stay intact.
-  // Two separate sharp passes: within one pipeline extract would run first.
-  const extended = await sharp(candidate)
-    .extend({
-      top: dy < 0 ? -dy : 0,
-      bottom: dy > 0 ? dy : 0,
-      left: dx < 0 ? -dx : 0,
-      right: dx > 0 ? dx : 0,
-      extendWith: 'copy',
-    })
-    .png()
-    .toBuffer();
-  return sharp(extended)
-    .extract({ left: Math.max(0, dx), top: Math.max(0, dy), width: realWidth, height: realHeight })
-    .png()
-    .toBuffer();
-}
-
-/**
- * Verifies an edited column against the base column: overall vertical geometry
- * plus edge alignment inside a thin strip around each 25/50/75% cut line, so a
- * head from one column keeps docking onto a torso from another. Gradient-based
- * profiles are invariant to the restyle itself (color/material changes pass;
- * pose, scale, or position drift fails). Deterministic — no model calls.
- */
-export async function validateGrid4Column(
-  base: Buffer,
-  candidate: Buffer,
-): Promise<{ ok: boolean; reason?: string }> {
-  const width = 96;
-  const height = 384;
-  const [a, b] = await Promise.all([base, candidate].map(buffer =>
-    sharp(buffer).resize(width, height, { fit: 'fill' }).greyscale().raw().toBuffer()));
-
-  const overall = profileCorrelation(fullWidthVerticalProfile(a, width, height), fullWidthVerticalProfile(b, width, height));
-  if (overall < 0.25) {
-    return { ok: false, reason: 'variant lost the base column geometry (profile correlation ' + overall.toFixed(2) + ')' };
-  }
-
-  for (const line of [1, 2, 3]) {
-    const y = Math.round(height * line / 4);
-    const strip = 8;
-    const corr = profileCorrelation(
-      horizontalEdgeProfile(a, width, y - strip, y + strip),
-      horizontalEdgeProfile(b, width, y - strip, y + strip));
-    if (corr < 0.2) {
-      return { ok: false, reason: 'silhouette mismatch at the ' + (line * 25) + '% cut line (correlation ' + corr.toFixed(2) + ')' };
-    }
-  }
-
-  return { ok: true };
-}
-
-function profileCorrelation(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0;
-  const meanA = a.reduce((sum, value) => sum + value, 0) / a.length;
-  const meanB = b.reduce((sum, value) => sum + value, 0) / b.length;
-  let numerator = 0;
-  let denominatorA = 0;
-  let denominatorB = 0;
-  for (let i = 0; i < a.length; i++) {
-    const da = a[i] - meanA;
-    const db = b[i] - meanB;
-    numerator += da * db;
-    denominatorA += da * da;
-    denominatorB += db * db;
-  }
-  const denominator = Math.sqrt(denominatorA * denominatorB);
-  return denominator > 0 ? numerator / denominator : 0;
-}
-
-function verticalStructureProfile(data: Buffer, width: number, height: number, column: number): number[] {
-  const left = Math.floor(width * column / 4);
-  const right = Math.floor(width * (column + 1) / 4);
-  const profile: number[] = [];
-  for (let y = 1; y < height; y++) {
-    let total = 0;
-    for (let x = left; x < right; x++) {
-      total += Math.abs(data[y * width + x] - data[(y - 1) * width + x]);
-    }
-    profile.push(total / Math.max(1, right - left));
-  }
-  return profile;
-}
-
-/**
- * Rejects obvious presentation/contact-sheet layouts before any slicing.
- * It never retries automatically, so a failed quality gate cannot create another
- * paid prediction behind the user's back.
- */
-export async function validateGrid4Structure(
-  reference: Buffer,
-  candidate: Buffer,
-): Promise<{ ok: boolean; reason?: string }> {
-  const size = 128;
-  const [referenceRaw, candidateRaw] = await Promise.all([
-    sharp(reference).resize(size, size, { fit: 'fill' }).greyscale().raw().toBuffer(),
-    sharp(candidate).resize(size, size, { fit: 'fill' }).greyscale().raw().toBuffer(),
-  ]);
-
-  // A contact sheet normally introduces a near-full-width hard row boundary.
-  for (let y = 8; y < size - 8; y++) {
-    let changed = 0;
-    let totalDelta = 0;
-    for (let x = 0; x < size; x++) {
-      const delta = Math.abs(candidateRaw[y * size + x] - candidateRaw[(y - 1) * size + x]);
-      totalDelta += delta;
-      if (delta >= 28) changed++;
-    }
-    if (changed / size >= 0.72 && totalDelta / size >= 32) {
-      return { ok: false, reason: 'detected an extra horizontal presentation row' };
-    }
-  }
-
-  const referenceProfile = verticalStructureProfile(referenceRaw, size, size, 0);
-  const correlations = [0, 1, 2, 3].map(column =>
-    profileCorrelation(referenceProfile, verticalStructureProfile(candidateRaw, size, size, column)));
-  const averageCorrelation = correlations.reduce((sum, value) => sum + value, 0) / correlations.length;
-  if (averageCorrelation < 0.12 || correlations.some(value => value < -0.1)) {
-    return { ok: false, reason: 'the edited columns no longer match the reference geometry' };
-  }
-
-  return { ok: true };
-}
-
-function escapeSvgText(value: string): string {
-  return value.replace(/[&<>"']/g, char => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&apos;',
-  }[char] ?? char));
-}
-
-/** Draws exact requested labels after generation so text cannot alter composition. */
-export async function overlayGrid4Labels(image: Buffer, labels: string[]): Promise<Buffer> {
-  if (labels.length !== 4) return image;
-  const meta = await sharp(image).metadata();
-  const width = meta.width ?? 0;
-  const height = meta.height ?? 0;
-  if (width < 4 || height < 4) return image;
-
-  const side = Math.min(width, height);
-  const left = Math.floor((width - side) / 2);
-  const top = Math.floor((height - side) / 2);
-  const columnWidth = side / 4;
-  const fontSize = Math.max(24, Math.round(side * 0.034));
-  const boxHeight = Math.round(fontSize * 1.55);
-  const boxY = Math.round(side * 0.025);
-  const boxInset = Math.round(columnWidth * 0.08);
-  const labelSvg = labels.map((label, index) => {
-    const x = Math.round(index * columnWidth + boxInset);
-    const center = Math.round((index + 0.5) * columnWidth);
-    const boxWidth = Math.round(columnWidth - boxInset * 2);
-    return '<rect x="' + x + '" y="' + boxY + '" width="' + boxWidth + '" height="' + boxHeight +
-      '" rx="' + Math.round(boxHeight / 4) + '" fill="rgba(12,12,16,0.78)" stroke="rgba(255,255,255,0.28)" stroke-width="' +
-      Math.max(2, Math.round(side / 1500)) + '"/><text x="' + center + '" y="' + Math.round(boxY + boxHeight * 0.69) +
-      '" text-anchor="middle" font-family="Arial,DejaVu Sans,sans-serif" font-size="' + fontSize +
-      '" font-weight="700" fill="#ffffff">' + escapeSvgText(label) + '</text>';
-  }).join('');
-
-  const overlay = Buffer.from(
-    '<svg width="' + side + '" height="' + side + '" xmlns="http://www.w3.org/2000/svg">' + labelSvg + '</svg>');
-  return sharp(image)
-    .extract({ left, top, width: side, height: side })
-    .composite([{ input: overlay, left: 0, top: 0 }])
-    .png()
-    .toBuffer();
-}
 /**
  * Center-crops an image to 1:1 and cuts it into a row-major 4x4 matrix.
  * Each returned row is ready to become one independent slideshow block.
