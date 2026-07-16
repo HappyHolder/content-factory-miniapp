@@ -10,6 +10,7 @@ import botRouter from './routes/bot';
 import moderatorRouter from './routes/moderator';
 import moderatorConfigRouter from './routes/moderatorConfig';
 import communityManagerRouter from './routes/communityManager';
+import communityCoreRouter from './routes/communityCore';
 import sourcesRouter from './routes/sources';
 import postsRouter from './routes/posts';
 import chatRouter from './routes/chat';
@@ -25,6 +26,7 @@ import { resumeGeneratingPlans } from './lib/contentWorker';
 import { rateLimit } from './lib/rateLimit';
 import { startCommunityManagerWorker } from './communityManager/engine';
 import { startCommunityActivityScheduler } from './communityManager/activityScheduler';
+import { startCommunityCoreRuntime } from './communityCore/engine';
 
 const app = express();
 
@@ -81,6 +83,7 @@ app.use('/api/bot',       botRouter);
 app.use('/api/moderator', moderatorRouter);
 app.use('/api/moderator-config', moderatorConfigRouter);
 app.use('/api/community-manager', moderatorApiLimit, communityManagerRouter);
+app.use('/api/community-core', moderatorApiLimit, communityCoreRouter);
 app.use('/api/sources',   sourcesRouter);
 app.use('/api/posts',     postsRouter);
 app.use('/api/chat',      chatRouter);
@@ -100,6 +103,7 @@ app.listen(env.PORT, () => {
   startScheduler();
   startCommunityManagerWorker();
   startCommunityActivityScheduler();
+  startCommunityCoreRuntime().catch(err => console.error('[community-core] boot failed:', (err as Error).message));
   // Resume any content-manager plans interrupted by a restart.
   resumeGeneratingPlans().catch(err =>
     console.error('[content-worker] resume failed:', (err as Error).message));

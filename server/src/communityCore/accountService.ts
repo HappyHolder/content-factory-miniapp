@@ -1,0 +1,139 @@
+/**
+ * accountService.ts
+ *
+ * The ONLY place GramJS (MTProto user accounts) is touched. Wraps the phone→code
+ * →2FA login and the runtime actions a persona performs from its own account:
+ * send message (with a human "typing" delay), set a reaction, update profile,
+ * join the community chat. Sessions are encrypted at rest (personaCrypto).
+ *
+ * Isolated from Moderator and Community Manager — nothing there imports this.
+ */
+
+import { TelegramClient, Api } from 'telegram';
+import { StringSession } from 'telegram/sessions';
+import { computeCheck } from 'telegram/Password';
+import { env } from '../env';
+
+export const communityCoreEnabled = () => env.TELEGRAM_API_ID > 0 && Boolean(env.TELEGRAM_API_HASH);
+
+const clientOpts = { connectionRetries: 3, useWSS: false, autoReconnect: true } as const;
+
+async function makeClient(session: string): Promise<TelegramClient> {
+  if (!communityCoreEnabled()) throw new Error('COMMUNITY_CORE_NOT_CONFIGURED');
+  const client = new TelegramClient(new StringSession(session), env.TELEGRAM_API_ID, env.TELEGRAM_API_HASH, clientOpts);
+  await client.connect();
+  return client;
+}
+
+export type LoginStart = { phoneCodeHash: string; tempSession: string };
+
+/** Step 1: request the login code for a phone number. Returns transient state. */
+export async function startLogin(phone: string): Promise<LoginStart> {
+  const client = await makeClient('');
+  try {
+    const result = await client.sendCode({ apiId: env.TELEGRAM_API_ID, apiHash: env.TELEGRAM_API_HASH }, phone);
+    return { phoneCodeHash: result.phoneCodeHash, tempSession: (client.session.save() as unknown as string) || '' };
+  } finally {
+    await client.disconnect().catch(() => {});
+  }
+}
+
+export type LoginResult =
+  | { status: 'DONE'; session: string; tgUserId: string; username: string | null }
+  | { status: 'PASSWORD_NEEDED'; tempSession: string };
+
+/** Step 2: submit the code. May return PASSWORD_NEEDED for 2FA accounts. */
+export async function confirmCode(tempSession: string, phone: string, phoneCodeHash: string, code: string): Promise<LoginResult> {
+  const client = await makeClient(tempSession);
+  try {
+    try {
+      await client.invoke(new Api.auth.SignIn({ phoneNumber: phone, phoneCodeHash, phoneCode: code }));
+    } catch (err) {
+      if ((err as Error).message?.includes('SESSION_PASSWORD_NEEDED')) {
+        return { status: 'PASSWORD_NEEDED', tempSession: (client.session.save() as unknown as string) || tempSession };
+      }
+      throw err;
+    }
+    return await finishLogin(client);
+  } finally {
+    await client.disconnect().catch(() => {});
+  }
+}
+
+/** Step 3 (only for 2FA accounts): submit the cloud password. */
+export async function confirmPassword(tempSession: string, password: string): Promise<LoginResult> {
+  const client = await makeClient(tempSession);
+  try {
+    const pwd = await client.invoke(new Api.account.GetPassword());
+    const check = await computeCheck(pwd, password);
+    await client.invoke(new Api.auth.CheckPassword({ password: check }));
+    return await finishLogin(client);
+  } finally {
+    await client.disconnect().catch(() => {});
+  }
+}
+
+async function finishLogin(client: TelegramClient): Promise<LoginResult> {
+  const me = await client.getMe();
+  const user = me as Api.User;
+  return {
+    status: 'DONE',
+    session: (client.session.save() as unknown as string) || '',
+    tgUserId: String(user.id),
+    username: user.username ?? null,
+  };
+}
+
+/** Runs a callback with a connected client from a stored session, always cleaning up. */
+export async function withPersonaClient<T>(session: string, fn: (client: TelegramClient) => Promise<T>): Promise<T> {
+  const client = await makeClient(session);
+  try {
+    return await fn(client);
+  } finally {
+    await client.disconnect().catch(() => {});
+  }
+}
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+/** Sends one message with a human-scaled "typing" delay before it appears. */
+export async function sendHumanMessage(client: TelegramClient, chatId: string, text: string): Promise<number | null> {
+  const entity = await client.getInputEntity(chatId);
+  // ~14 chars/sec typist with ±40% jitter, clamped to a natural 1.2–9s window.
+  const delay = Math.min(9000, Math.max(1200, (text.length / 14) * 1000 * (0.6 + Math.random() * 0.8)));
+  await client.invoke(new Api.messages.SetTyping({ peer: entity, action: new Api.SendMessageTypingAction() }));
+  await sleep(delay);
+  const sent = await client.sendMessage(entity, { message: text });
+  return typeof sent?.id === 'number' ? sent.id : null;
+}
+
+/** Adds a single emoji reaction to a message, after a short "just read it" pause. */
+export async function reactToMessage(client: TelegramClient, chatId: string, messageId: number, emoji: string): Promise<void> {
+  const entity = await client.getInputEntity(chatId);
+  await sleep(800 + Math.random() * 2500);
+  await client.invoke(new Api.messages.SendReaction({
+    peer: entity,
+    msgId: messageId,
+    reaction: [new Api.ReactionEmoji({ emoticon: emoji })],
+  }));
+}
+
+/** Applies the persona's public identity to the connected account's profile. */
+export async function updateProfile(client: TelegramClient, opts: { firstName?: string; lastName?: string; about?: string }): Promise<void> {
+  await client.invoke(new Api.account.UpdateProfile({
+    firstName: opts.firstName?.slice(0, 64),
+    lastName: opts.lastName?.slice(0, 64),
+    about: opts.about?.slice(0, 70),
+  }));
+}
+
+/** Joins the account to the community's discussion group by @username or invite. */
+export async function joinChat(client: TelegramClient, chat: string): Promise<void> {
+  const invite = chat.match(/(?:t\.me\/\+|joinchat\/)([\w-]+)/i)?.[1];
+  if (invite) {
+    await client.invoke(new Api.messages.ImportChatInvite({ hash: invite }));
+    return;
+  }
+  const entity = await client.getInputEntity(chat.replace(/^https?:\/\/t\.me\//i, '').replace(/^@/, ''));
+  await client.invoke(new Api.channels.JoinChannel({ channel: entity }));
+}

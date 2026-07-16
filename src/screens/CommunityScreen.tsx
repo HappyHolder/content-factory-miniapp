@@ -14,6 +14,7 @@ import { ModeratorContentFiltersEditor } from '@/components/moderator/ModeratorC
 import { ModeratorExecutorSheet, type ManagedModeratorBotView } from '@/components/moderator/ModeratorExecutorSheet'
 import { ModeratorHelpSheet, ModeratorInfoButton } from '@/components/moderator/ModeratorHelpSheet'
 import { CommunityManagerPanel } from '@/components/community-manager/CommunityManagerPanel'
+import { CommunityCorePanel } from '@/components/community-core/CommunityCorePanel'
 import { API_BASE } from '@/lib/api'
 import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 
@@ -47,7 +48,7 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
   const [refreshing, setRefreshing] = useState(false)
   const [connectingId, setConnectingId] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const [activeProduct, setActiveProduct] = useState<'moderator' | 'manager'>('moderator')
+  const [activeProduct, setActiveProduct] = useState<'moderator' | 'manager' | 'core'>('moderator')
   const [overviewHelpOpen, setOverviewHelpOpen] = useState(false)
 
   const initData = getTelegramInitData()
@@ -113,12 +114,15 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
       <PageHeader title="Сообщество" subtitle={channelUsername} onBack={onBack} />
       <div className="px-4 pt-2">
         <div className="flex gap-1 rounded-[12px] border border-white/[0.06] bg-white/[0.04] p-1" role="tablist" aria-label="Инструменты сообщества">
-          <button type="button" role="tab" aria-selected={activeProduct === 'moderator'} onClick={() => setActiveProduct('moderator')} className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-[9px] px-2 text-[12.5px] font-semibold transition-colors ${activeProduct === 'moderator' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]'}`}><ShieldCheck size={14} /> Moderator</button>
-          <button type="button" role="tab" aria-selected={activeProduct === 'manager'} onClick={() => setActiveProduct('manager')} className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-[9px] px-2 text-[12.5px] font-semibold transition-colors ${activeProduct === 'manager' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]'}`}><Sparkles size={14} /> Community Manager</button>
+          <button type="button" role="tab" aria-selected={activeProduct === 'moderator'} onClick={() => setActiveProduct('moderator')} className={`flex min-h-10 flex-1 items-center justify-center gap-1 rounded-[9px] px-1.5 text-[11.5px] font-semibold transition-colors ${activeProduct === 'moderator' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]'}`}><ShieldCheck size={14} /> Moderator</button>
+          <button type="button" role="tab" aria-selected={activeProduct === 'manager'} onClick={() => setActiveProduct('manager')} className={`flex min-h-10 flex-1 items-center justify-center gap-1 rounded-[9px] px-1.5 text-[11.5px] font-semibold transition-colors ${activeProduct === 'manager' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]'}`}><Sparkles size={14} /> Manager</button>
+          <button type="button" role="tab" aria-selected={activeProduct === 'core'} onClick={() => setActiveProduct('core')} className={`flex min-h-10 flex-1 items-center justify-center gap-1 rounded-[9px] px-1.5 text-[11.5px] font-semibold transition-colors ${activeProduct === 'core' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]'}`}><Users size={14} /> Ядро</button>
         </div>
       </div>
 
-      {activeProduct === 'manager' ? (
+      {activeProduct === 'core' ? (
+        <div className="px-4 pt-3"><CommunityCorePanel channelId={channelId} /></div>
+      ) : activeProduct === 'manager' ? (
         <div className="px-4 pt-3"><CommunityManagerPanel channelId={channelId} channelUsername={channelUsername} /></div>
       ) : (
         <div className="space-y-3 px-4 pt-3" role="tabpanel">

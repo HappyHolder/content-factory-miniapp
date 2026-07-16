@@ -87,14 +87,14 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  channels       Channel[]
-  sourceInputs   SourceInput[]
-  generationJobs GenerationJob[]
-  subscription   Subscription?
-  aiModeratorEntitlement AiModeratorEntitlement?
-  managedModeratorBots ManagedModeratorBot[]
+  channels                    Channel[]
+  sourceInputs                SourceInput[]
+  generationJobs              GenerationJob[]
+  subscription                Subscription?
+  aiModeratorEntitlement      AiModeratorEntitlement?
+  managedModeratorBots        ManagedModeratorBot[]
   managedCommunityManagerBots ManagedCommunityManagerBot[]
-  chatMessages   ChatMessage[]
+  chatMessages                ChatMessage[]
 }
 
 model ChatMessage {
@@ -111,13 +111,13 @@ model ChatMessage {
 }
 
 model Channel {
-  id     String  @id @default(cuid())
-  name   String
-  handle String? @unique
+  id       String  @id @default(cuid())
+  name     String
+  handle   String? @unique
   // Stable numeric Telegram chat id (e.g. "-1001234567890"). Survives channel
   // renames — publishing prefers it over @handle so a rename never breaks it.
   tgChatId String?
-  userId String
+  userId   String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -211,8 +211,8 @@ model GeneratedPost {
   status          PostStatus @default(NEW)
   scheduledAt     DateTime?
   publishedAt     DateTime?
-  tgChatId        String?    // chat id of the published channel message — enables edit-in-place
-  tgMessageId     Int?       // message id of the published channel message (5-hour re-publish window)
+  tgChatId        String? // chat id of the published channel message — enables edit-in-place
+  tgMessageId     Int? // message id of the published channel message (5-hour re-publish window)
   textRegensUsed  Int        @default(0)
   imageRegensUsed Int        @default(0)
 
@@ -264,7 +264,7 @@ model PostVariant {
 
 model TonPayment {
   id        String   @id @default(cuid())
-  txHash    String   @unique          // TON transaction hash — prevents double-credit
+  txHash    String   @unique // TON transaction hash — prevents double-credit
   userId    String
   tier      PlanTier
   amountTon Float
@@ -275,7 +275,7 @@ model TonPayment {
 
 model StarsPayment {
   id          String   @id @default(cuid())
-  chargeId    String   @unique          // telegram_payment_charge_id — prevents double-credit on duplicate webhook delivery
+  chargeId    String   @unique // telegram_payment_charge_id — prevents double-credit on duplicate webhook delivery
   userId      String
   tier        PlanTier
   amountStars Int
@@ -286,13 +286,13 @@ model StarsPayment {
 
 model PromoCode {
   id           String    @id @default(cuid())
-  code         String    @unique               // stored uppercased; matched case-insensitively in app
-  tier         PlanTier                          // tier granted on redemption
-  modelTier    ModelTier @default(LOW)           // LOW = base models, HIGH = premium models
-  durationDays Int                               // days of access the grant lasts
-  redeemedAt   DateTime?                          // null = unused; set = burned (single-use)
-  redeemedById String?                            // userId that redeemed it
-  createdById  String?                            // admin telegramId that created it (audit)
+  code         String    @unique // stored uppercased; matched case-insensitively in app
+  tier         PlanTier // tier granted on redemption
+  modelTier    ModelTier @default(LOW) // LOW = base models, HIGH = premium models
+  durationDays Int // days of access the grant lasts
+  redeemedAt   DateTime? // null = unused; set = burned (single-use)
+  redeemedById String? // userId that redeemed it
+  createdById  String? // admin telegramId that created it (audit)
 
   createdAt DateTime @default(now())
 
@@ -300,16 +300,16 @@ model PromoCode {
 }
 
 model Subscription {
-  id              String    @id @default(cuid())
-  userId          String    @unique
-  tier            PlanTier  @default(FREE)
-  modelTier       ModelTier @default(LOW)     // LOW = base models, HIGH = premium models
-  aiPostsLimit    Int       @default(5)
-  aiPostsUsed     Int       @default(0)
-  aiCreatesLimit  Int?      @default(5)       // null = unlimited (Studio Pro)
-  aiCreatesUsed   Int       @default(0)
-  quotaResetAt    DateTime?                  // when aiPostsUsed/aiCreatesUsed next reset (monthly)
-  expiresAt       DateTime?
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  tier           PlanTier  @default(FREE)
+  modelTier      ModelTier @default(LOW) // LOW = base models, HIGH = premium models
+  aiPostsLimit   Int       @default(5)
+  aiPostsUsed    Int       @default(0)
+  aiCreatesLimit Int?      @default(5) // null = unlimited (Studio Pro)
+  aiCreatesUsed  Int       @default(0)
+  quotaResetAt   DateTime? // when aiPostsUsed/aiCreatesUsed next reset (monthly)
+  expiresAt      DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -318,19 +318,19 @@ model Subscription {
 }
 
 model AiModeratorEntitlement {
-  id                  String   @id @default(cuid())
-  userId              String   @unique
-  status              String   @default("TRIAL")
-  monthlyChecksLimit  Int      @default(5000)
-  checksUsed          Int      @default(0)
-  inputTokensUsed     Int      @default(0)
-  outputTokensUsed    Int      @default(0)
-  estimatedCostMicros Int      @default(0)
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  status              String    @default("TRIAL")
+  monthlyChecksLimit  Int       @default(5000)
+  checksUsed          Int       @default(0)
+  inputTokensUsed     Int       @default(0)
+  outputTokensUsed    Int       @default(0)
+  estimatedCostMicros Int       @default(0)
   quotaResetAt        DateTime?
   trialEndsAt         DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ModeratorConversationMessage {
@@ -380,38 +380,38 @@ model Style {
 
   nameRu String
   nameEn String
-  descRu String @default("")
-  descEn String @default("")
+  descRu String   @default("")
+  descEn String   @default("")
   tags   String[] @default([])
 
   // Pricing — FREE styles skip the purchase flow entirely.
   priceKind  String @default("FREE") // "FREE" | "PAID"
-  priceStars Int?                     // Telegram Stars (when PAID)
-  priceGram  Float?                   // Gram / TON amount (when PAID)
+  priceStars Int? // Telegram Stars (when PAID)
+  priceGram  Float? // Gram / TON amount (when PAID)
 
   // Applied into the channel's VisualKit on "Apply".
-  brandAdaptive    Boolean @default(true)   // true = pull channel color; false = fixed palette
+  brandAdaptive    Boolean @default(true) // true = pull channel color; false = fixed palette
   recommendedMode  String  @default("html") // "html" | "ai" | "ai_html"
-  palette          Json    @default("[]")   // BrandColor[]
-  visualCoverStyle String  @default("")      // master AI cover-style text
-  bgStyle          String?                   // CoverBgStyle
-  bgDetail         String?                   // CoverBgDetail
-  fontPreset       String?                   // VisualKit.visualFontPreset
-  logoUsage        String?                   // LogoUsage
-  templates        Json    @default("[]")   // HtmlTemplateItem[] { name, url }
-  carouselTemplate Json?                     // one universal carousel-slide template { name, url, demoSlots } — separate from rubric templates
+  palette          Json    @default("[]") // BrandColor[]
+  visualCoverStyle String  @default("") // master AI cover-style text
+  bgStyle          String? // CoverBgStyle
+  bgDetail         String? // CoverBgDetail
+  fontPreset       String? // VisualKit.visualFontPreset
+  logoUsage        String? // LogoUsage
+  templates        Json    @default("[]") // HtmlTemplateItem[] { name, url }
+  carouselTemplate Json? // one universal carousel-slide template { name, url, demoSlots } — separate from rubric templates
 
   // Static demo previews, pre-rendered with a demo brand.
   previews    String[] @default([])
   heroPreview String?
 
-  published Boolean @default(false)
+  published    Boolean @default(false)
   // Showcase-only: visible in the market to EVERYONE, but only an admin can
   // apply it. Used for the internal Publium / Stepan Logos packs — a shop
   // window so users see what the packs look like without being able to use them.
   showcaseOnly Boolean @default(false)
-  sortOrder Int     @default(0)
-  createdBy String?                 // admin telegramId that created it (audit)
+  sortOrder    Int     @default(0)
+  createdBy    String? // admin telegramId that created it (audit)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -461,14 +461,14 @@ model ProjectDoc {
 // One content series. `source` = 'web' | 'uploads' | 'both'. Items are generated
 // strictly sequentially by contentWorker; on completion posts sit SCHEDULED.
 model ContentPlan {
-  id          String            @id @default(cuid())
-  channelId   String
-  topic       String
-  postsPerDay Int
-  days        Int
-  startDate   DateTime
-  source      String            @default("web") // 'web' | 'uploads' | 'both'
-  status      ContentPlanStatus @default(DRAFT)
+  id           String            @id @default(cuid())
+  channelId    String
+  topic        String
+  postsPerDay  Int
+  days         Int
+  startDate    DateTime
+  source       String            @default("web") // 'web' | 'uploads' | 'both'
+  status       ContentPlanStatus @default(DRAFT)
   errorMessage String?
 
   createdAt DateTime @default(now())
@@ -524,24 +524,25 @@ model ModeratorChat {
 }
 
 model Community {
-  id              String              @id @default(cuid())
-  channelId       String              @unique
-  moderatorChatId String?             @unique
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  channel         Channel             @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  moderatorChat   ModeratorChat?      @relation(fields: [moderatorChatId], references: [id], onDelete: SetNull)
-  moderator       Moderator?
-  members         CommunityMember[]
-  warnings        ModerationWarning[]
-  events          ModerationEvent[]
-  scheduledActions ScheduledModerationAction[]
-  messageSamples   ModerationMessageSample[]
-  conversationMessages ModeratorConversationMessage[]
-  conversationState ModeratorConversationState?
+  id                         String                         @id @default(cuid())
+  channelId                  String                         @unique
+  moderatorChatId            String?                        @unique
+  createdAt                  DateTime                       @default(now())
+  updatedAt                  DateTime                       @updatedAt
+  channel                    Channel                        @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  moderatorChat              ModeratorChat?                 @relation(fields: [moderatorChatId], references: [id], onDelete: SetNull)
+  moderator                  Moderator?
+  members                    CommunityMember[]
+  warnings                   ModerationWarning[]
+  events                     ModerationEvent[]
+  scheduledActions           ScheduledModerationAction[]
+  messageSamples             ModerationMessageSample[]
+  conversationMessages       ModeratorConversationMessage[]
+  conversationState          ModeratorConversationState?
   managedBot                 ManagedModeratorBot?
   managedCommunityManagerBot ManagedCommunityManagerBot?
   communityManager           CommunityManager?
+  personas                   Persona[]
 }
 
 model Moderator {
@@ -612,6 +613,7 @@ model ManagedCommunityManagerBot {
 
   @@index([ownerUserId, status])
 }
+
 model ModeratorConfig {
   id          String    @id @default(cuid())
   moderatorId String
@@ -653,21 +655,21 @@ model CommunityMember {
 model ScheduledModerationAction {
   id                String    @id @default(cuid())
   communityId       String
-  actionType         String
-  tgChatId           String
+  actionType        String
+  tgChatId          String
   telegramMessageId Int
   tgUserId          String?
-  executeAt          DateTime
-  status             String    @default("PENDING")
-  attempts           Int       @default(0)
-  lastError          String?
-  completedAt        DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  community          Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  executeAt         DateTime
+  status            String    @default("PENDING")
+  attempts          Int       @default(0)
+  lastError         String?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  community         Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
 
-  @@index([status, executeAt])
   @@unique([tgChatId, telegramMessageId, actionType])
+  @@index([status, executeAt])
 }
 
 model ModerationMessageSample {
@@ -678,11 +680,11 @@ model ModerationMessageSample {
   contentHash       String
   hasLink           Boolean   @default(false)
   createdAt         DateTime  @default(now())
-  community          Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  community         Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
 
+  @@unique([communityId, telegramMessageId])
   @@index([communityId, tgUserId, createdAt])
   @@index([createdAt])
-  @@unique([communityId, telegramMessageId])
 }
 
 model ModerationWarning {
@@ -725,53 +727,53 @@ model ModerationEvent {
 }
 
 model CommunityManager {
-  id               String                     @id @default(cuid())
-  communityId      String                     @unique
-  status           String                     @default("DRAFT")
-  enabled          Boolean                    @default(false)
-  mode             String                     @default("AUTOPILOT")
-  executorType     String                     @default("SHARED")
-  draftVersion     Int                        @default(1)
-  publishedVersion Int?
-  lastActionAt     DateTime?
-  lastHealthyAt    DateTime?
-  lastError        String?
-  createdAt        DateTime                   @default(now())
-  updatedAt        DateTime                   @updatedAt
-  community        Community                  @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  configs          CommunityManagerConfig[]
-  messages         CommunityManagerMessage[]
-  jobs             CommunityManagerJob[]
-  actions          CommunityManagerAction[]
-  faqs             CommunityManagerFaq[]
-  activities       CommunityManagerActivity[]
-  participants     CommunityManagerParticipant[]
+  id                String                             @id @default(cuid())
+  communityId       String                             @unique
+  status            String                             @default("DRAFT")
+  enabled           Boolean                            @default(false)
+  mode              String                             @default("AUTOPILOT")
+  executorType      String                             @default("SHARED")
+  draftVersion      Int                                @default(1)
+  publishedVersion  Int?
+  lastActionAt      DateTime?
+  lastHealthyAt     DateTime?
+  lastError         String?
+  createdAt         DateTime                           @default(now())
+  updatedAt         DateTime                           @updatedAt
+  community         Community                          @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  configs           CommunityManagerConfig[]
+  messages          CommunityManagerMessage[]
+  jobs              CommunityManagerJob[]
+  actions           CommunityManagerAction[]
+  faqs              CommunityManagerFaq[]
+  activities        CommunityManagerActivity[]
+  participants      CommunityManagerParticipant[]
   conversationState CommunityManagerConversationState?
 }
 
 model CommunityManagerParticipant {
-  id                    String           @id @default(cuid())
-  communityManagerId    String
-  tgUserId              String
-  username              String?
-  firstName             String?
-  lastName              String?
-  displayName           String
-  relationship          String           @default("NEW")
-  roles                 Json?
-  expertise             Json?
-  messageCount          Int              @default(0)
-  cmExchangeCount       Int              @default(0)
-  activeDayKeys         Json?
-  helpfulSignals        Int              @default(0)
-  expertConfirmed       Boolean          @default(false)
-  mentionEnabled        Boolean          @default(true)
-  lastSeenAt            DateTime         @default(now())
-  lastCmExchangeAt      DateTime?
-  lastMentionedAt       DateTime?
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
-  communityManager      CommunityManager @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+  id                 String           @id @default(cuid())
+  communityManagerId String
+  tgUserId           String
+  username           String?
+  firstName          String?
+  lastName           String?
+  displayName        String
+  relationship       String           @default("NEW")
+  roles              Json?
+  expertise          Json?
+  messageCount       Int              @default(0)
+  cmExchangeCount    Int              @default(0)
+  activeDayKeys      Json?
+  helpfulSignals     Int              @default(0)
+  expertConfirmed    Boolean          @default(false)
+  mentionEnabled     Boolean          @default(true)
+  lastSeenAt         DateTime         @default(now())
+  lastCmExchangeAt   DateTime?
+  lastMentionedAt    DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  communityManager   CommunityManager @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
 
   @@unique([communityManagerId, tgUserId])
   @@index([communityManagerId, relationship, lastSeenAt])
@@ -914,4 +916,96 @@ model CommunityManagerActivity {
 
   @@index([status, scheduledAt])
   @@index([communityManagerId, createdAt])
+}
+
+// ─── Community Core: autonomous AI personalities on owner's Telegram accounts ──
+// A Persona is a real Telegram user account, connected once via phone login, that
+// lives in the channel's discussion group as a believable human. Fully isolated
+// from Moderator and Community Manager: separate module, tables and runtime.
+
+model Persona {
+  id                 String    @id @default(cuid())
+  communityId        String
+  ownerUserId        String
+  // Encrypted GramJS string session (AES-GCM, community-bound AAD). Never leaves backend.
+  sessionCipher      String?
+  sessionIv          String?
+  sessionTag         String?
+  sessionKeyVersion  Int       @default(1)
+  // Public Telegram identity of the connected account.
+  tgUserId           String?
+  username           String?
+  phone              String?
+  // Transient login state (phone→code→password), not persisted after success.
+  loginPhoneCodeHash String?
+  loginTempSession   String?
+  loginExpiresAt     DateTime?
+  // Personality config (draft = editable, published = what the runtime uses).
+  draftConfig        Json
+  publishedConfig    Json?
+  // Lifecycle.
+  status             String    @default("DRAFT") // DRAFT | CONNECTED | ACTIVE | PAUSED | ERROR
+  enabled            Boolean   @default(false)
+  lastError          String?
+  lastActionAt       DateTime?
+  lastHealthyAt      DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  community Community       @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  actions   PersonaAction[]
+  memory    PersonaMemory[]
+
+  @@index([communityId])
+  @@index([ownerUserId])
+  @@index([status, enabled])
+}
+
+model PersonaAction {
+  id              String   @id @default(cuid())
+  personaId       String
+  decision        String // REPLY | REACT | REACT_REPLY | SILENT | ERROR
+  intent          String?
+  reason          String?
+  response        String?
+  reaction        String?
+  targetMessageId Int?
+  sentMessageId   Int?
+  model           String?
+  inputTokens     Int      @default(0)
+  outputTokens    Int      @default(0)
+  latencyMs       Int      @default(0)
+  status          String   @default("COMPLETED")
+  error           String?
+  createdAt       DateTime @default(now())
+
+  persona Persona @relation(fields: [personaId], references: [id], onDelete: Cascade)
+
+  @@index([personaId, createdAt])
+}
+
+// Append-only observation/reflection stream per persona (Smallville-style memory).
+model PersonaMemory {
+  id         String   @id @default(cuid())
+  personaId  String
+  kind       String   @default("observation") // observation | reflection
+  text       String
+  importance Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  persona Persona @relation(fields: [personaId], references: [id], onDelete: Cascade)
+
+  @@index([personaId, createdAt])
+}
+
+// Atomic claim so two personas never answer the same message simultaneously.
+model PersonaMessageClaim {
+  id                String   @id @default(cuid())
+  communityId       String
+  telegramMessageId Int
+  personaId         String
+  createdAt         DateTime @default(now())
+
+  @@unique([communityId, telegramMessageId])
+  @@index([createdAt])
 }

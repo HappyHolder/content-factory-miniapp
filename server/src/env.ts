@@ -127,4 +127,10 @@ export const env = {
   ANTHROPIC_API_KEY:       process.env['ANTHROPIC_API_KEY']       ?? '',
   CONTENT_RESEARCH_MODEL:  process.env['CONTENT_RESEARCH_MODEL']  ?? 'claude-opus-4-8',
   CONTENT_RESEARCH_BACKEND,
+  // ── Community Core (AI personalities on real Telegram user accounts) ─────────
+  // GramJS/MTProto needs an app api_id + api_hash from https://my.telegram.org.
+  // Community Core is disabled at runtime unless both are set. Encrypted persona
+  // sessions reuse MANAGED_BOT_ENCRYPTION_KEY.
+  TELEGRAM_API_ID:   parseInt(process.env['TELEGRAM_API_ID'] ?? '0', 10),
+  TELEGRAM_API_HASH: process.env['TELEGRAM_API_HASH'] ?? '',
 } as const;
