@@ -11,8 +11,8 @@ export const DEFAULT_CM_CONFIG: CommunityManagerConfigData = {
   identity: { displayName: 'Community Manager', role: 'Комьюнити-менеджер проекта', bio: 'Помогаю участникам, поддерживаю полезные обсуждения и знаю продукт.', preset: 'friendly_guide', tone: 'friendly', addressForm: 'ты', socialRoles: ['Свой человек','Помощник новичков'], traits: ['Тёплый','Любопытный'], speechStyles: ['Разговорная','Простыми словами'], humorStyles: ['Лёгкий'], profanityLevel: 'none', debateStyle: 'gentle', expertiseStances: ['Собеседник на равных','Честно признаёт незнание'], collectiveAddress: 'Ребята', verbalHabits: ['Короткие сообщения'], customInstructions: '', humorLevel: 1, initiativeLevel: 1, forbiddenClaims: ['не обещать сроки, цены и действия команды без источника'] },
   support: { useBrandKit: true, useProjectDocs: true, useFaq: true, answerProductQuestions: true, escalateWhenUnknown: true, escalationText: 'Я уточню это у команды проекта.', supportContactUrl: '' },
   research: { mode: 'when_needed', showSources: false, sourcePolicy: 'allowlist', allowedDomains: [], blockedDomains: ['youtube.com','youtu.be','tiktok.com','instagram.com','vk.com','dzen.ru'], maxSearchesPerAnswer: 3, dailyLimit: 20 },
-  replies: { replyToDirectReply: true, replyToMention: true, replyToProductQuestion: true, replyToUnansweredQuestion: false, ambientConversation: false, thematicConversation: true, moderatorFollowups: true, conversationMemory: true, participationLevel: 'selective', ambientCooldownMinutes: 8, unansweredAfterMinutes: 15, maxThreadDepth: 4, userCooldownSeconds: 30 },
-  activities: { enabled: false, requireApproval: true, discussionEnabled: true, pollEnabled: true, gameEnabled: true, digestEnabled: true, silenceMinutes: 60, silenceMinMinutes: 40, silenceMaxMinutes: 80, everyHours: 24, maxInitiativesPerWeek: 3, responseWindowMinutes: 120, topics: [] },
+  replies: { replyToDirectReply: true, replyToMention: true, replyToProductQuestion: true, replyToUnansweredQuestion: true, ambientConversation: true, thematicConversation: true, moderatorFollowups: true, conversationMemory: true, participationLevel: 'selective', ambientCooldownMinutes: 8, unansweredAfterMinutes: 15, maxThreadDepth: 4, userCooldownSeconds: 30 },
+  activities: { enabled: true, requireApproval: false, discussionEnabled: true, pollEnabled: true, gameEnabled: true, digestEnabled: true, silenceMinutes: 60, silenceMinMinutes: 40, silenceMaxMinutes: 80, everyHours: 24, maxInitiativesPerWeek: 3, responseWindowMinutes: 120, topics: [] },
   limits: { timezone: 'Europe/Moscow', quietEnabled: true, quietFrom: 23, quietTo: 9, maxRepliesPerHour: 20, maxRepliesPerDay: 100, maxInitiativesPerDay: 1 },
 };
 
@@ -49,5 +49,6 @@ export function isQuietHour(config:CommunityManagerConfigData,date=new Date()):b
 }
 export function randomInitiativeDate(config:CommunityManagerConfigData,from=new Date(),random=Math.random):Date{
   const min=Math.min(config.activities.silenceMinMinutes,config.activities.silenceMaxMinutes),max=Math.max(config.activities.silenceMinMinutes,config.activities.silenceMaxMinutes);
-  return new Date(from.getTime()+(min+Math.floor(random()*(max-min+1)))*60_000);
+  const sample=Math.min(0.999999999,Math.max(0,random()));
+  return new Date(from.getTime()+(min+Math.floor(sample*(max-min+1)))*60_000);
 }

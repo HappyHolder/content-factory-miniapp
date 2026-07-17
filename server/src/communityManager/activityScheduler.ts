@@ -1,6 +1,6 @@
 import { prisma } from '../db';
 import { isQuietHour, parseCommunityManagerConfig, randomInitiativeDate } from './config';
-import { chooseActivityTopic, chooseAdaptiveActivityType, consecutiveIgnored, initiativeBackoffHours, type CommunityActivityType } from './activityPolicy';
+import { chooseActivityTopic, chooseAdaptiveActivityType, type CommunityActivityType } from './activityPolicy';
 import { runCommunityActivity } from './engine';
 
 const CHECK_INTERVAL_MS=7*60_000;
@@ -46,21 +46,15 @@ async function considerManager(manager:any,now:Date){
   if(automatic.length>=config.activities.maxInitiativesPerWeek)return;
   const latestAuto=automatic[0],latestAutoResult=latestAuto?resultOf(latestAuto.result):null;
   if(latestAuto&&latestAutoResult&&!latestAutoResult.evaluated)return;
-  const ignored=consecutiveIgnored(automatic.map(x=>resultOf(x.result)));
-  const minGap=ignored?initiativeBackoffHours(Math.max(1,config.activities.everyHours),ignored)*3600_000:0;
-  const latestActivity=recent[0];
-  if(latestActivity?.sentAt&&now.getTime()-latestActivity.sentAt.getTime()<minGap)return;
 
   const lastHuman=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id},orderBy:{createdAt:'desc'},select:{createdAt:true}});
   const silenceFrom=lastHuman?.createdAt??manager.updatedAt;
   let state=await prisma.communityManagerConversationState.findUnique({where:{communityManagerId:manager.id}});
-  if(!state?.nextInitiativeAt){
+  if(!state?.nextInitiativeAt||state.nextInitiativeAt<=silenceFrom){
     const target=randomInitiativeDate(config,silenceFrom);
     state=await prisma.communityManagerConversationState.upsert({where:{communityManagerId:manager.id},create:{communityManagerId:manager.id,lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target},update:{lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target}});
   }
   if(!state.nextInitiativeAt||state.nextInitiativeAt>now)return;
-  const newer=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id,createdAt:{gt:silenceFrom}},select:{id:true}});
-  if(newer)return;
   const type=chooseAdaptiveActivityType(types,recent.map(x=>{const result=resultOf(x.result);return{type:x.type,engaged:result.engaged,evaluated:result.evaluated}}));
   if(!type)return;
   const topic=chooseActivityTopic(config.activities.topics,recent.map(x=>x.topic));
