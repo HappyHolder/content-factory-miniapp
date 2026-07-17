@@ -318,6 +318,19 @@ export async function sendBotMessage(
   return parseSentRef(body.result);
 }
 
+/** Adds a lightweight reaction without producing another bot-like text message. */
+export async function setBotMessageReaction(chatId:number|string,messageId:number,emoji:string,token:string):Promise<void>{
+  const url=TG_API+'/bot'+token+'/setMessageReaction';
+  let res:Response;
+  try{
+    res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:chatId,message_id:messageId,reaction:[{type:'emoji',emoji}],is_big:false})});
+  }catch(err){
+    throw new TelegramApiError('Network error calling setMessageReaction: '+(err as Error).message);
+  }
+  const body=(await res.json()) as TgApiResponse<unknown>;
+  if(!body.ok)throw new TelegramApiError(body.description??'setMessageReaction returned not-ok',body.error_code);
+}
+
 // ─── Telegram length limits ─────────────────────────────────────────────────
 // sendPhoto caption ≤ 1 024 chars; sendMessage text ≤ 4 096 chars.
 // Short posts ride along as a photo caption (native attached image). Longer

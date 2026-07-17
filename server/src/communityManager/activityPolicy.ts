@@ -21,3 +21,16 @@ export function chooseActivityTopic(topics:string[],recentTopics:Array<string|nu
   const blocked=new Set(recentTopics.slice(0,Math.max(1,clean.length-1)).filter(Boolean));
   return clean.find(topic=>!blocked.has(topic))??clean[0];
 }
+export type CommunityPulse={energy:'silent'|'low'|'active';tension:boolean;openQuestions:boolean;participants:number;messages:number};
+
+export function communityPulse(input:{messages:number;participants:number;tension:boolean;openQuestions:number}):CommunityPulse{
+  return{energy:input.messages===0?'silent':input.messages<6?'low':'active',tension:input.tension,openQuestions:input.openQuestions>0,participants:input.participants,messages:input.messages};
+}
+
+export function chooseActivityForPulse(enabled:CommunityActivityType[],history:Array<{type:string;engaged?:boolean;evaluated?:boolean}>,pulse:CommunityPulse){
+  if(pulse.tension||pulse.energy==='active')return null;
+  if(pulse.openQuestions&&enabled.includes('DISCUSSION'))return'DISCUSSION';
+  if(pulse.energy==='silent'&&enabled.includes('POLL'))return'POLL';
+  if(pulse.energy==='low'&&enabled.includes('GAME'))return'GAME';
+  return chooseAdaptiveActivityType(enabled,history);
+}

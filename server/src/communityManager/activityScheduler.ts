@@ -1,6 +1,6 @@
 import { prisma } from '../db';
 import { isQuietHour, parseCommunityManagerConfig, randomInitiativeDate } from './config';
-import { chooseActivityTopic, chooseAdaptiveActivityType, type CommunityActivityType } from './activityPolicy';
+import { chooseActivityTopic, chooseActivityForPulse, communityPulse, type CommunityActivityType } from './activityPolicy';
 import { runCommunityActivity } from './engine';
 
 const CHECK_INTERVAL_MS=7*60_000;
@@ -55,10 +55,11 @@ async function considerManager(manager:any,now:Date){
     state=await prisma.communityManagerConversationState.upsert({where:{communityManagerId:manager.id},create:{communityManagerId:manager.id,lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target},update:{lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target}});
   }
   if(!state.nextInitiativeAt||state.nextInitiativeAt>now)return;
-  const type=chooseAdaptiveActivityType(types,recent.map(x=>{const result=resultOf(x.result);return{type:x.type,engaged:result.engaged,evaluated:result.evaluated}}));
+  const pulseSince=new Date(now.getTime()-2*3600_000),pulseMessages=await prisma.communityManagerMessage.findMany({where:{communityManagerId:manager.id,createdAt:{gte:pulseSince}},select:{tgUserId:true}}),pulse=communityPulse({messages:pulseMessages.length,participants:new Set(pulseMessages.map(x=>x.tgUserId).filter(Boolean)).size,tension:Boolean(state.pendingModeratorAt&&now.getTime()-state.pendingModeratorAt.getTime()<20*60_000),openQuestions:Array.isArray(state.openQuestions)?state.openQuestions.length:0});
+  const type=chooseActivityForPulse(types,recent.map(x=>{const result=resultOf(x.result);return{type:x.type,engaged:result.engaged,evaluated:result.evaluated}}),pulse);
   if(!type)return;
   const topic=chooseActivityTopic(config.activities.topics,recent.map(x=>x.topic));
-  await runCommunityActivity(manager.id,type,topic,{automatic:true,reason:'chat_idle_random_'+config.activities.silenceMinMinutes+'-'+config.activities.silenceMaxMinutes+'m'});
+  await runCommunityActivity(manager.id,type,topic,{automatic:true,reason:'community_pulse_'+pulse.energy+'_'+config.activities.silenceMinMinutes+'-'+config.activities.silenceMaxMinutes+'m'});
   await prisma.communityManagerConversationState.update({where:{communityManagerId:manager.id},data:{nextInitiativeAt:randomInitiativeDate(config,now)}});
 }
 
