@@ -4,7 +4,7 @@ import { env } from '../env';
 import { verifyModeratorSession } from '../lib/moderatorSession';
 import { getBotIdFromToken, getBotIdentity, getChatMember, sendBotMessage, setBotWebhook } from '../lib/telegramBot';
 import { DEFAULT_CM_CONFIG, parseCommunityManagerConfig } from '../communityManager/config';
-import { acceptCommunityManagerUpdate, previewCommunityManagerPersonality, runCommunityActivity, simulateCommunityManager, verifyCommunityManagerWebhookSecret } from '../communityManager/engine';
+import { acceptCommunityManagerUpdate, buildCommunityManagerPersonality, previewCommunityManagerPersonality, runCommunityActivity, simulateCommunityManager, verifyCommunityManagerWebhookSecret } from '../communityManager/engine';
 import { communityManagerExecutor, incomingManagedCommunityBot, managedCommunityBotPublic, updateManagedCommunityBotProfile } from '../communityManager/managedBot';
 import { decryptManagedBotToken } from '../moderator/managedBotCrypto';
 import { actionPresentation } from '../communityManager/actionPresentation';
@@ -106,6 +106,10 @@ router.post('/:id/simulate',async(req,res)=>{
 router.post('/:id/personality-preview',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
   try{res.json(await previewCommunityManagerPersonality(c.manager.id,req.body?.config))}catch(e){res.status(502).json({error:e instanceof Error?e.message:'Preview failed'})}
+});
+router.post('/:id/personality-build',async(req,res)=>{
+  let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
+  try{res.json(await buildCommunityManagerPersonality(c.manager.id,req.body?.config))}catch(e){res.status(502).json({error:e instanceof Error?e.message:'Personality build failed'})}
 });
 router.get('/:id/actions',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}

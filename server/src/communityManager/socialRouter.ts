@@ -1,5 +1,6 @@
 import type { CommunityManagerConfigData } from './config';
 import type { SocialState } from './socialState';
+import { personalityEngagementAdjustment, type PersonalInnerState } from './personalityState';
 
 export type SocialAction='SILENT'|'REACT'|'REPLY'|'JOIN'|'SUPPORT_MODERATOR';
 
@@ -29,6 +30,7 @@ const threshold=(level:CommunityManagerConfigData['replies']['participationLevel
 
 /** The single final authority deciding whether CM speaks. No second policy layer may veto this route. */
 export function routeSocialAction(input:{
+  personalState?:PersonalInnerState;
   config:CommunityManagerConfigData;
   decision:SocialDecision;
   telegramDirect:boolean;
@@ -67,7 +69,7 @@ export function routeSocialAction(input:{
   }
 
   const hasValue=Boolean(decision.valueAdd.trim())||input.hasQuestion;
-  const stateAdjustment=input.socialState?.initiative==='join'?-.06:input.socialState?.initiative==='lead'?-.1:0;
+  const stateAdjustment=(input.socialState?.initiative==='join'?-.06:input.socialState?.initiative==='lead'?-.1:0)+personalityEngagementAdjustment(config,input.personalState??{valence:0,arousal:.3,dominance:.55,energy:.7,stress:.15,irritation:.05,confidence:.65,curiosity:.7,activeGoal:'support the conversation',updatedAt:new Date(0).toISOString()});
   const enoughSignal=decision.confidence>=.55&&decision.conversationScore>=threshold(config.replies.participationLevel)+stateAdjustment;
   if(config.replies.thematicConversation&&hasValue&&enoughSignal&&['contribute','lead'].includes(decision.engagementLevel)){
     return{action:'JOIN',shouldSpeak:true,priority:false,replyToCurrent:true,reason:'useful_contribution'};

@@ -19,6 +19,9 @@ export function participationDecisionContext(config:CommunityManagerConfigData):
     'Participation level: '+config.replies.participationLevel+'.',
     'Social roles: '+(i.socialRoles.join(', ')||'community manager')+'.',
     'Character: '+(i.traits.join(', ')||i.tone)+'.',
+    'Psychology: '+Object.entries(config.personality.psychology).map(([key,value])=>key+'='+value).join(', ')+'.',
+    'Reactions: '+Object.entries(config.personality.reactions).map(([key,value])=>key+'='+value).join(', ')+'.',
+    'Current goals: '+(config.personality.core.goals.join(', ')||'support the community')+'.',
     'Debate behavior: '+i.debateStyle+'. Initiative: '+i.initiativeLevel+'/3.',
     'Use personality to decide how readily to join, not to relax safety. A provocateur may challenge ideas or defuse with humor, but must never join harassment or attack a person.',
   ].join(' ');

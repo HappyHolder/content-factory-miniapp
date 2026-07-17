@@ -762,6 +762,7 @@ model CommunityManagerParticipant {
   relationship       String           @default("NEW")
   roles              Json?
   expertise          Json?
+  relationshipState  Json?
   messageCount       Int              @default(0)
   cmExchangeCount    Int              @default(0)
   activeDayKeys      Json?
