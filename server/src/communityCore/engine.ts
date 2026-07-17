@@ -135,7 +135,12 @@ export async function startPersona(personaId: string): Promise<void> {
 
   // A dedicated long-lived client (withPersonaClient is for one-shot actions).
   const live = new TelegramClient(new StringSession(session), env.TELEGRAM_API_ID, env.TELEGRAM_API_HASH, { connectionRetries: 3, autoReconnect: true });
+  try { (live as any).setLogLevel?.('error'); (live as any).logger?.setLevel?.('error'); } catch { /* GramJS spams the update loop with TIMEOUT noise */ }
   await live.connect();
+  // Prime the client: getDialogs caches entities and, crucially, subscribes the
+  // update loop to the account's channels — without it group messages never
+  // reach the handler and the loop just times out.
+  await live.getDialogs({ limit: 40 }).catch(() => {});
 
   const handler = (event: NewMessageEvent) => { void handleMessage(personaId, persona.communityId, chatId, config, channelName, live, event); };
   live.addEventHandler(handler, new NewMessage({ chats: [chatId] }));
