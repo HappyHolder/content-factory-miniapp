@@ -14,6 +14,11 @@ export type PersonaConfigData = {
   behavior: { repliesToMentions: boolean; joinsDiscussions: boolean; reacts: boolean; expertTopics: string[]; forbiddenTopics: string[]; extraInstructions: string; forbiddenClaims: string[] };
   presence: { timezone: string; activeFromHour: number; activeToHour: number };
   limits: { maxMessagesPerHour: number; maxMessagesPerDay: number; maxReactionsPerHour: number; replyCooldownSeconds: number; reactionShare: number };
+  // Web access so hobbies/expertise stay current. 'topics' = look things up only
+  // when a fresh-data question lands in the persona's interests/expertise.
+  research: { mode: 'off' | 'topics'; blockedDomains: string[]; dailyLimit: number };
+  // Occasionally start a topic in a quiet chat (human-style, not a bot broadcast).
+  proactive: { enabled: boolean; quietMinutes: number; maxPerDay: number; topics: string[] };
 };
 
 export const DEFAULT_PERSONA_CONFIG: PersonaConfigData = {
@@ -25,6 +30,8 @@ export const DEFAULT_PERSONA_CONFIG: PersonaConfigData = {
   behavior: { repliesToMentions: true, joinsDiscussions: true, reacts: true, expertTopics: [], forbiddenTopics: [], extraInstructions: '', forbiddenClaims: ['не выдавать себя за официального представителя проекта', 'не обещать действия команды'] },
   presence: { timezone: 'Europe/Moscow', activeFromHour: 9, activeToHour: 23 },
   limits: { maxMessagesPerHour: 6, maxMessagesPerDay: 40, maxReactionsPerHour: 20, replyCooldownSeconds: 45, reactionShare: 0.15 },
+  research: { mode: 'topics', blockedDomains: ['youtube.com', 'youtu.be', 'tiktok.com', 'instagram.com', 'vk.com'], dailyLimit: 15 },
+  proactive: { enabled: false, quietMinutes: 120, maxPerDay: 3, topics: [] },
 };
 
 const str = (v: unknown, f: string, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : f);
@@ -78,6 +85,17 @@ export function parsePersonaConfig(raw: unknown): PersonaConfigData {
       maxReactionsPerHour: num(limits.maxReactionsPerHour, d.limits.maxReactionsPerHour, 0, 200),
       replyCooldownSeconds: num(limits.replyCooldownSeconds, d.limits.replyCooldownSeconds, 5, 3600),
       reactionShare: num(limits.reactionShare, d.limits.reactionShare, 0, 1),
+    },
+    research: {
+      mode: oneOf((r.research ?? {}).mode, ['off', 'topics'] as const, d.research.mode),
+      blockedDomains: listOr((r.research ?? {}).blockedDomains, d.research.blockedDomains, 40, 200),
+      dailyLimit: num((r.research ?? {}).dailyLimit, d.research.dailyLimit, 0, 100),
+    },
+    proactive: {
+      enabled: bool((r.proactive ?? {}).enabled, d.proactive.enabled),
+      quietMinutes: num((r.proactive ?? {}).quietMinutes, d.proactive.quietMinutes, 15, 1440),
+      maxPerDay: num((r.proactive ?? {}).maxPerDay, d.proactive.maxPerDay, 1, 20),
+      topics: list((r.proactive ?? {}).topics, 30, 120),
     },
   };
 }

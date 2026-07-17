@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { verifyModeratorSession } from '../lib/moderatorSession';
+import { env } from '../env';
+import { replicateText } from '../lib/replicateText';
 import { DEFAULT_PERSONA_CONFIG, parsePersonaConfig } from '../communityCore/personaConfig';
 import { encryptPersonaSession } from '../communityCore/personaCrypto';
 import { startLogin, confirmCode, confirmPassword, withPersonaClient, updateProfile, joinChat, communityCoreEnabled } from '../communityCore/accountService';
@@ -88,6 +90,26 @@ async function storeSession(personaId: string, communityId: string, result: { se
   const enc = encryptPersonaSession(result.session, communityId);
   await prisma.persona.update({ where: { id: personaId }, data: { ...enc, tgUserId: result.tgUserId, username: result.username, status: 'CONNECTED', loginPhoneCodeHash: null, loginTempSession: null, loginExpiresAt: null } });
 }
+
+// AI draft: turn a short brief into a full persona config the owner then edits.
+router.post('/:id/generate-canon', async (req, res) => {
+  try {
+    const { persona } = await ownedPersona(req, req.params.id);
+    const brief = String((req.body as { brief?: unknown }).brief ?? '').trim().slice(0, 400);
+    if (brief.length < 4) { res.status(400).json({ error: 'Опишите личность в двух словах' }); return; }
+    const raw = await replicateText({
+      model: env.CM_TEXT_MODEL,
+      systemPrompt: 'Ты создаёшь досье живого участника Telegram-чата по короткому описанию. Верни ТОЛЬКО JSON вида {"identity":{"displayName","gender":"male|female|unspecified","age","city","occupation","about"},"role","interests":["..."],"canon":["факт о себе","..."],"voice":{"messageExamples":["как он реально пишет, коротко","..."],"speechStyle","emojiUse":"none|rare|normal|heavy"},"behavior":{"expertTopics":["..."]}}. Пиши по-русски, живо и конкретно, как настоящий человек, а не бренд. 4–5 примеров реплик и 4–6 канон-фактов.',
+      prompt: 'Описание: ' + brief,
+      maxTokens: 900, timeoutMs: 45000, input: { max_completion_tokens: 900, reasoning_effort: 'low' },
+    });
+    const match = raw?.match(/\{[\s\S]*\}/);
+    const parsedRaw = match ? (() => { try { return JSON.parse(match[0]); } catch { return {}; } })() : {};
+    const config = parsePersonaConfig({ ...(persona.draftConfig as object), ...parsedRaw });
+    await prisma.persona.update({ where: { id: persona.id }, data: { draftConfig: config as any } });
+    res.json({ config });
+  } catch (e) { if (e instanceof Error && (e.message === 'NOT_FOUND' || e.message === 'SESSION_EXPIRED')) return fail(res, e); res.status(502).json({ error: 'Не удалось сгенерировать. Попробуйте ещё раз.' }); }
+});
 
 // Save personality draft.
 router.patch('/:id/draft', async (req, res) => {

@@ -18,6 +18,8 @@ type PersonaConfig = {
   behavior: { repliesToMentions: boolean; joinsDiscussions: boolean; reacts: boolean; expertTopics: string[]; forbiddenTopics: string[]; extraInstructions: string; forbiddenClaims: string[] }
   presence: { timezone: string; activeFromHour: number; activeToHour: number }
   limits: { maxMessagesPerHour: number; maxMessagesPerDay: number; maxReactionsPerHour: number; replyCooldownSeconds: number; reactionShare: number }
+  research: { mode: string; blockedDomains: string[]; dailyLimit: number }
+  proactive: { enabled: boolean; quietMinutes: number; maxPerDay: number; topics: string[] }
 }
 type Persona = { id: string; status: string; enabled: boolean; username: string | null; tgUserId: string | null; lastError: string | null; connected: boolean; published: boolean; config: PersonaConfig }
 type State = { enabled: boolean; communityId: string | null; chat: { title: string; tgChatId: string } | null; personas: Persona[] }
@@ -65,11 +67,13 @@ function PersonaCard({ persona, api, reload }: { persona: Persona; api: (p: stri
   const [loginStep, setLoginStep] = useState<'phone' | 'code' | 'password' | 'done'>(persona.connected ? 'done' : 'phone')
   const [phone, setPhone] = useState(''); const [code, setCode] = useState(''); const [password, setPassword] = useState('')
   const [showPass, setShowPass] = useState(false); const [hint, setHint] = useState('')
+  const [brief, setBrief] = useState('')
 
   const run = async (key: string, fn: () => Promise<void>) => { setBusy(key); setErr(''); try { await fn() } catch (e) { setErr(e instanceof Error ? e.message : 'Ошибка') } finally { setBusy('') } }
   const startLogin = () => run('login', async () => { await api('/' + persona.id + '/login/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) }); setLoginStep('code') })
   const sendCode = () => run('login', async () => { const d = await api('/' + persona.id + '/login/code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) }); if (d.status === 'PASSWORD_NEEDED') { setHint(typeof d.hint === 'string' ? d.hint : ''); setLoginStep('password') } else { setLoginStep('done'); await reload() } })
   const sendPassword = () => run('login', async () => { await api('/' + persona.id + '/login/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); setLoginStep('done'); await reload() })
+  const generate = () => run('generate', async () => { const d = await api('/' + persona.id + '/generate-canon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief }) }); if (d.config) setConfig(d.config) })
   const saveDraft = () => run('save', async () => { await api('/' + persona.id + '/draft', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config }) }) })
   const apply = () => run('apply', async () => { await api('/' + persona.id + '/draft', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config }) }); await api('/' + persona.id + '/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); await reload() })
   const start = () => run('start', async () => { await api('/' + persona.id + '/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); await reload() })
@@ -106,6 +110,12 @@ function PersonaCard({ persona, api, reload }: { persona: Persona; api: (p: stri
       </div> : <div className="flex items-center gap-2 rounded-[12px] border border-emerald-400/15 bg-emerald-400/[.05] px-3 py-2.5 text-[11px] text-emerald-300"><Check size={14} /> Аккаунт подключён{persona.username ? ' · @' + persona.username : ''}</div>}
 
       {/* 2. Personality editor */}
+      <div className="rounded-[12px] border border-[rgba(255,106,0,.16)] bg-[rgba(255,106,0,.04)] p-3">
+        <p className="flex items-center gap-1.5 text-[12px] font-semibold text-white"><Sparkles size={13} /> Сгенерировать по описанию</p>
+        <p className="mt-1 text-[10px] leading-relaxed text-[#8A8A93]">Опиши в двух словах — Terra соберёт полную личность, дальше правишь руками.</p>
+        <input value={brief} onChange={e => setBrief(e.target.value)} placeholder="крипто-скептик, 30, Питер, любит спорить" className={input} />
+        <Button className="mt-2" variant="secondary" size="sm" fullWidth disabled={busy === 'generate' || brief.trim().length < 4} onClick={generate}>{busy === 'generate' ? <Loader2 size={14} className="animate-spin" /> : <><Sparkles size={14} /> Сгенерировать</>}</Button>
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <label className={label}>Имя<input value={c.identity.displayName} onChange={e => setId('displayName', e.target.value)} className={input} /></label>
         <label className={label}>Роль<input value={c.role} onChange={e => setConfig({ ...c, role: e.target.value })} className={input} placeholder="Заводила / Скептик / Эксперт" /></label>
@@ -128,6 +138,8 @@ function PersonaCard({ persona, api, reload }: { persona: Persona; api: (p: stri
         <Switch label="Отвечать на упоминания" value={c.behavior.repliesToMentions} onChange={v => setConfig({ ...c, behavior: { ...c.behavior, repliesToMentions: v } })} />
         <Switch label="Вступать в обсуждения" value={c.behavior.joinsDiscussions} onChange={v => setConfig({ ...c, behavior: { ...c.behavior, joinsDiscussions: v } })} />
         <Switch label="Ставить реакции" description="Лайкать понравившиеся сообщения людей и других личностей" value={c.behavior.reacts} onChange={v => setConfig({ ...c, behavior: { ...c.behavior, reacts: v } })} />
+        <Switch label="Искать актуальное в своих темах" description="По вопросам про цену/новости/результат в своих интересах берёт свежие данные из сети" value={c.research.mode === 'topics'} onChange={v => setConfig({ ...c, research: { ...c.research, mode: v ? 'topics' : 'off' } })} />
+        <Switch label="Оживлять тихий чат" description="Иногда сама заводит тему по своим интересам, когда долго тишина" value={c.proactive.enabled} onChange={v => setConfig({ ...c, proactive: { ...c.proactive, enabled: v } })} />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <label className={label}>Активна с (час)<NumberStepper value={c.presence.activeFromHour} min={0} max={23} suffix=":00" onChange={v => setConfig({ ...c, presence: { ...c.presence, activeFromHour: v } })} /></label>
