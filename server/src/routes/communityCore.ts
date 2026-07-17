@@ -6,6 +6,7 @@ import { encryptPersonaSession } from '../communityCore/personaCrypto';
 import { startLogin, confirmCode, confirmPassword, withPersonaClient, updateProfile, joinChat, communityCoreEnabled } from '../communityCore/accountService';
 import { decryptPersonaSession } from '../communityCore/personaCrypto';
 import { startPersona, stopPersona } from '../communityCore/engine';
+import { participantPublic } from '../communityCore/personaParticipant';
 
 const router = Router();
 
@@ -131,6 +132,15 @@ router.post('/:id/start', async (req, res) => {
 router.post('/:id/pause', async (req, res) => {
   try { const { persona } = await ownedPersona(req, req.params.id); await stopPersona(persona.id); res.json({ ok: true }); }
   catch (e) { fail(res, e); }
+});
+
+// People the persona remembers.
+router.get('/:id/participants', async (req, res) => {
+  try {
+    const { persona } = await ownedPersona(req, req.params.id);
+    const rows = await prisma.personaParticipant.findMany({ where: { personaId: persona.id }, orderBy: { lastSeenAt: 'desc' }, take: 50 });
+    res.json({ participants: rows.map(participantPublic) });
+  } catch (e) { fail(res, e); }
 });
 
 // Decision log.

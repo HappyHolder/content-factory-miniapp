@@ -947,6 +947,10 @@ model Persona {
   // Personality config (draft = editable, published = what the runtime uses).
   draftConfig        Json
   publishedConfig    Json?
+  // The persona's own evolving inner mood (valence/energy/stress/... with inertia).
+  personalState      Json?
+  // Rolling conversation memory: summary, active topics, episodes, notes.
+  conversationMemory Json?
   // Lifecycle.
   status             String    @default("DRAFT") // DRAFT | CONNECTED | ACTIVE | PAUSED | ERROR
   enabled            Boolean   @default(false)
@@ -956,13 +960,41 @@ model Persona {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  community Community       @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  actions   PersonaAction[]
-  memory    PersonaMemory[]
+  community    Community            @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  actions      PersonaAction[]
+  memory       PersonaMemory[]
+  participants PersonaParticipant[]
 
   @@index([communityId])
   @@index([ownerUserId])
   @@index([status, enabled])
+}
+
+// What a persona knows and feels about each person it has talked with. Mirrors
+// the Community Manager's participant memory, per persona.
+model PersonaParticipant {
+  id                String    @id @default(cuid())
+  personaId         String
+  tgUserId          String
+  username          String?
+  firstName         String?
+  lastName          String?
+  displayName       String
+  relationship      String    @default("NEW") // NEW | ACTIVE | REGULAR | FRIEND
+  relationshipState Json? // familiarity/trust/closeness/respect/tension/...
+  notes             Json? // short freeform things the persona knows about them
+  messageCount      Int       @default(0)
+  exchangeCount     Int       @default(0)
+  activeDayKeys     Json?
+  lastSeenAt        DateTime  @default(now())
+  lastExchangeAt    DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  persona Persona @relation(fields: [personaId], references: [id], onDelete: Cascade)
+
+  @@unique([personaId, tgUserId])
+  @@index([personaId, relationship, lastSeenAt])
 }
 
 model PersonaAction {

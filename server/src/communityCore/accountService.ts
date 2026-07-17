@@ -98,14 +98,14 @@ export async function withPersonaClient<T>(session: string, fn: (client: Telegra
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-/** Sends one message with a human-scaled "typing" delay before it appears. */
-export async function sendHumanMessage(client: TelegramClient, chatId: string, text: string): Promise<number | null> {
+/** Sends one message with a human-scaled "typing" delay, optionally as a reply. */
+export async function sendHumanMessage(client: TelegramClient, chatId: string, text: string, replyTo?: number): Promise<number | null> {
   const entity = await client.getInputEntity(chatId);
   // ~14 chars/sec typist with ±40% jitter, clamped to a natural 1.2–9s window.
   const delay = Math.min(9000, Math.max(1200, (text.length / 14) * 1000 * (0.6 + Math.random() * 0.8)));
   await client.invoke(new Api.messages.SetTyping({ peer: entity, action: new Api.SendMessageTypingAction() }));
   await sleep(delay);
-  const sent = await client.sendMessage(entity, { message: text });
+  const sent = await client.sendMessage(entity, { message: text, ...(replyTo ? { replyTo } : {}) });
   return typeof sent?.id === 'number' ? sent.id : null;
 }
 
