@@ -153,8 +153,16 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
 
     if (wantsReply) {
       if (!await withinReplyQuota(personaId, config)) { await log(personaId, 'SILENT', 'quota', text, null, null, messageId, null, out, start); return; }
-      const cooldownHit = await countActions(personaId, ['REPLY', 'REACT_REPLY'], config.limits.replyCooldownSeconds * 1000);
-      if (cooldownHit > 0) { await log(personaId, 'SILENT', 'cooldown', text, null, null, messageId, null, out, start); return; }
+      // A direct follow-up to the persona (reply to its message or naming it)
+      // bypasses the cooldown — a real person answers a question aimed at them.
+      const repliedToMsgId = (message as any)?.replyTo?.replyToMsgId ?? null;
+      let directlyAddressed = false;
+      if (typeof repliedToMsgId === 'number') directlyAddressed = Boolean(await prisma.personaAction.findFirst({ where: { personaId, sentMessageId: repliedToMsgId }, select: { id: true } }));
+      if (!directlyAddressed) { const nameParts = selfName.toLowerCase().split(/\s+/).filter(w => w.length > 2); directlyAddressed = nameParts.some(w => text.toLowerCase().includes(w)); }
+      if (!directlyAddressed) {
+        const cooldownHit = await countActions(personaId, ['REPLY', 'REACT_REPLY'], config.limits.replyCooldownSeconds * 1000);
+        if (cooldownHit > 0) { await log(personaId, 'SILENT', 'cooldown', text, null, null, messageId, null, out, start); return; }
+      }
       if (!await claimMessage(communityId, messageId, personaId)) { await log(personaId, 'SILENT', 'claimed-by-other', text, null, null, messageId, null, out, start); return; }
       let firstSent: number | null = null;
       for (const [i, msg] of messages.entries()) {
