@@ -361,6 +361,9 @@ model ModeratorConversationState {
   interventionsInWindow Int       @default(0)
   lastCategory          String?
   lastParticipants      Json?
+  joinWindowStartedAt   DateTime?
+  joinsInWindow         Int       @default(0)
+  raidModeUntil         DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   community             Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
@@ -645,6 +648,7 @@ model CommunityMember {
   muteUntil       DateTime?
   bannedAt        DateTime?
   joinCount       Int       @default(0)
+  messagesCount   Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   community       Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
@@ -652,6 +656,7 @@ model CommunityMember {
   @@unique([communityId, tgUserId])
   @@index([communityId, status])
   @@index([communityId, muteUntil])
+  @@index([tgUserId, status])
 }
 
 model ScheduledModerationAction {
@@ -720,12 +725,14 @@ model ModerationEvent {
   model             String?
   promptVersion     String?
   metadata          Json?
+  feedback          String?
   reversedAt        DateTime?
   reversedById      String?
   createdAt         DateTime   @default(now())
   community         Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
 
   @@index([communityId, createdAt])
+  @@index([communityId, feedback, createdAt])
 }
 
 model CommunityManager {
