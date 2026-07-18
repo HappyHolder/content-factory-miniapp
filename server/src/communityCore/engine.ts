@@ -55,20 +55,19 @@ async function claimMessage(communityId: string, telegramMessageId: number, pers
   } catch { return false; }
 }
 
-async function resolveAuthor(message: any): Promise<Author | null> {
+async function resolveAuthor(message: any): Promise<{ author: Author | null; isBot: boolean }> {
   const senderId = message?.senderId ? String(message.senderId) : null;
-  if (!senderId) return null;
+  if (!senderId) return { author: null, isBot: false };
   let sender: any = null;
   try { sender = await message.getSender(); } catch { /* entity may be uncached */ }
-  return { id: senderId, username: sender?.username ?? null, firstName: sender?.firstName ?? null, lastName: sender?.lastName ?? null };
+  return { author: { id: senderId, username: sender?.username ?? null, firstName: sender?.firstName ?? null, lastName: sender?.lastName ?? null }, isBot: Boolean(sender?.bot) };
 }
 
 /** Recent chat with each speaker under a stable name, so the model never confuses people. */
-async function buildHistory(client: TelegramClient, chatId: string, selfName: string): Promise<string> {
-  const history = await client.getMessages(chatId, { limit: 14 });
+function buildHistory(messages: any[], selfName: string): string {
   const aliases = new Map<string, string>();
   let n = 0;
-  return history.reverse().map((m: any) => {
+  return [...messages].reverse().map((m: any) => {
     if (!m?.message) return '';
     if (m.out) return selfName + ': ' + m.message;
     const sid = m.senderId ? String(m.senderId) : 'unknown';
@@ -100,14 +99,28 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
 
   const start = Date.now();
   try {
-    const author = await resolveAuthor(message);
+    const { author, isBot } = await resolveAuthor(message);
+    if (isBot) return; // never react to or argue with the CM / Moderator bots
+
+    // Moderator gate: don't act on content the Moderator already blocked.
+    const blocked = await prisma.moderationEvent.findFirst({ where: { communityId, telegramMessageId: messageId, eventType: 'MESSAGE_DISPOSITION', action: 'BLOCK' }, select: { id: true } }).catch(() => null);
+    if (blocked) return;
+
+    const personaIds = new Set((await prisma.persona.findMany({ where: { communityId }, select: { tgUserId: true } })).map(p => p.tgUserId).filter((x): x is string => Boolean(x)));
+    const rawHistory: any[] = await client.getMessages(chatId, { limit: 14 }).catch(() => []) as any[];
+    // Anti-loop: if the sender is another AI persona and no human spoke in the
+    // recent messages, back off so personas don't ping-pong with each other.
+    const authorIsPersona = Boolean(author && personaIds.has(author.id));
+    const humanRecently = rawHistory.slice(0, 6).some((m: any) => { const sid = m?.senderId ? String(m.senderId) : null; return sid && !personaIds.has(sid) && !m.sender?.bot; });
+    if (authorIsPersona && !humanRecently) { await log(personaId, 'SILENT', 'ai-loop-backoff', text, null, null, messageId, null, { input: 0, output: 0 }, start); return; }
+
     const conflictish = conflictLike(text);
     if (author) await rememberParticipant(personaId, author, { conflict: conflictish });
     const participant = author ? await loadParticipant(personaId, author.id) : null;
     const senderName = author ? displayNameOf(author) : 'Участник';
 
     const selfName = config.identity.displayName;
-    const lines = await buildHistory(client, chatId, selfName);
+    const lines = buildHistory(rawHistory, selfName);
     const personaRow = await prisma.persona.findUnique({ where: { id: personaId }, select: { personalState: true } });
     const inner = parseInner(personaRow?.personalState);
     const memoryRows = await prisma.personaMemory.findMany({ where: { personaId }, orderBy: { createdAt: 'desc' }, take: 6, select: { text: true } });
@@ -121,7 +134,9 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
     }
 
     const recentReacted = await countActions(personaId, ['REACT', 'REACT_REPLY'], 3600_000);
-    const canReact = config.behavior.reacts && recentReacted < config.limits.maxReactionsPerHour && Math.random() < config.limits.reactionShare + 0.15;
+    // Reactions are governed by fit (the model decides) and the hourly limit —
+    // no random coin-flip suppressing them, which made reactions feel broken.
+    const canReact = config.behavior.reacts && recentReacted < config.limits.maxReactionsPerHour;
 
     const system = buildPersonaSystemPrompt(config, channelName) +
       '\nТвоё состояние сейчас: ' + describeInner(inner) + '.' +
@@ -158,7 +173,7 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
       const repliedToMsgId = (message as any)?.replyTo?.replyToMsgId ?? null;
       let directlyAddressed = false;
       if (typeof repliedToMsgId === 'number') directlyAddressed = Boolean(await prisma.personaAction.findFirst({ where: { personaId, sentMessageId: repliedToMsgId }, select: { id: true } }));
-      if (!directlyAddressed) { const nameParts = selfName.toLowerCase().split(/\s+/).filter(w => w.length > 2); directlyAddressed = nameParts.some(w => text.toLowerCase().includes(w)); }
+      if (!directlyAddressed) { const parts = selfName.split(/\s+/).filter(w => w.length > 2).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); if (parts.length) directlyAddressed = new RegExp('(?:^|[^\\p{L}])(?:' + parts.join('|') + ')(?=$|[^\\p{L}])', 'iu').test(text); }
       if (!directlyAddressed) {
         const cooldownHit = await countActions(personaId, ['REPLY', 'REACT_REPLY'], config.limits.replyCooldownSeconds * 1000);
         if (cooldownHit > 0) { await log(personaId, 'SILENT', 'cooldown', text, null, null, messageId, null, out, start); return; }
@@ -180,7 +195,7 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
       await log(personaId, 'REACT', String(j?.reason ?? ''), text, null, reaction, messageId, null, out, start);
       await prisma.persona.update({ where: { id: personaId }, data: { lastActionAt: new Date(), lastHealthyAt: new Date(), lastError: null } });
     } else {
-      await savePersonaState(personaId, config, inner, { conflict: conflictish });
+      if (conflictish) await savePersonaState(personaId, config, inner, { conflict: conflictish }); // only persist state on meaningful events
       await log(personaId, 'SILENT', String(j?.reason ?? ''), text, null, null, messageId, null, out, start);
     }
   } catch (e) {
@@ -280,6 +295,24 @@ async function maybeInitiate(personaId: string): Promise<void> {
   } catch { /* best-effort */ }
 }
 
+/** Periodically synthesize recent observations into durable higher-level notes. */
+async function reflect(personaId: string): Promise<void> {
+  const persona = await prisma.persona.findFirst({ where: { id: personaId, enabled: true }, select: { publishedConfig: true } });
+  if (!persona?.publishedConfig) return;
+  const obs = await prisma.personaMemory.findMany({ where: { personaId, kind: 'observation' }, orderBy: { createdAt: 'desc' }, take: 20, select: { text: true } });
+  if (obs.length < 5) return;
+  const config = parsePersonaConfig(persona.publishedConfig);
+  try {
+    const out = await decide('Ты — ' + config.identity.displayName + '. Ниже твои наблюдения из чата. Сделай 1–2 коротких вывода о людях и темах, как человек про знакомых. По-русски. Верни ТОЛЬКО JSON {"reflections":["короткий вывод","..."]}.', obs.map(o => o.text).reverse().join('\n'));
+    const j = jsonObject(out.text);
+    const reflections = (Array.isArray(j?.reflections) ? j.reflections : []).filter((x: unknown) => typeof x === 'string' && (x as string).trim()).slice(0, 2);
+    for (const r of reflections) await prisma.personaMemory.create({ data: { personaId, kind: 'reflection', text: String(r).slice(0, 300), importance: 2 } }).catch(() => undefined);
+    // Trim the memory stream to the most recent 60 rows.
+    const old = await prisma.personaMemory.findMany({ where: { personaId }, orderBy: { createdAt: 'desc' }, skip: 60, select: { id: true } });
+    if (old.length) await prisma.personaMemory.deleteMany({ where: { id: { in: old.map(o => o.id) } } }).catch(() => undefined);
+  } catch { /* best-effort */ }
+}
+
 /** Boots every enabled persona on server start. */
 export async function startCommunityCoreRuntime(): Promise<void> {
   if (!communityCoreEnabled()) { console.log('[community-core] disabled (no TELEGRAM_API_ID/HASH)'); return; }
@@ -290,4 +323,6 @@ export async function startCommunityCoreRuntime(): Promise<void> {
   setInterval(() => { void prisma.personaMessageClaim.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 600_000) } } }).catch(() => {}); }, 300_000).unref?.();
   // Proactivity: every ~8 min, each running persona may start a topic in a quiet chat.
   setInterval(() => { for (const [id] of running) void maybeInitiate(id).catch(() => {}); }, 8 * 60_000).unref?.();
+  // Reflection: every ~30 min, each running persona synthesizes durable notes.
+  setInterval(() => { for (const [id] of running) void reflect(id).catch(() => {}); }, 30 * 60_000).unref?.();
 }
