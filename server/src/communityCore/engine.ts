@@ -223,6 +223,15 @@ export async function startPersona(personaId: string): Promise<void> {
   await prisma.persona.update({ where: { id: personaId }, data: { status: 'ACTIVE', lastHealthyAt: new Date(), lastError: null } });
 }
 
+/** Reconnects a running persona so it picks up freshly published config/texts. */
+export async function reloadPersona(personaId: string): Promise<void> {
+  const entry = running.get(personaId);
+  if (!entry) return; // not running — the next start reads fresh config anyway
+  await entry.stop().catch(() => {});
+  running.delete(personaId);
+  await startPersona(personaId);
+}
+
 export async function stopPersona(personaId: string, reason?: string): Promise<void> {
   const entry = running.get(personaId);
   if (entry) { await entry.stop().catch(() => {}); running.delete(personaId); }

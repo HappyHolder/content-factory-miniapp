@@ -7,7 +7,7 @@ import { DEFAULT_PERSONA_CONFIG, parsePersonaConfig } from '../communityCore/per
 import { encryptPersonaSession } from '../communityCore/personaCrypto';
 import { startLogin, confirmCode, confirmPassword, withPersonaClient, updateProfile, joinChat, communityCoreEnabled } from '../communityCore/accountService';
 import { decryptPersonaSession } from '../communityCore/personaCrypto';
-import { startPersona, stopPersona } from '../communityCore/engine';
+import { startPersona, stopPersona, reloadPersona } from '../communityCore/engine';
 import { participantPublic } from '../communityCore/personaParticipant';
 
 const router = Router();
@@ -133,6 +133,8 @@ router.post('/:id/apply', async (req, res) => {
       const about = (config.identity.about || config.role) + ' · AI-личность Publium';
       try { await withPersonaClient(session, c => updateProfile(c, { firstName, lastName: rest.join(' ') || undefined, about })); } catch { /* profile update best-effort */ }
     }
+    // Reload a running persona so the new texts take effect immediately.
+    await reloadPersona(persona.id).catch(() => undefined);
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
