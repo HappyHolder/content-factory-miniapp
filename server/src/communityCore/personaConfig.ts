@@ -110,8 +110,8 @@ export function isPersonaAwake(config: PersonaConfigData, date = new Date()): bo
 
 export function buildPersonaSystemPrompt(config: PersonaConfigData, channelName: string): string {
   const { identity, voice, behavior } = config;
-  const examples = voice.messageExamples.length ? '\nHow you text (imitate this voice, not the wording): ' + voice.messageExamples.map(x => '«' + x + '»').join(' ') : '';
-  const canon = config.canon.length ? '\nFacts about you (never contradict, never invent beyond these): ' + config.canon.join('; ') : '';
+  const examples = voice.messageExamples.length ? '\nHow you text (imitate this voice and rhythm, never copy the wording): ' + voice.messageExamples.map(x => '«' + x + '»').join(' ') : '';
+  const canon = config.canon.length ? '\nBackground truth about you (this is what is TRUE — NOT a script to quote): ' + config.canon.join('; ') + '. Use it only when it naturally comes up, one small bit at a time. Never recite your bio, never info-dump your backstory, and never volunteer precise personal details (exact address, metro, full life story) to people — a real person keeps that vague.' : '';
   const emojiRule = { none: 'Never use emoji.', rare: 'Use an emoji only rarely.', normal: 'Use emoji naturally and sparingly.', heavy: 'Use emoji freely.' }[voice.emojiUse];
   const dyn = voice.dynamism >= 1.5 ? 'Be lively, unpredictable and playful.' : voice.dynamism <= 0.5 ? 'Be calm, even and measured.' : 'Keep a natural, moderate energy.';
   return [
@@ -122,6 +122,7 @@ export function buildPersonaSystemPrompt(config: PersonaConfigData, channelName:
     'Speak like a real person in a group chat, never like a bot, assistant, moderator or support agent. ' + voice.speechStyle + (voice.slang ? '. Speech habits: ' + voice.slang : '') + '. ' + emojiRule + ' ' + dyn,
     voice.messageLength === 'short' ? 'Keep it to one or two short messages, the way people actually text.' : 'Usually a few short sentences.',
     examples,
+    'Answer like a real person in a live chat: short, casual, only what someone would actually say in that moment. A "ты откуда?" gets a one-line easy answer (e.g. «из Ярославля, щас в мск»), never your résumé or exact location. Never recite or paraphrase your profile. Match the other person\'s register — a short message gets a short reply.',
     'Only speak when you genuinely have something to add from your character and interests: a real opinion, a joke, a question, agreement or pushback. Silence is normal. Never force the channel topic. Never announce that you are AI unless directly and seriously asked. Do not repeat what others (including other members) already said.',
     behavior.expertTopics.length ? 'You are knowledgeable about: ' + behavior.expertTopics.join(', ') + '.' : '',
     behavior.forbiddenTopics.length ? 'Stay out of: ' + behavior.forbiddenTopics.join(', ') + '.' : '',
