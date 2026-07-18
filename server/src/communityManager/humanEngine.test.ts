@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_CM_CONFIG } from './config';
 import { communityPulse, chooseActivityForPulse } from './activityPolicy';
-import { consolidateEpisodes, consolidateNotes } from './memoryPolicy';
+import { consolidateEpisodes } from './memoryPolicy';
+import { isAddressedToCommunityManager, mentionsTelegramUsername } from './conversationIntelligence';
 import { routeSocialAction, type SocialDecision } from './socialRouter';
 import { deriveSocialState } from './socialState';
 
@@ -23,7 +24,7 @@ test('activity policy reads community pulse instead of sending on a clock alone'
   const active=communityPulse({messages:12,participants:4,tension:false,openQuestions:0});
   const silent=communityPulse({messages:0,participants:0,tension:false,openQuestions:0});
   assert.equal(chooseActivityForPulse(['DISCUSSION','POLL'],[],active),null);
-  assert.equal(chooseActivityForPulse(['DISCUSSION','POLL'],[],silent),'POLL');
+  assert.equal(chooseActivityForPulse(['DISCUSSION','POLL'],[],silent),'DISCUSSION');
 });
 
 test('episodic memory consolidates duplicates and retains open loops',()=>{
@@ -34,6 +35,14 @@ test('episodic memory consolidates duplicates and retains open loops',()=>{
   assert.equal(result[0]?.at,recent.at);
 });
 
-test('participant notes are normalized and bounded',()=>{
-  assert.deepEqual(consolidateNotes([' Likes BTC ','likes btc','Knows design'],2),['likes btc','Knows design']);
+
+test('Telegram mention must match the complete bot username',()=>{
+  assert.equal(mentionsTelegramUsername('эй, @Publium_CM_Bot, ответь','publium_cm_bot'),true);
+  assert.equal(mentionsTelegramUsername('@Publium_CM_Bot_fake, это не тебе','publium_cm_bot'),false);
+});
+
+test('a human reply branch cannot be redirected by a colliding CM display name',()=>{
+  const config={...DEFAULT_CM_CONFIG,identity:{...DEFAULT_CM_CONFIG.identity,displayName:'Степан'}};
+  assert.equal(isAddressedToCommunityManager('Степан, как жизнь?',config,false),false);
+  assert.equal(isAddressedToCommunityManager('КМ, подключись',config,false),true);
 });

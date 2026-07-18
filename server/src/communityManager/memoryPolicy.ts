@@ -25,8 +25,3 @@ export function consolidateEpisodes(current:unknown,incoming:unknown,max=24){
   const cutoff=Date.now()-90*86400_000;
   return[...deduped.values()].filter(item=>item.outcome==='open'||Date.parse(item.at)>=cutoff).slice(-Math.max(1,max));
 }
-
-export function consolidateNotes(value:unknown,max=16){
-  const notes=Array.isArray(value)?value.map(item=>clean(item,300)).filter(Boolean):[];
-  return[...new Map(notes.map(note=>[note.toLocaleLowerCase('ru-RU'),note])).values()].slice(-max);
-}

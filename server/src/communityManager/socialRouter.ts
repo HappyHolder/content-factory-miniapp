@@ -35,6 +35,7 @@ export function routeSocialAction(input:{
   decision:SocialDecision;
   telegramDirect:boolean;
   socialAddress:boolean;
+  addressedToOtherHuman?:boolean;
   productContext:boolean;
   recentModerator:boolean;
   cooldownFree:boolean;
@@ -48,6 +49,9 @@ export function routeSocialAction(input:{
   const addressed=input.telegramDirect||input.socialAddress;
   if(addressed){
     return{action:'REPLY',shouldSpeak:true,priority:true,replyToCurrent:true,reason:'addressed_to_cm'};
+  }
+  if(input.addressedToOtherHuman&&input.hasQuestion){
+    return{action:'SILENT',shouldSpeak:false,priority:false,replyToCurrent:false,reason:'question_addressed_to_human'};
   }
   if(input.productContext&&config.support.answerProductQuestions&&decision.respond){
     return{action:'REPLY',shouldSpeak:true,priority:true,replyToCurrent:true,reason:'project_question'};

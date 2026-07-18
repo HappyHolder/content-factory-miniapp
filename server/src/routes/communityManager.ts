@@ -18,7 +18,7 @@ async function auth(req:Request){
 }
 function fail(res:Response,e:unknown){const m=e instanceof Error?e.message:'';res.status(m==='NOT_FOUND'?404:401).json({error:m==='SESSION_EXPIRED'?'Сессия истекла. Переоткройте Publium.':'Недействительная авторизация'})}
 async function owned(req:Request,id:string){
-  const a=await auth(req),manager=await prisma.communityManager.findFirst({where:{id,community:{channel:{userId:a.user.id}}},include:{community:{include:{moderatorChat:true,channel:true}}}});
+  const a=await auth(req),manager=await prisma.communityManager.findFirst({where:{id,community:{channel:{userId:a.user.id}}},include:{community:{include:{moderatorChat:true,channel:true,managedCommunityManagerBot:true}}}});
   if(!manager)throw new Error('NOT_FOUND');return{...a,manager};
 }
 const publicManager=(m:any)=>m?{id:m.id,status:m.status,enabled:m.enabled,mode:m.mode,draftVersion:m.draftVersion,publishedVersion:m.publishedVersion,lastActionAt:m.lastActionAt,lastHealthyAt:m.lastHealthyAt,lastError:m.lastError,executorType:m.executorType}:null;
@@ -92,7 +92,7 @@ router.get('/:id/health',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
   let botStatus='missing',executorType=c.manager.executorType;try{if(c.manager.community.moderatorChat){const executor=await communityManagerExecutor(c.manager.community.id);executorType=executor.type;botStatus=(await getChatMember(c.manager.community.moderatorChat.tgChatId,executor.botId,executor.token)).status}}catch{botStatus='error'}
   const [pending,retrying,failed24h,oldest]=await Promise.all([prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:{in:['PENDING','RETRY_WAIT','CLAIMED']}}}),prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:'RETRY_WAIT'}}),prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:'FAILED',updatedAt:{gte:new Date(Date.now()-86400_000)}}}),prisma.communityManagerJob.findFirst({where:{communityManagerId:c.manager.id,status:{in:['PENDING','RETRY_WAIT','CLAIMED']}},orderBy:{createdAt:'asc'},select:{createdAt:true}})]);
-  res.json({executor:botStatus,executorType,webhook:Boolean(env.COMMUNITY_MANAGER_WEBHOOK_SECRET),published:Boolean(c.manager.publishedVersion),enabled:c.manager.enabled,ai:env.AI_PROVIDER==='deepseek'&&Boolean(env.DEEPSEEK_API_KEY),research:Boolean(env.ANTHROPIC_API_KEY||env.TAVILY_API_KEY||process.env.SERPER_API_KEY),pending,retrying,failed24h,oldestPendingAt:oldest?.createdAt??null,lastHealthyAt:c.manager.lastHealthyAt,lastError:c.manager.lastError});
+  res.json({executor:botStatus,executorType,webhook:executorType==='CUSTOM'?Boolean(c.manager.community.managedCommunityManagerBot?.webhookSecret):Boolean(env.COMMUNITY_MANAGER_WEBHOOK_SECRET),published:Boolean(c.manager.publishedVersion),enabled:c.manager.enabled,ai:Boolean(env.REPLICATE_API_TOKEN&&env.CM_TEXT_MODEL),research:Boolean(env.ANTHROPIC_API_KEY||env.TAVILY_API_KEY||process.env.SERPER_API_KEY),pending,retrying,failed24h,oldestPendingAt:oldest?.createdAt??null,lastHealthyAt:c.manager.lastHealthyAt,lastError:c.manager.lastError});
 });
 
 router.post('/:id/simulate',async(req,res)=>{
@@ -153,7 +153,9 @@ router.post('/:id/actions/:actionId/send',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
   const action=await prisma.communityManagerAction.findFirst({where:{id:req.params.actionId,communityManagerId:c.manager.id,decision:'DRAFT'}});
   if(!action?.response||!c.manager.community.moderatorChat){res.status(404).json({error:'Черновик не найден'});return}
-  try{const executor=await communityManagerExecutor(c.manager.community.id);const ref=await sendBotMessage(c.manager.community.moderatorChat.tgChatId,action.response,executor.token);await prisma.communityManagerAction.update({where:{id:action.id},data:{decision:'RESPOND',telegramMessageId:ref?.messageId}});res.json({ok:true})}catch(e){res.status(502).json({error:e instanceof Error?e.message:'Send failed'})}
+  const claim=await prisma.communityManagerAction.updateMany({where:{id:action.id,communityManagerId:c.manager.id,decision:'DRAFT'},data:{decision:'SENDING'}});
+  if(claim.count!==1){res.status(409).json({error:'Черновик уже отправляется или был отправлен'});return}
+  try{const executor=await communityManagerExecutor(c.manager.community.id);const ref=await sendBotMessage(c.manager.community.moderatorChat.tgChatId,action.response,executor.token);await prisma.communityManagerAction.update({where:{id:action.id},data:{decision:'RESPOND',telegramMessageId:ref?.messageId}});res.json({ok:true})}catch(e){await prisma.communityManagerAction.updateMany({where:{id:action.id,decision:'SENDING'},data:{decision:'DRAFT',error:e instanceof Error?e.message.slice(0,500):'Send failed'}});res.status(502).json({error:e instanceof Error?e.message:'Send failed'})}
 });
 
 router.get('/:id/faq',async(req,res)=>{let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}res.json({faqs:await prisma.communityManagerFaq.findMany({where:{communityManagerId:c.manager.id},orderBy:[{priority:'desc'},{createdAt:'desc'}]})})});
@@ -162,8 +164,10 @@ router.delete('/:id/faq/:faqId',async(req,res)=>{let c;try{c=await owned(req,req
 
 router.post('/:id/activities/run',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
-  const type=['DISCUSSION','POLL','GAME','DIGEST'].includes(req.body?.type)?req.body.type:'DISCUSSION';
-  try{res.json(await runCommunityActivity(c.manager.id,type,typeof req.body?.topic==='string'?req.body.topic:undefined))}catch(e){res.status(502).json({error:e instanceof Error?e.message:'Activity failed'})}
+  const allowed=['DISCUSSION','POLL','QUIZ','LIGHT','HOT_NEWS','DIGEST','PREDICTION','CHALLENGE','CONTEST'] as const;
+  if(!allowed.includes(req.body?.type)){res.status(400).json({error:'Неизвестный тип активности'});return}
+  const type=req.body.type as typeof allowed[number],topic=typeof req.body?.topic==='string'?req.body.topic.trim().slice(0,500):undefined;
+  try{res.json(await runCommunityActivity(c.manager.id,type,topic))}catch(e){const message=e instanceof Error?e.message:'Activity failed';res.status(/disabled|unavailable|requires|Quiet hours|limit reached|not active|not applied/i.test(message)?409:502).json({error:message})}
 });
 
 router.post('/communities/:communityId/managed-bot/request',async(req,res)=>{

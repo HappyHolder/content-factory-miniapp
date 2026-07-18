@@ -36,3 +36,13 @@ test('an unanswered question returns as a priority open loop',()=>{
   const route=routeSocialAction({config:config({replyToUnansweredQuestion:true}),decision:decision({respond:false,conversationScore:.1,valueAdd:''}),telegramDirect:false,socialAddress:false,productContext:false,recentModerator:false,cooldownFree:false,hasQuestion:true,unansweredQuestion:true});
   assert.equal(route.action,'REPLY');assert.equal(route.priority,true);assert.equal(route.replyToCurrent,true);
 });
+
+test('question explicitly replied to another human is never answered on their behalf',()=>{
+  const route=routeSocialAction({config:config(),decision:decision({conversationScore:.95,engagementLevel:'lead'}),telegramDirect:false,socialAddress:false,addressedToOtherHuman:true,productContext:true,recentModerator:false,cooldownFree:true,hasQuestion:true});
+  assert.equal(route.action,'SILENT');assert.equal(route.reason,'question_addressed_to_human');
+});
+
+test('explicit CM mention still wins inside a human reply thread',()=>{
+  const route=routeSocialAction({config:config(),decision:decision(),telegramDirect:true,socialAddress:false,addressedToOtherHuman:true,productContext:false,recentModerator:false,cooldownFree:true,hasQuestion:true});
+  assert.equal(route.action,'REPLY');assert.equal(route.reason,'addressed_to_cm');
+});

@@ -1,5 +1,5 @@
 export type GraphHuman={telegramMessageId:number;replyToMessageId:number|null;text:string|null;tgUserId:string|null;createdAt:Date};
-export type GraphAction={telegramMessageId:number|null;response:string|null;createdAt:Date};
+export type GraphAction={telegramMessageId:number|null;sourceTelegramMessageId?:number|null;response:string|null;createdAt:Date};
 
 export function buildConversationGraph(input:{humans:GraphHuman[];actions:GraphAction[];identities:Map<string,string>;cmName:string}){
   const ordered=[...input.humans].sort((a,b)=>a.createdAt.getTime()-b.createdAt.getTime());
@@ -17,7 +17,7 @@ export function buildConversationGraph(input:{humans:GraphHuman[];actions:GraphA
       const target=row.replyToMessageId?(humanByMessage.get(row.replyToMessageId)??(cmMessageIds.has(row.replyToMessageId)?input.cmName:null)):null;
       return{at:row.createdAt,threadId:rootOf(row.telegramMessageId),line:author+(target?' [reply to '+target+']':'')+': '+row.text};
     }),
-    ...input.actions.filter(row=>Boolean(row.response)).map(row=>({at:row.createdAt,threadId:row.telegramMessageId??-1,line:input.cmName+': '+row.response})),
+    ...input.actions.filter(row=>Boolean(row.response)).map(row=>({at:row.createdAt,threadId:row.sourceTelegramMessageId?rootOf(row.sourceTelegramMessageId):(row.telegramMessageId??-1),line:input.cmName+': '+row.response})),
   ].sort((a,b)=>a.at.getTime()-b.at.getTime());
   const threads=new Map<number,string[]>();
   for(const item of timeline){const list=threads.get(item.threadId)??[];list.push(item.line);threads.set(item.threadId,list)}

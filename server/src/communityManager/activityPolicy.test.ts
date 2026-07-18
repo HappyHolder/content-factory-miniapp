@@ -12,8 +12,8 @@ test('default CM is socially active without mandatory setup',()=>{
 
 test('initiative time is randomized inside the configured silence window',()=>{
   const start=new Date('2026-07-17T10:00:00.000Z');
-  assert.equal(randomInitiativeDate(DEFAULT_CM_CONFIG,start,()=>0).toISOString(),'2026-07-17T10:40:00.000Z');
-  assert.equal(randomInitiativeDate(DEFAULT_CM_CONFIG,start,()=>1).toISOString(),'2026-07-17T11:20:00.000Z');
+  assert.equal(randomInitiativeDate(DEFAULT_CM_CONFIG,start,()=>0).toISOString(),'2026-07-17T11:15:00.000Z');
+  assert.equal(randomInitiativeDate(DEFAULT_CM_CONFIG,start,()=>1).toISOString(),'2026-07-17T13:00:00.000Z');
 });
 
 test('ignored activity changes format instead of causing a multi-day disappearance',()=>{
