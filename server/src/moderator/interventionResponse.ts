@@ -26,6 +26,17 @@ export function moderatorFallback(category:string,previous:string[],seed:number)
   return list.find((value,index)=>index===Math.abs(seed)%list.length&&!previous.some(old=>responseSimilarity(value,old)>=.68))??list.find(value=>!previous.some(old=>responseSimilarity(value,old)>=.68))??list[0];
 }
 
+export function moderatorParticipantLabel(username?:string|null,displayName?:string|null){
+  const cleanUsername=(username??'').trim().replace(/^@+/,'');
+  if(/^[A-Za-z0-9_]{5,32}$/.test(cleanUsername))return '@'+cleanUsername;
+  const cleanName=(displayName??'').replace(/[\r\n\t<>]/g,' ').replace(/\s+/g,' ').trim().slice(0,80);
+  return cleanName||'Участник';
+}
+
+export function targetedModeratorSanctionNotice(notice:string,username?:string|null,displayName?:string|null){
+  return `${moderatorParticipantLabel(username,displayName)}: ${notice.trim()}`;
+}
+
 export function moderatorSanctionNotice(action:string,count:number,threshold:string,seed:number){
   const warning=[
     `Предупреждение ${count}${threshold}. Не продолжайте нарушение после замечания.`,

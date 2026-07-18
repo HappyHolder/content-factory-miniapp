@@ -337,6 +337,8 @@ model ModeratorConversationMessage {
   id                String    @id @default(cuid())
   communityId       String
   tgUserId          String
+  username          String?
+  displayName       String?
   telegramMessageId Int
   text              String
   createdAt         DateTime  @default(now())
@@ -748,6 +750,7 @@ model CommunityManager {
   faqs              CommunityManagerFaq[]
   activities        CommunityManagerActivity[]
   participants      CommunityManagerParticipant[]
+  digestMessages    CommunityManagerDigestMessage[]
   conversationState CommunityManagerConversationState?
 }
 
@@ -844,6 +847,20 @@ model CommunityManagerMessage {
   @@index([expiresAt])
 }
 
+model CommunityManagerDigestMessage {
+  id                 String           @id @default(cuid())
+  communityManagerId String
+  telegramMessageId  Int
+  tgUserId           String?
+  text               String
+  createdAt          DateTime
+  expiresAt          DateTime
+  communityManager   CommunityManager @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+
+  @@unique([communityManagerId, telegramMessageId])
+  @@index([communityManagerId, createdAt])
+  @@index([expiresAt])
+}
 model CommunityManagerJob {
   id                 String                   @id @default(cuid())
   communityManagerId String
@@ -908,6 +925,7 @@ model CommunityManagerActivity {
   communityManagerId String
   type               String
   topic              String?
+  dedupeKey          String?          @unique
   status             String           @default("PENDING")
   scheduledAt        DateTime
   sentAt             DateTime?

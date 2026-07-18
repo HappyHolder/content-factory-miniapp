@@ -1,5 +1,5 @@
 const decisionLabels:Record<string,string>={RESPOND:'Ответил',SILENT:'Промолчал',DRAFT:'Создал черновик',SENDING:'Отправляет черновик',ACTIVITY:'Запустил активность',ERROR:'Ошибка'};
-const intentLabels:Record<string,string>={product_support:'Вопрос о продукте',external_fresh:'Нужны свежие данные',conversation:'Разговор',feedback:'Обратная связь',request_human:'Нужен человек',unsafe:'Остановлено модерацией',no_response:'Ответ не нужен',limits:'Лимиты',moderation_timeout:'Ожидание Moderator',moderator_trigger:'Обработал Moderator',burst_superseded:'Объединено с сообщением'};
+const intentLabels:Record<string,string>={product_support:'Вопрос о продукте',external_fresh:'Нужны свежие данные',conversation:'Разговор',feedback:'Обратная связь',request_human:'Нужен человек',unsafe:'Остановлено модерацией',no_response:'Ответ не нужен',limits:'Лимиты',moderation_timeout:'Ожидание Moderator',moderator_trigger:'Обработал Moderator',burst_superseded:'Объединено с сообщением',daily_digest:'Ежедневный дайджест'};
 const reasonLabels:Record<string,string>={
   'Quiet hours or quota':'Тихие часы или достигнут лимит ответов',
   'Community conversation cooldown':'Действует пауза между репликами CM',

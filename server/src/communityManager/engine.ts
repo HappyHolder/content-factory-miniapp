@@ -21,6 +21,7 @@ import { canRetryJob, retryDelayMs } from './jobPolicy';
 import { markExpertMentioned, relevantExpert, rememberCmExchange, rememberParticipant } from './participantMemory';
 import { consolidateEpisodes, parseEpisodes } from './memoryPolicy';
 import { communityManagerUpdateKey, isProductContinuation } from './conversationRouting';
+import { digestRetentionDate } from './dailyDigest';
 
 type TgAuthor={id:number;is_bot?:boolean;username?:string;first_name?:string;last_name?:string};
 type TgMessage={message_id:number;date?:number;chat:{id:number};from?:TgAuthor;text?:string;caption?:string;reply_to_message?:{message_id:number;date?:number;from?:TgAuthor;text?:string;caption?:string}};
@@ -68,6 +69,8 @@ export async function acceptCommunityManagerUpdate(update:TgUpdate,executor:{typ
   }
   try{
     const row=await prisma.communityManagerMessage.create({data:{communityManagerId:ctx.manager.id,telegramUpdateId:communityManagerUpdateKey(executor.botId,update.update_id),telegramMessageId:m.message_id,tgChatId:String(m.chat.id),tgUserId:String(m.from.id),replyToMessageId:m.reply_to_message?.message_id,text:text.slice(0,12000),messageType:m.text?'TEXT':'CAPTION',moderationStatus:ctx.community.moderator?.enabled?'PENDING':'ALLOWED',expiresAt:new Date(Date.now()+86400_000)}});
+    const digestCreatedAt=m.date?new Date(m.date*1000):row.createdAt;
+    await prisma.communityManagerDigestMessage.upsert({where:{communityManagerId_telegramMessageId:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id}},create:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id,tgUserId:String(m.from.id),text:text.slice(0,12000),createdAt:digestCreatedAt,expiresAt:digestRetentionDate(digestCreatedAt)},update:{tgUserId:String(m.from.id),text:text.slice(0,12000),createdAt:digestCreatedAt,expiresAt:digestRetentionDate(digestCreatedAt)}}).catch(()=>undefined);
     await rememberParticipant(ctx.manager.id,m.from,text,ctx.config.personality.relationshipStyle).catch(()=>undefined);
     await prisma.$transaction([
       prisma.communityManagerJob.create({data:{communityManagerId:ctx.manager.id,messageId:row.id,runAfter:new Date(Date.now()+6000+(ctx.community.moderator?.enabled?1800:0))}}),
@@ -320,7 +323,7 @@ export async function processCommunityManagerJobs(){
 export async function runCommunityActivity(managerId:string,type:CommunityActivityType,topic?:string,meta:{automatic?:boolean;reason?:string;postId?:string;phase?:string}={}){return runActivity(managerId,type,topic,meta)}
 
 let timer:NodeJS.Timeout|undefined;
-export function startCommunityManagerWorker(){if(timer)return;timer=setInterval(()=>{void processCommunityManagerJobs();void prisma.communityManagerMessage.deleteMany({where:{expiresAt:{lt:new Date()}}})},5000);timer.unref();void processCommunityManagerJobs()}
+export function startCommunityManagerWorker(){if(timer)return;timer=setInterval(()=>{void processCommunityManagerJobs();void Promise.all([prisma.communityManagerMessage.deleteMany({where:{expiresAt:{lt:new Date()}}}),prisma.communityManagerDigestMessage.deleteMany({where:{expiresAt:{lt:new Date()}}})])},5000);timer.unref();void processCommunityManagerJobs()}
 
 export async function simulateCommunityManager(managerId:string,text:string,raw?:unknown){
   const manager=await prisma.communityManager.findUnique({where:{id:managerId},include:{community:{include:{channel:{include:{brandKit:true}},moderatorChat:true,moderator:true}}}});if(!manager)throw new Error('CM not found');
