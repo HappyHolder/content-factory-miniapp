@@ -9,7 +9,63 @@ import { generateContentPlan, type ContentPlanDTO, MAX_POSTS_PER_DAY, MAX_DAYS }
 
 const router = Router();
 
-const HISTORY_LIMIT = 100; // messages kept per user
+const HISTORY_LIMIT = 100; // messages fed to the model as context
+const STORE_LIMIT   = 300; // messages kept per session in DB
+
+/** Validates initData and resolves the DB user. Throws with a message on failure. */
+async function authChatUser(initData: unknown): Promise<{ id: string; name: string | null }> {
+  if (typeof initData !== 'string' || !initData.trim()) throw new Error('initData required');
+  const parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true, name: true } });
+  if (!dbUser) throw new Error('User not found');
+  return dbUser;
+}
+
+/** One-time lazy migration: wraps a user's legacy session-less messages into a single session. */
+async function adoptLegacyMessages(userId: string): Promise<void> {
+  const orphan = await prisma.chatMessage.findFirst({ where: { userId, sessionId: null }, select: { id: true } });
+  if (!orphan) return;
+  const session = await prisma.chatSession.create({ data: { userId, title: 'Прежний диалог' } });
+  await prisma.chatMessage.updateMany({ where: { userId, sessionId: null }, data: { sessionId: session.id } });
+}
+
+// ─── Chat sessions ────────────────────────────────────────────────────────────
+
+router.get('/sessions', async (req: Request, res: Response): Promise<void> => {
+  let user;
+  try { user = await authChatUser((req.query as { initData?: string }).initData); }
+  catch (err) { res.status(401).json({ error: (err as Error).message }); return; }
+  await adoptLegacyMessages(user.id).catch(() => undefined);
+  const sessions = await prisma.chatSession.findMany({
+    where: { userId: user.id },
+    orderBy: { updatedAt: 'desc' },
+    take: 50,
+    select: { id: true, title: true, channelId: true, updatedAt: true },
+  });
+  res.json({ sessions });
+});
+
+router.post('/sessions', async (req: Request, res: Response): Promise<void> => {
+  const { initData, channelId } = req.body as { initData?: unknown; channelId?: unknown };
+  let user;
+  try { user = await authChatUser(initData); }
+  catch (err) { res.status(401).json({ error: (err as Error).message }); return; }
+  const session = await prisma.chatSession.create({
+    data: { userId: user.id, channelId: typeof channelId === 'string' && channelId ? channelId : null },
+    select: { id: true, title: true, channelId: true, updatedAt: true },
+  });
+  res.status(201).json({ session });
+});
+
+router.delete('/sessions/:sessionId', async (req: Request, res: Response): Promise<void> => {
+  let user;
+  try { user = await authChatUser((req.query as { initData?: string }).initData ?? (req.body as { initData?: unknown })?.initData); }
+  catch (err) { res.status(401).json({ error: (err as Error).message }); return; }
+  const session = await prisma.chatSession.findFirst({ where: { id: req.params['sessionId'], userId: user.id }, select: { id: true } });
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+  await prisma.chatSession.delete({ where: { id: session.id } }); // messages cascade
+  res.json({ ok: true });
+});
 
 /**
  * HIGH-tier chat reply: Claude on Replicate. Replicate's text API has no
@@ -160,25 +216,34 @@ async function detectPlanIntent(
 // Query: { initData }
 
 router.get('/history', async (req: Request, res: Response): Promise<void> => {
-  const { initData } = req.query as { initData?: string };
-  if (!initData?.trim()) { res.status(400).json({ error: 'initData required' }); return; }
+  const { initData, sessionId, channelId } = req.query as { initData?: string; sessionId?: string; channelId?: string };
+  let user;
+  try { user = await authChatUser(initData); }
+  catch (err) { res.status(401).json({ error: (err as Error).message }); return; }
 
-  let parsed;
-  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
-  catch { res.status(401).json({ error: 'Invalid initData' }); return; }
+  await adoptLegacyMessages(user.id).catch(() => undefined);
 
-  const telegramId = String(parsed.user.id);
-  const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } }).catch(() => null);
-  if (!dbUser) { res.status(401).json({ error: 'User not found' }); return; }
+  // Resolve which session to show: explicit id → that one; otherwise the most
+  // recently used session (preferring the active channel's), if any.
+  let session = null;
+  if (sessionId?.trim()) {
+    session = await prisma.chatSession.findFirst({ where: { id: sessionId, userId: user.id }, select: { id: true } });
+    if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+  } else {
+    if (channelId?.trim()) session = await prisma.chatSession.findFirst({ where: { userId: user.id, channelId }, orderBy: { updatedAt: 'desc' }, select: { id: true } });
+    if (!session) session = await prisma.chatSession.findFirst({ where: { userId: user.id }, orderBy: { updatedAt: 'desc' }, select: { id: true } });
+  }
+  if (!session) { res.json({ sessionId: null, messages: [] }); return; }
 
-  const history = await prisma.chatMessage.findMany({
-    where:   { userId: dbUser.id },
-    orderBy: { createdAt: 'asc' },
-    take:    HISTORY_LIMIT,
+  // Newest STORE_LIMIT messages, returned oldest → newest.
+  const history = (await prisma.chatMessage.findMany({
+    where:   { sessionId: session.id },
+    orderBy: { createdAt: 'desc' },
+    take:    STORE_LIMIT,
     select:  { role: true, content: true },
-  });
+  })).reverse();
 
-  res.json({ messages: history });
+  res.json({ sessionId: session.id, messages: history });
 });
 
 // ─── POST /api/chat ───────────────────────────────────────────────────────────
@@ -188,26 +253,31 @@ router.get('/history', async (req: Request, res: Response): Promise<void> => {
 // Response 200: { reply: string }
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, message } = req.body as {
+  const { initData, channelId, message, sessionId } = req.body as {
     initData?:  unknown;
     channelId?: unknown;
     message?:   unknown;
+    sessionId?: unknown;
   };
 
-  if (typeof initData  !== 'string' || !initData.trim())  { res.status(400).json({ error: 'initData required' });  return; }
   if (typeof channelId !== 'string' || !channelId.trim()) { res.status(400).json({ error: 'channelId required' }); return; }
   if (typeof message   !== 'string' || !message.trim())   { res.status(400).json({ error: 'message required' });   return; }
 
-  let parsed;
-  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
-  catch (err) { res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return; }
+  let dbUser;
+  try { dbUser = await authChatUser(initData); }
+  catch (err) { res.status(401).json({ error: (err as Error).message }); return; }
 
-  const telegramId = String(parsed.user.id);
-  const dbUser = await prisma.user.findUnique({
-    where:  { telegramId },
-    select: { id: true, name: true },
-  }).catch(() => null);
-  if (!dbUser) { res.status(401).json({ error: 'User not found' }); return; }
+  // Resolve the target session: an owned existing one, or a fresh session
+  // titled after the first message.
+  let session = typeof sessionId === 'string' && sessionId.trim()
+    ? await prisma.chatSession.findFirst({ where: { id: sessionId, userId: dbUser.id }, select: { id: true, title: true } })
+    : null;
+  if (!session) {
+    session = await prisma.chatSession.create({
+      data: { userId: dbUser.id, channelId, title: message.trim().replace(/\s+/g, ' ').slice(0, 60) },
+      select: { id: true, title: true },
+    });
+  }
 
   // Gate the AI assistant by plan tier — FREE has no access.
   const sub = await prisma.subscription.findUnique({
@@ -243,13 +313,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     res.status(403).json({ error: 'Channel not found or access denied' }); return;
   }
 
-  // Load existing history from DB
-  const history = await prisma.chatMessage.findMany({
-    where:   { userId: dbUser.id },
-    orderBy: { createdAt: 'asc' },
+  // Model context: the newest HISTORY_LIMIT messages of THIS session, oldest → newest.
+  const history = (await prisma.chatMessage.findMany({
+    where:   { sessionId: session.id },
+    orderBy: { createdAt: 'desc' },
     take:    HISTORY_LIMIT,
     select:  { role: true, content: true },
-  });
+  })).reverse();
 
   // Build system prompt
   const userName    = dbUser.name?.trim() || null;
@@ -557,18 +627,21 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     // Save user + final assistant reply to DB (non-fatal). Intermediate tool
     // turns are not persisted — history stays a clean {role, content} log.
+    const sessionRef = session;
     prisma.chatMessage.createMany({
       data: [
-        { userId: dbUser.id, role: 'user',      content: message },
-        { userId: dbUser.id, role: 'assistant', content: reply   },
+        { userId: dbUser.id, sessionId: sessionRef.id, role: 'user',      content: message },
+        { userId: dbUser.id, sessionId: sessionRef.id, role: 'assistant', content: reply   },
       ],
-    }).catch(err => console.error('[chat] DB save failed:', (err as Error).message));
+    }).then(() =>
+      prisma.chatSession.update({ where: { id: sessionRef.id }, data: { channelId } }).catch(() => undefined),
+    ).catch(err => console.error('[chat] DB save failed:', (err as Error).message));
 
-    // Trim old messages if over limit (keep newest HISTORY_LIMIT)
+    // Trim: keep the newest STORE_LIMIT messages of the session, drop the oldest.
     prisma.chatMessage.findMany({
-      where:   { userId: dbUser.id },
-      orderBy: { createdAt: 'asc' },
-      skip:    HISTORY_LIMIT,
+      where:   { sessionId: sessionRef.id },
+      orderBy: { createdAt: 'desc' },
+      skip:    STORE_LIMIT,
       select:  { id: true },
     }).then(old => {
       if (old.length > 0) {
@@ -576,7 +649,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       }
     }).catch(() => {});
 
-    res.json({ reply, ...(pendingPlan ? { plan: pendingPlan } : {}) });
+    res.json({ reply, sessionId: sessionRef.id, ...(pendingPlan ? { plan: pendingPlan } : {}) });
 
   } catch (err) {
     console.error('[chat] Error:', (err as Error).message);

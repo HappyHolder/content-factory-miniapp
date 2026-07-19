@@ -1,10 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Bot, Loader2, Sparkles, ArrowLeft, ChevronDown, CalendarClock, Layers, Play, Check } from 'lucide-react'
+import { Bot, Loader2, Sparkles, ArrowLeft, ChevronDown, CalendarClock, Layers, Play, Check, MoreVertical, Plus, Trash2, MessageSquare } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { Sheet } from '@/components/ui/Sheet'
+import { ChatMarkdown } from '@/lib/chatMarkdown'
+
+export interface ChatSession {
+  id: string
+  title: string
+  channelId: string | null
+  updatedAt: string
+}
 
 export interface ContentPlanItem {
   id: string
@@ -155,6 +164,9 @@ interface ChatScreenProps {
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
   historyLoaded: boolean
   setHistoryLoaded: React.Dispatch<React.SetStateAction<boolean>>
+  /** Active chat session id (null = a fresh chat; the server creates one on first message). */
+  sessionId: string | null
+  setSessionId: (id: string | null) => void
   onSend: (text: string) => void
   /** Hand an assistant reply to the Create flow (generates a post from it). */
   onSendToCreate?: (text: string) => void
@@ -172,11 +184,75 @@ interface ChatScreenProps {
   onScrollBtnChange: (visible: boolean, scrollFn: () => void) => void
 }
 
-export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, onSend, onSendToCreate, onConfirmPlan, onCancelPlan, confirmingPlanId, loading, active, onBack, onScrollBtnChange }: ChatScreenProps) {
-  const { activeChannel, authStatus } = useApp()
+export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoaded, sessionId, setSessionId, onSend, onSendToCreate, onConfirmPlan, onCancelPlan, confirmingPlanId, loading, active, onBack, onScrollBtnChange }: ChatScreenProps) {
+  const { activeChannel, authStatus, state, setActiveChannel } = useApp()
   const bottomRef    = useRef<HTMLDivElement>(null)
   const scrollRef    = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const loadSessions = useCallback(async () => {
+    const initData = getTelegramInitData()
+    if (!initData) return
+    setSessionsLoading(true)
+    try {
+      const r = await fetch(`${API_BASE}/api/chat/sessions?initData=${encodeURIComponent(initData)}`)
+      const d = await r.json() as { sessions?: ChatSession[] }
+      setSessions(d.sessions ?? [])
+    } catch { /* list stays as-is */ } finally { setSessionsLoading(false) }
+  }, [])
+
+  useEffect(() => { if (menuOpen) void loadSessions() }, [menuOpen, loadSessions])
+
+  const startNewChat = useCallback(() => {
+    setSessionId(null)
+    setMessages([])
+    setMenuOpen(false)
+  }, [setMessages, setSessionId])
+
+  const openSession = useCallback(async (target: ChatSession) => {
+    const initData = getTelegramInitData()
+    if (!initData) return
+    try {
+      const r = await fetch(`${API_BASE}/api/chat/history?initData=${encodeURIComponent(initData)}&sessionId=${encodeURIComponent(target.id)}`)
+      const d = await r.json() as { sessionId?: string | null; messages?: ChatMessage[] }
+      setMessages(Array.isArray(d.messages) ? d.messages : [])
+      setSessionId(target.id)
+      if (target.channelId && target.channelId !== activeChannel?.id) setActiveChannel(target.channelId)
+      setMenuOpen(false)
+    } catch { /* keep the current chat on failure */ }
+  }, [activeChannel?.id, setActiveChannel, setMessages, setSessionId])
+
+  const deleteSession = useCallback(async (target: ChatSession) => {
+    const initData = getTelegramInitData()
+    if (!initData || deletingId) return
+    setDeletingId(target.id)
+    try {
+      await fetch(`${API_BASE}/api/chat/sessions/${target.id}?initData=${encodeURIComponent(initData)}`, { method: 'DELETE' })
+      setSessions(prev => prev.filter(s => s.id !== target.id))
+      if (sessionId === target.id) { setSessionId(null); setMessages([]) }
+    } catch { /* leave list unchanged */ } finally { setDeletingId(null) }
+  }, [deletingId, sessionId, setMessages, setSessionId])
+
+  const switchChannel = useCallback(async (channelId: string) => {
+    if (channelId === activeChannel?.id) { setMenuOpen(false); return }
+    setActiveChannel(channelId)
+    const initData = getTelegramInitData()
+    if (!initData) { setMenuOpen(false); return }
+    try {
+      const r = await fetch(`${API_BASE}/api/chat/history?initData=${encodeURIComponent(initData)}&channelId=${encodeURIComponent(channelId)}`)
+      const d = await r.json() as { sessionId?: string | null; messages?: ChatMessage[] }
+      const found = d.sessionId && Array.isArray(d.messages)
+      setMessages(found ? d.messages! : [])
+      setSessionId(found ? d.sessionId! : null)
+    } catch {
+      setMessages([]); setSessionId(null)
+    }
+    setMenuOpen(false)
+  }, [activeChannel?.id, setActiveChannel, setMessages, setSessionId])
 
   const scrollToBottom = useCallback((smooth = true) => {
     if (smooth) {
@@ -205,11 +281,13 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
     const initData = getTelegramInitData()
     if (!initData) { setHistoryLoaded(true); return }
 
-    fetch(`${API_BASE}/api/chat/history?initData=${encodeURIComponent(initData)}`)
+    const channelParam = activeChannel?.id ? `&channelId=${encodeURIComponent(activeChannel.id)}` : ''
+    fetch(`${API_BASE}/api/chat/history?initData=${encodeURIComponent(initData)}${channelParam}`)
       .then(r => r.json())
-      .then((data: { messages?: ChatMessage[] }) => {
-        if (Array.isArray(data.messages) && data.messages.length > 0) {
+      .then((data: { sessionId?: string | null; messages?: ChatMessage[] }) => {
+        if (data.sessionId && Array.isArray(data.messages) && data.messages.length > 0) {
           setMessages(data.messages)
+          setSessionId(data.sessionId)
         }
       })
       .catch(() => {})
@@ -269,6 +347,15 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
             </p>
           )}
         </div>
+
+        <motion.button
+          onClick={() => setMenuOpen(true)}
+          whileTap={{ scale: 0.88 }}
+          aria-label="Меню ассистента"
+          className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center flex-shrink-0 text-[#ABABAB] hover:text-white transition-colors"
+        >
+          <MoreVertical size={15} />
+        </motion.button>
       </div>
 
       {/* Messages */}
@@ -326,8 +413,8 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
             >
               {msg.role === 'assistant' ? (
                 <div className="max-w-[82%] flex flex-col items-start gap-1.5">
-                  <div className="px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] leading-relaxed whitespace-pre-wrap bg-white/[0.06] text-[#E0E0E0]">
-                    {msg.content}
+                  <div className="px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] leading-relaxed bg-white/[0.06] text-[#E0E0E0]">
+                    <ChatMarkdown text={msg.content} />
                   </div>
                   {msg.plan ? (
                     <PlanCard
@@ -372,6 +459,97 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
       </div> {/* end relative wrapper */}
 
       {/* Scroll button is rendered in App.tsx as sibling of BottomNav to avoid transform stacking context issues */}
+
+      {/* Assistant menu: channel switcher + chat history */}
+      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title="Ассистент" height="full">
+        <div className="space-y-5">
+          {/* Channel switcher */}
+          {state.channels.length > 0 && (
+            <section>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#66666E]">Канал</p>
+              <div className="space-y-1.5">
+                {state.channels.map(ch => {
+                  const isActive = ch.id === activeChannel?.id
+                  return (
+                    <button
+                      key={ch.id}
+                      onClick={() => void switchChannel(ch.id)}
+                      className={cn(
+                        'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-left transition-colors',
+                        isActive
+                          ? 'bg-[rgba(255,106,0,0.08)] border-[rgba(255,106,0,0.25)]'
+                          : 'bg-white/[0.03] border-white/[0.07] hover:bg-white/[0.06]',
+                      )}
+                    >
+                      {ch.avatarUrl
+                        ? <img src={ch.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                        : <div className="w-7 h-7 rounded-full bg-white/[0.08] flex items-center justify-center flex-shrink-0 text-[11px] text-[#8A8A92]">{(ch.title || ch.username || '?').slice(0, 1).toUpperCase()}</div>}
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[13px] font-medium text-white truncate">{ch.title || `@${ch.username}`}</span>
+                        {ch.username && <span className="block text-[10.5px] text-[#66666E] truncate">@{ch.username}</span>}
+                      </span>
+                      {isActive && <Check size={15} className="text-[#FF6A00] flex-shrink-0" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* New chat */}
+          <button
+            onClick={startNewChat}
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#FF6A00] text-white text-[13px] font-semibold hover:bg-[#ff7a1a] active:bg-[#e55f00] transition-colors"
+          >
+            <Plus size={15} /> Новый чат
+          </button>
+
+          {/* Session history */}
+          <section>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#66666E]">История чатов</p>
+            {sessionsLoading ? (
+              <div className="flex justify-center py-6"><Loader2 size={16} className="text-[#FF6A00] animate-spin" /></div>
+            ) : sessions.length === 0 ? (
+              <p className="py-4 text-center text-[12px] text-[#55555D]">Пока нет сохранённых чатов</p>
+            ) : (
+              <div className="space-y-1.5">
+                {sessions.map(s => {
+                  const ch = state.channels.find(c => c.id === s.channelId)
+                  const isCurrent = s.id === sessionId
+                  return (
+                    <div
+                      key={s.id}
+                      className={cn(
+                        'flex items-center gap-2 rounded-xl border transition-colors',
+                        isCurrent ? 'bg-[rgba(255,106,0,0.06)] border-[rgba(255,106,0,0.20)]' : 'bg-white/[0.03] border-white/[0.07]',
+                      )}
+                    >
+                      <button onClick={() => void openSession(s)} className="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2.5 text-left">
+                        <MessageSquare size={14} className={cn('flex-shrink-0', isCurrent ? 'text-[#FF6A00]' : 'text-[#66666E]')} />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[12.5px] text-white truncate">{s.title}</span>
+                          <span className="block text-[10px] text-[#55555D] truncate">
+                            {ch ? (ch.username ? `@${ch.username}` : ch.title) + ' · ' : ''}
+                            {new Date(s.updatedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                          </span>
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => void deleteSession(s)}
+                        disabled={deletingId !== null}
+                        aria-label="Удалить чат"
+                        className="w-9 h-9 mr-1 flex items-center justify-center rounded-lg text-[#66666E] hover:text-red-400 hover:bg-red-400/10 transition-colors flex-shrink-0"
+                      >
+                        {deletingId === s.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      </Sheet>
     </div>
   )
 }

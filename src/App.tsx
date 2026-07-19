@@ -46,6 +46,7 @@ function AppContent() {
     startWalkthrough()   // kick off the guided walkthrough after the slides
   }, [startWalkthrough])
   const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false)
+  const [chatSessionId, setChatSessionId]     = useState<string | null>(null)
   const [chatLoading, setChatLoading]         = useState(false)
   const [confirmingPlanId, setConfirmingPlanId] = useState<string | null>(null)
   const [showChatScrollBtn, setShowChatScrollBtn] = useState(false)
@@ -67,9 +68,11 @@ function AppContent() {
           initData,
           channelId: activeChannel?.id ?? '',
           message:   trimmed,
+          ...(chatSessionId ? { sessionId: chatSessionId } : {}),
         }),
       })
-      const data = await res.json() as { reply?: string; error?: string; plan?: ContentPlan }
+      const data = await res.json() as { reply?: string; error?: string; plan?: ContentPlan; sessionId?: string }
+      if (data.sessionId) setChatSessionId(data.sessionId)
       const reply = data.reply ?? data.error ?? 'Ошибка'
       setChatMessages(prev => [...prev, { role: 'assistant', content: reply, plan: data.plan }])
     } catch {
@@ -77,7 +80,7 @@ function AppContent() {
     } finally {
       setChatLoading(false)
     }
-  }, [activeChannel, chatLoading])
+  }, [activeChannel, chatLoading, chatSessionId])
 
   // Live progress poller for a generating plan. Updates the card's status +
   // n/N until the plan reaches a terminal state (SCHEDULED/FAILED/CANCELLED).
@@ -233,6 +236,8 @@ function AppContent() {
                   setMessages={setChatMessages}
                   historyLoaded={chatHistoryLoaded}
                   setHistoryLoaded={setChatHistoryLoaded}
+                  sessionId={chatSessionId}
+                  setSessionId={setChatSessionId}
                   onSend={sendChatMessage}
                   onSendToCreate={handleSendToCreate}
                   onConfirmPlan={handleConfirmPlan}
