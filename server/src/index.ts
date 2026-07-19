@@ -19,6 +19,7 @@ import promoRouter from './routes/promo';
 import paymentsRouter from './routes/payments';
 import stylesRouter from './routes/styles';
 import projectDocsRouter from './routes/projectDocs';
+import roleKnowledgeDocsRouter from './routes/roleKnowledgeDocs';
 import contentPlanRouter from './routes/contentPlan';
 import ogRouter from './routes/og';
 import { startScheduler } from './lib/scheduler';
@@ -92,6 +93,7 @@ app.use('/api/promo',     promoRouter);
 app.use('/api/payments',  paymentsRouter);
 app.use('/api/styles',    stylesRouter);
 app.use('/api/project-docs', projectDocsRouter);
+app.use('/api/role-knowledge-docs', moderatorApiLimit, roleKnowledgeDocsRouter);
 app.use('/api/content-plan', contentPlanRouter);
 app.use('/api/og',        ogRouter);
 

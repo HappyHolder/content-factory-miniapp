@@ -17,6 +17,13 @@ export const initiativeScheduleBase=(silenceFrom:Date,now:Date,intensity:'quiet'
   const {max}=intensityWindow(intensity);
   return now.getTime()-silenceFrom.getTime()>max*60_000?now:silenceFrom;
 };
+export const ignoredActivityBackoff=(streak:number,intensity:'quiet'|'balanced'|'active',now:Date)=>{
+  if(streak<2)return null;
+  const base=streak>=4?72:streak===3?36:12;
+  const factor=intensity==='quiet'?2:intensity==='active'?.75:1;
+  return new Date(now.getTime()+base*factor*3600_000);
+};
+
 
 async function evaluateFinishedActivities(now:Date){
   const candidates=await prisma.communityManagerActivity.findMany({where:{status:'COMPLETED',sentAt:{not:null,lte:new Date(now.getTime()-15*60_000)}},orderBy:{sentAt:'desc'},take:200});
@@ -66,22 +73,35 @@ async function considerManager(manager:any,now:Date){
   const weekAgo=new Date(now.getTime()-7*86400_000),recent=await prisma.communityManagerActivity.findMany({where:{communityManagerId:manager.id,createdAt:{gte:weekAgo}},orderBy:{createdAt:'desc'},take:40});
 
   const content=await contentSignal(manager,types,recent,now);
-  if(content){await runActivity(manager.id,content.type,content.post.title,{automatic:true,reason:'content_lifecycle',postId:content.post.id,phase:content.phase});return}
+  let ignoredStreak=0;
+  for(const item of recent){
+    const result=resultOf(item.result);
+    if(!result.automatic)continue;
+    if(!result.evaluated)break;
+    if(result.engaged)break;
+    ignoredStreak++;
+  }
+  if(content&&ignoredStreak<2){await runActivity(manager.id,content.type,content.post.title,{automatic:true,reason:'content_lifecycle',postId:content.post.id,phase:content.phase,ignoredStreak});return}
 
   const lastHuman=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id},orderBy:{createdAt:'desc'},select:{createdAt:true}}),silenceFrom=lastHuman?.createdAt??manager.updatedAt;
+  const latestAutomaticAt=recent.find(item=>resultOf(item.result).automatic&&item.sentAt)?.sentAt;
+  if(lastHuman?.createdAt&&latestAutomaticAt&&lastHuman.createdAt>latestAutomaticAt)ignoredStreak=0;
   let state=await prisma.communityManagerConversationState.findUnique({where:{communityManagerId:manager.id}});
   if(!state?.nextInitiativeAt||state.nextInitiativeAt<=silenceFrom){
     const base=initiativeScheduleBase(silenceFrom,now,config.activities.intensity),target=nextDate(config.activities.intensity,base);
     state=await prisma.communityManagerConversationState.upsert({where:{communityManagerId:manager.id},create:{communityManagerId:manager.id,lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target},update:{lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target}});
   }
   if(!state.nextInitiativeAt||state.nextInitiativeAt>now)return;
-  const nextInitiativeAt=nextDate(config.activities.intensity,now);
+  const lastIgnoredAt=recent.find(item=>{const result=resultOf(item.result);return result.automatic&&result.evaluated&&!result.engaged})?.sentAt??now;
+  const backoff=ignoredActivityBackoff(ignoredStreak,config.activities.intensity,lastIgnoredAt);
+  const nextInitiativeAt=backoff&&backoff>now?backoff:nextDate(config.activities.intensity,ignoredStreak===1?new Date(now.getTime()+intensityWindow(config.activities.intensity).max*60_000):now);
   const claim=await prisma.communityManagerConversationState.updateMany({where:{communityManagerId:manager.id,nextInitiativeAt:state.nextInitiativeAt},data:{nextInitiativeAt}});
   if(claim.count!==1)return;
   const pulseSince=new Date(now.getTime()-2*3600_000),pulseMessages=await prisma.communityManagerMessage.findMany({where:{communityManagerId:manager.id,createdAt:{gte:pulseSince}},select:{tgUserId:true}}),messages=pulseMessages.length,participants=new Set(pulseMessages.map(x=>x.tgUserId).filter(Boolean)).size;
   const type=chooseActivity({enabled:types,history:recent.map(x=>{const result=resultOf(x.result);return{type:x.type,engaged:result.engaged,evaluated:result.evaluated}}),pulse:{energy:messages===0?'silent':messages<6?'low':'active',tension:Boolean(state.pendingModeratorAt&&now.getTime()-state.pendingModeratorAt.getTime()<20*60_000),openQuestions:Array.isArray(state.openQuestions)&&state.openQuestions.length>0,participants,messages,researchAvailable:config.research.mode!=='off'&&config.research.dailyLimit>0}});
+  if(backoff&&backoff>now)return;
   const topic=chooseActivityTopic(config.activities.topics,recent.map(item=>item.topic));
-  if(type)await runActivity(manager.id,type,topic,{automatic:true,reason:'activity_director_'+config.activities.intensity});
+  if(type)await runActivity(manager.id,type,topic,{automatic:true,reason:'activity_director_'+config.activities.intensity,ignoredStreak});
 }
 
 export async function sweepCommunityActivities(now=new Date()){

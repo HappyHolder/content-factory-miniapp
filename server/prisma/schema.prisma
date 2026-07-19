@@ -480,6 +480,23 @@ model ProjectDoc {
   @@index([channelId])
 }
 
+// Knowledge attached to one operational AI role. Unlike ProjectDoc, these
+// documents do not leak across CM, Moderator and individual personas.
+model RoleKnowledgeDoc {
+  id          String   @id @default(cuid())
+  targetType  String
+  targetId    String
+  ownerUserId String
+  name        String
+  mime        String
+  sizeBytes   Int
+  text        String
+  createdAt   DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([ownerUserId])
+}
+
 // One content series. `source` = 'web' | 'uploads' | 'both'. Items are generated
 // strictly sequentially by contentWorker; on completion posts sit SCHEDULED.
 model ContentPlan {

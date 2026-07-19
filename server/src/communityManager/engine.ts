@@ -91,6 +91,8 @@ async function knowledgeCandidates(ctx:Ctx):Promise<ProjectKnowledge[]>{
     const docs=await prisma.projectDoc.findMany({where:{channelId:ctx.community.channelId},select:{name:true,text:true},take:20});
     for(const d of docs)for(const chunk of documentChunks(d.text).slice(0,800))candidates.push({text:chunk,source:d.name,priority:2});
   }
+  const roleDocs=await prisma.roleKnowledgeDoc.findMany({where:{targetType:'COMMUNITY_MANAGER',targetId:ctx.manager.id},select:{name:true,text:true},take:12});
+  for(const d of roleDocs)for(const chunk of documentChunks(d.text).slice(0,800))candidates.push({text:chunk,source:d.name,priority:5});
   return candidates;
 }
 
