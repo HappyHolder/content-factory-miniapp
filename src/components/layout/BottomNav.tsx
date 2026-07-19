@@ -118,37 +118,41 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
               initial={{ scale: 0.7, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ type: 'spring', bounce: 0.35, duration: 0.35 }}
-              className="w-7 h-7 rounded-full bg-[rgba(255,106,0,0.15)] flex items-center justify-center flex-shrink-0"
+              className="w-9 h-9 rounded-full bg-[rgba(255,106,0,0.15)] flex items-center justify-center flex-shrink-0"
             >
-              <Bot size={14} className="text-[#FF6A00]" />
+              <Bot size={16} className="text-[#FF6A00]" />
             </motion.div>
 
-            <textarea
-              ref={inputRef}
-              value={input}
-              rows={1}
-              onChange={e => { setInput(e.target.value); autoGrow() }}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-              }}
-              placeholder="Напиши сообщение…"
-              className="flex-1 bg-transparent text-[13px] leading-[1.4] text-white placeholder:text-[#55555D] outline-none min-w-0 resize-none overflow-y-auto no-scrollbar py-1 max-h-[120px]"
-            />
+            {/* Telegram-style pill field: fully rounded, grows upward with text */}
+            <div className="flex-1 min-w-0 flex items-center bg-white/[0.06] border border-white/[0.09] rounded-[19px] px-4 min-h-[38px]">
+              <textarea
+                ref={inputRef}
+                value={input}
+                rows={1}
+                onChange={e => { setInput(e.target.value); autoGrow() }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+                }}
+                placeholder="Напиши сообщение…"
+                className="flex-1 bg-transparent text-[13px] leading-[1.4] text-white placeholder:text-[#55555D] outline-none min-w-0 resize-none overflow-y-auto no-scrollbar py-[9px] max-h-[120px]"
+              />
+            </div>
 
             <motion.button
               onClick={handleSend}
               whileTap={{ scale: 0.88 }}
               disabled={!input.trim() || aiLoading}
+              aria-label="Отправить"
               className={cn(
-                'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-colors duration-200',
+                'w-9 h-9 min-w-9 aspect-square rounded-full flex items-center justify-center flex-shrink-0 transition-colors duration-200',
                 input.trim() && !aiLoading
                   ? 'bg-[#FF6A00] text-white'
                   : 'bg-white/[0.08] text-[#55555D]'
               )}
             >
               {aiLoading
-                ? <Loader2 size={13} className="animate-spin" />
-                : <Send size={13} />
+                ? <Loader2 size={15} className="animate-spin" />
+                : <Send size={15} className="-ml-0.5" />
               }
             </motion.button>
           </motion.div>

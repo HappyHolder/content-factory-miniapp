@@ -59,6 +59,19 @@ const SOURCE_LABELS: Record<string, string> = {
   web: 'Веб-поиск', uploads: 'Материалы проекта', both: 'Веб + материалы',
 }
 
+/**
+ * Show «Отправить в Create» only for replies that look like post material:
+ * long enough to be content, and not a clarifying question / greeting (those
+ * end with a question). Interim heuristic — stage 2 makes the model flag it.
+ */
+function looksLikePostMaterial(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.length < 200) return false
+  const lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean)
+  const lastLine = lines[lines.length - 1] ?? ''
+  return !lastLine.includes('?')
+}
+
 function formatStartDate(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso.slice(0, 10)
@@ -190,6 +203,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
   const scrollRef    = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [channelListOpen, setChannelListOpen] = useState(false)
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -423,7 +437,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
                       onCancel={onCancelPlan}
                       confirming={confirmingPlanId === msg.plan.id}
                     />
-                  ) : onSendToCreate && msg.content.trim().length > 20 && (
+                  ) : onSendToCreate && looksLikePostMaterial(msg.content) && (
                     <button
                       onClick={() => onSendToCreate(msg.content)}
                       disabled={loading}
@@ -463,36 +477,53 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
       {/* Assistant menu: channel switcher + chat history */}
       <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title="Ассистент" height="full">
         <div className="space-y-5">
-          {/* Channel switcher */}
-          {state.channels.length > 0 && (
+          {/* Channel switcher — one collapsed row; tap to expand the rest */}
+          {activeChannel && (
             <section>
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#66666E]">Канал</p>
-              <div className="space-y-1.5">
-                {state.channels.map(ch => {
-                  const isActive = ch.id === activeChannel?.id
-                  return (
-                    <button
-                      key={ch.id}
-                      onClick={() => void switchChannel(ch.id)}
-                      className={cn(
-                        'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-left transition-colors',
-                        isActive
-                          ? 'bg-[rgba(255,106,0,0.08)] border-[rgba(255,106,0,0.25)]'
-                          : 'bg-white/[0.03] border-white/[0.07] hover:bg-white/[0.06]',
-                      )}
-                    >
-                      {ch.avatarUrl
-                        ? <img src={ch.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
-                        : <div className="w-7 h-7 rounded-full bg-white/[0.08] flex items-center justify-center flex-shrink-0 text-[11px] text-[#8A8A92]">{(ch.title || ch.username || '?').slice(0, 1).toUpperCase()}</div>}
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-[13px] font-medium text-white truncate">{ch.title || `@${ch.username}`}</span>
-                        {ch.username && <span className="block text-[10.5px] text-[#66666E] truncate">@{ch.username}</span>}
-                      </span>
-                      {isActive && <Check size={15} className="text-[#FF6A00] flex-shrink-0" />}
-                    </button>
-                  )
-                })}
-              </div>
+              <button
+                onClick={() => setChannelListOpen(v => !v)}
+                aria-expanded={channelListOpen}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border bg-[rgba(255,106,0,0.08)] border-[rgba(255,106,0,0.25)] text-left"
+              >
+                {activeChannel.avatarUrl
+                  ? <img src={activeChannel.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                  : <div className="w-7 h-7 rounded-full bg-white/[0.08] flex items-center justify-center flex-shrink-0 text-[11px] text-[#8A8A92]">{(activeChannel.title || activeChannel.username || '?').slice(0, 1).toUpperCase()}</div>}
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[13px] font-medium text-white truncate">{activeChannel.title || `@${activeChannel.username}`}</span>
+                  {activeChannel.username && <span className="block text-[10.5px] text-[#66666E] truncate">@{activeChannel.username}</span>}
+                </span>
+                <ChevronDown size={15} className={cn('text-[#8A8A92] flex-shrink-0 transition-transform', channelListOpen && 'rotate-180')} />
+              </button>
+              <AnimatePresence initial={false}>
+                {channelListOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mt-1.5 space-y-1.5">
+                      {state.channels.filter(ch => ch.id !== activeChannel.id).map(ch => (
+                        <button
+                          key={ch.id}
+                          onClick={() => { setChannelListOpen(false); void switchChannel(ch.id) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border bg-white/[0.03] border-white/[0.07] hover:bg-white/[0.06] text-left transition-colors"
+                        >
+                          {ch.avatarUrl
+                            ? <img src={ch.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                            : <div className="w-7 h-7 rounded-full bg-white/[0.08] flex items-center justify-center flex-shrink-0 text-[11px] text-[#8A8A92]">{(ch.title || ch.username || '?').slice(0, 1).toUpperCase()}</div>}
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[13px] font-medium text-white truncate">{ch.title || `@${ch.username}`}</span>
+                            {ch.username && <span className="block text-[10.5px] text-[#66666E] truncate">@{ch.username}</span>}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </section>
           )}
 

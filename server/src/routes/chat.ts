@@ -21,12 +21,24 @@ async function authChatUser(initData: unknown): Promise<{ id: string; name: stri
   return dbUser;
 }
 
+const sessionTitleFrom = (text: string) => text.trim().replace(/\s+/g, ' ').slice(0, 60);
+
 /** One-time lazy migration: wraps a user's legacy session-less messages into a single session. */
 async function adoptLegacyMessages(userId: string): Promise<void> {
   const orphan = await prisma.chatMessage.findFirst({ where: { userId, sessionId: null }, select: { id: true } });
   if (!orphan) return;
-  const session = await prisma.chatSession.create({ data: { userId, title: 'Прежний диалог' } });
+  const firstUserMsg = await prisma.chatMessage.findFirst({ where: { userId, sessionId: null, role: 'user' }, orderBy: { createdAt: 'asc' }, select: { content: true } });
+  const session = await prisma.chatSession.create({ data: { userId, title: firstUserMsg ? sessionTitleFrom(firstUserMsg.content) : 'Прежний диалог' } });
   await prisma.chatMessage.updateMany({ where: { userId, sessionId: null }, data: { sessionId: session.id } });
+}
+
+/** Retitles sessions still carrying a placeholder name from their first user message. */
+async function retitlePlaceholderSessions(userId: string): Promise<void> {
+  const placeholders = await prisma.chatSession.findMany({ where: { userId, title: { in: ['Прежний диалог', 'Новый чат'] } }, select: { id: true } });
+  for (const s of placeholders) {
+    const firstUserMsg = await prisma.chatMessage.findFirst({ where: { sessionId: s.id, role: 'user' }, orderBy: { createdAt: 'asc' }, select: { content: true } });
+    if (firstUserMsg) await prisma.chatSession.update({ where: { id: s.id }, data: { title: sessionTitleFrom(firstUserMsg.content) } }).catch(() => undefined);
+  }
 }
 
 // ─── Chat sessions ────────────────────────────────────────────────────────────
@@ -36,6 +48,7 @@ router.get('/sessions', async (req: Request, res: Response): Promise<void> => {
   try { user = await authChatUser((req.query as { initData?: string }).initData); }
   catch (err) { res.status(401).json({ error: (err as Error).message }); return; }
   await adoptLegacyMessages(user.id).catch(() => undefined);
+  await retitlePlaceholderSessions(user.id).catch(() => undefined);
   const sessions = await prisma.chatSession.findMany({
     where: { userId: user.id },
     orderBy: { updatedAt: 'desc' },
