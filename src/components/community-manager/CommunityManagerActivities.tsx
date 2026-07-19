@@ -2,7 +2,7 @@ import { AlertTriangle, Check, ImagePlus, Newspaper, Trash2, Trophy } from 'luci
 import { Switch } from '@/components/ui/Switch'
 import { NumberStepper } from '@/components/ui/NumberStepper'
 
-export type ActivitySettings={enabled:boolean;requireApproval:boolean;intensity:'quiet'|'balanced'|'active';discussionEnabled:boolean;pollEnabled:boolean;quizEnabled:boolean;lightEnabled:boolean;hotNewsEnabled:boolean;digestEnabled:boolean;dailyDigestEnabled:boolean;dailyDigestHour:number;dailyDigestMinute:number;dailyDigestImageUrl:string;dailyDigestMaxTopics:number;predictionEnabled:boolean;challengeEnabled:boolean;contestEnabled:boolean;contentSupportEnabled:boolean;rewardMode:'none'|'virtual'|'manual';rewardDescription:string;maxInitiativesPerWeek:number;responseWindowMinutes:number;topics:string[]}
+export type ActivitySettings={enabled:boolean;requireApproval:boolean;intensity:'quiet'|'balanced'|'active';discussionEnabled:boolean;pollEnabled:boolean;quizEnabled:boolean;lightEnabled:boolean;hotNewsEnabled:boolean;digestEnabled:boolean;dailyDigestEnabled:boolean;dailyDigestHour:number;dailyDigestMinute:number;dailyDigestImageUrl:string;dailyDigestMaxTopics:number;predictionEnabled:boolean;challengeEnabled:boolean;contestEnabled:boolean;contentSupportEnabled:boolean;rewardMode:'none'|'virtual'|'manual';rewardDescription:string;responseWindowMinutes:number;topics:string[]}
 
 const input='mt-1.5 min-h-11 w-full rounded-[11px] border border-white/[0.08] bg-[#0B0B0D] px-3 text-[13px] text-white outline-none focus:border-[rgba(255,106,0,0.5)] focus-visible:ring-2 focus-visible:ring-[#FF6A00]/30'
 const area=input+' resize-none py-3 leading-relaxed'

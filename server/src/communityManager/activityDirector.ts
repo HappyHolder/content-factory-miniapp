@@ -20,9 +20,9 @@ export type ActivityHistoryItem={type:string;engaged?:boolean;evaluated?:boolean
 const CONTENT_TYPES=new Set<CommunityActivityType>(['CONTENT_TEASER','CONTENT_RELEASE','CONTENT_FOLLOWUP']);
 
 export function intensityWindow(intensity:'quiet'|'balanced'|'active'){
-  if(intensity==='quiet')return{min:180,max:360,maxWeek:3};
-  if(intensity==='active')return{min:35,max:90,maxWeek:8};
-  return{min:75,max:180,maxWeek:5};
+  if(intensity==='quiet')return{min:180,max:360};
+  if(intensity==='active')return{min:35,max:90};
+  return{min:75,max:180};
 }
 
 function score(type:CommunityActivityType,history:ActivityHistoryItem[]){

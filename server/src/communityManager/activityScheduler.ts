@@ -13,6 +13,10 @@ type Result={automatic?:boolean;evaluated?:boolean;engaged?:boolean;messageCount
 const resultOf=(value:unknown):Result=>value&&typeof value==='object'?value as Result:{};
 const nextDate=(intensity:'quiet'|'balanced'|'active',from:Date)=>{const w=intensityWindow(intensity);return new Date(from.getTime()+(w.min+Math.floor(Math.random()*(w.max-w.min+1)))*60_000)};
 const stableChance=(key:string,phase:string,chance:number)=>{let hash=2166136261;for(const char of key+phase){hash^=char.charCodeAt(0);hash=Math.imul(hash,16777619)}return(hash>>>0)/4294967295<chance};
+export const initiativeScheduleBase=(silenceFrom:Date,now:Date,intensity:'quiet'|'balanced'|'active')=>{
+  const {max}=intensityWindow(intensity);
+  return now.getTime()-silenceFrom.getTime()>max*60_000?now:silenceFrom;
+};
 
 async function evaluateFinishedActivities(now:Date){
   const candidates=await prisma.communityManagerActivity.findMany({where:{status:'COMPLETED',sentAt:{not:null,lte:new Date(now.getTime()-15*60_000)}},orderBy:{sentAt:'desc'},take:200});
@@ -57,20 +61,19 @@ async function contentSignal(manager:any,types:CommunityActivityType[],recent:an
 async function considerManager(manager:any,now:Date){
   if(!manager.publishedVersion||!manager.community.moderatorChat)return;
   const row=await prisma.communityManagerConfig.findUnique({where:{communityManagerId_version:{communityManagerId:manager.id,version:manager.publishedVersion}}});if(!row)return;
-  const config=parseCommunityManagerConfig(row.config);if(!config.activities.enabled||config.activities.requireApproval||isQuietHour(config,now)||config.limits.maxInitiativesPerDay<1)return;
+  const config=parseCommunityManagerConfig(row.config);if(!config.activities.enabled||config.activities.requireApproval||isQuietHour(config,now))return;
   const types=enabledTypes(config);if(!types.length)return;
-  const dayAgo=new Date(now.getTime()-86400_000),weekAgo=new Date(now.getTime()-7*86400_000),recent=await prisma.communityManagerActivity.findMany({where:{communityManagerId:manager.id,createdAt:{gte:weekAgo}},orderBy:{createdAt:'desc'},take:40});
-  const automatic=recent.filter(row=>row.type!=='DAILY_DIGEST'&&resultOf(row.result).automatic&&row.status==='COMPLETED'),window=intensityWindow(config.activities.intensity),dayCount=automatic.filter(x=>x.sentAt&&x.sentAt>=dayAgo).length;
-  if(dayCount>=config.limits.maxInitiativesPerDay||automatic.length>=Math.min(config.activities.maxInitiativesPerWeek,window.maxWeek))return;
-  const latest=automatic[0],latestResult=latest?resultOf(latest.result):null;if(latest&&latestResult&&!latestResult.evaluated)return;
-  if(recent.some(row=>row.type==='DAILY_DIGEST'&&row.status==='COMPLETED'&&row.sentAt&&row.sentAt>=new Date(now.getTime()-2*3600_000)))return;
+  const weekAgo=new Date(now.getTime()-7*86400_000),recent=await prisma.communityManagerActivity.findMany({where:{communityManagerId:manager.id,createdAt:{gte:weekAgo}},orderBy:{createdAt:'desc'},take:40});
 
   const content=await contentSignal(manager,types,recent,now);
   if(content){await runActivity(manager.id,content.type,content.post.title,{automatic:true,reason:'content_lifecycle',postId:content.post.id,phase:content.phase});return}
 
   const lastHuman=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id},orderBy:{createdAt:'desc'},select:{createdAt:true}}),silenceFrom=lastHuman?.createdAt??manager.updatedAt;
   let state=await prisma.communityManagerConversationState.findUnique({where:{communityManagerId:manager.id}});
-  if(!state?.nextInitiativeAt||state.nextInitiativeAt<=silenceFrom)state=await prisma.communityManagerConversationState.upsert({where:{communityManagerId:manager.id},create:{communityManagerId:manager.id,lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:nextDate(config.activities.intensity,silenceFrom)},update:{lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:nextDate(config.activities.intensity,silenceFrom)}});
+  if(!state?.nextInitiativeAt||state.nextInitiativeAt<=silenceFrom){
+    const base=initiativeScheduleBase(silenceFrom,now,config.activities.intensity),target=nextDate(config.activities.intensity,base);
+    state=await prisma.communityManagerConversationState.upsert({where:{communityManagerId:manager.id},create:{communityManagerId:manager.id,lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target},update:{lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target}});
+  }
   if(!state.nextInitiativeAt||state.nextInitiativeAt>now)return;
   const nextInitiativeAt=nextDate(config.activities.intensity,now);
   const claim=await prisma.communityManagerConversationState.updateMany({where:{communityManagerId:manager.id,nextInitiativeAt:state.nextInitiativeAt},data:{nextInitiativeAt}});

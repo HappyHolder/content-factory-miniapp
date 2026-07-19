@@ -7,4 +7,5 @@ test('content release has priority over generic activity',()=>assert.equal(choos
 test('director does nothing while chat is active',()=>assert.equal(chooseActivity({enabled:['DISCUSSION','POLL'],history:[],pulse:{...base,energy:'active'}}),null));
 test('director rotates away from recent polls',()=>assert.equal(chooseActivity({enabled:['POLL','QUIZ','LIGHT'],history:[{type:'POLL'}],pulse:base}),'QUIZ'));
 test('reward activities are never selected automatically',()=>assert.equal(chooseActivity({enabled:['CONTEST','CHALLENGE'],history:[],pulse:base}),null));
-test('balanced defaults need no minute-by-minute setup',()=>assert.deepEqual(intensityWindow('balanced'),{min:75,max:180,maxWeek:5}));
+test('balanced defaults need no minute-by-minute setup',()=>assert.deepEqual(intensityWindow('balanced'),{min:75,max:180}));
+test('long activity history does not impose a hidden quota',()=>assert.equal(chooseActivity({enabled:['DISCUSSION','POLL','QUIZ','LIGHT'],history:Array.from({length:100},(_,index)=>({type:index%2?'DISCUSSION':'POLL',evaluated:false})),pulse:base}),'QUIZ'));

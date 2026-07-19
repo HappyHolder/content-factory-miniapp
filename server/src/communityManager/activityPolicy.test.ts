@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CM_CONFIG, randomInitiativeDate } from './config';
+import { DEFAULT_CM_CONFIG, parseCommunityManagerConfig, randomInitiativeDate } from './config';
 import { chooseAdaptiveActivityType, chooseActivityTopic } from './activityPolicy';
 
 test('default CM is socially active without mandatory setup',()=>{
@@ -23,4 +23,10 @@ test('ignored activity changes format instead of causing a multi-day disappearan
 
 test('activity topics rotate without inventing a hidden backoff',()=>{
   assert.equal(chooseActivityTopic(['BTC','prediction markets'],['BTC']),'prediction markets');
+});
+
+test('legacy initiative quotas are ignored instead of becoming hidden blockers',()=>{
+  const config=parseCommunityManagerConfig({activities:{maxInitiativesPerWeek:1},limits:{maxInitiativesPerDay:0}});
+  assert.equal('maxInitiativesPerWeek' in config.activities,false);
+  assert.equal('maxInitiativesPerDay' in config.limits,false);
 });
