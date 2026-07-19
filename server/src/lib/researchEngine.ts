@@ -4,23 +4,20 @@
  * Deep research for the AI content manager. Given a search query (one plan
  * item), gathers grounded material a writer can turn into a post.
  *
- * Two backends:
- *  - 'opus'    — Anthropic SDK (Opus 4.8) with native web_search/web_fetch server
- *                tools. The model searches, reads, and synthesises itself, with
- *                citations. Needs ANTHROPIC_API_KEY.
- *  - 'deepseek'— existing Serper/Tavily search + fetchArticle on the top links,
- *                then a DeepSeek synthesis pass. The fallback when no key is set.
+ * Pipeline (Replicate-only, per product decision — no Anthropic API):
+ *   Serper/Tavily search → fetchArticle on the top links → GPT-5.6 Terra
+ *   synthesis pass (via assistantModel, with its emergency DeepSeek fallback).
  *
- * Never throws for a missing backend: an 'opus' request without ANTHROPIC_API_KEY
- * transparently falls back to 'deepseek'. See docs/content-manager-plan.md.
+ * The legacy `backend` option is accepted for call-site compatibility but
+ * ignored — there is one pipeline now. Never throws: individual tool failures
+ * degrade to whatever material was gathered.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
-import { env } from '../env';
 import { webSearch } from './webSearch';
 import { fetchArticle } from './urlContentExtractor';
+import { terraText } from './assistantModel';
 
-export type ResearchBackend = 'opus' | 'deepseek';
+export type ResearchBackend = 'opus' | 'deepseek' | 'terra';
 
 export interface ResearchSource {
   url: string;
@@ -34,6 +31,7 @@ export interface ResearchResult {
 }
 
 export interface ResearchOptions {
+  /** Legacy — ignored; kept so existing call sites keep compiling. */
   backend?: ResearchBackend;
   /** Extra grounding text (e.g. ProjectDoc excerpts) folded into the prompt. */
   extraContext?: string;
@@ -43,8 +41,14 @@ export interface ResearchOptions {
 }
 
 const MAX_EXTRA_CONTEXT_CHARS = 12_000;
-const domainToolFilter=(opts:ResearchOptions)=>opts.allowedDomains?.length?{allowed_domains:opts.allowedDomains}:opts.blockedDomains?.length?{blocked_domains:opts.blockedDomains}:{};
-const sourceAllowed=(url:string,opts:ResearchOptions)=>{try{const h=new URL(url).hostname.toLowerCase().replace(/^www\./,'');const allowed=opts.allowedDomains??[],blocked=opts.blockedDomains??[];if(blocked.some(d=>h===d||h.endsWith('.'+d)))return false;return !allowed.length||allowed.some(d=>h===d||h.endsWith('.'+d))}catch{return false}};
+const sourceAllowed = (url: string, opts: ResearchOptions) => {
+  try {
+    const h = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    const allowed = opts.allowedDomains ?? [], blocked = opts.blockedDomains ?? [];
+    if (blocked.some(d => h === d || h.endsWith('.' + d))) return false;
+    return !allowed.length || allowed.some(d => h === d || h.endsWith('.' + d));
+  } catch { return false; }
+};
 
 /** De-duplicates sources by URL, preserving order and the first non-empty title. */
 function dedupeSources(sources: ResearchSource[]): ResearchSource[] {
@@ -58,10 +62,8 @@ function dedupeSources(sources: ResearchSource[]): ResearchSource[] {
   return [...byUrl.values()];
 }
 
-// ─── Opus backend (Anthropic SDK + server-side web tools) ────────────────────
-
 /** Real 'now' (Moscow) — anchors the model so it treats the present, not its
- *  training cutoff (2024/2025), as current. */
+ *  training cutoff, as current. */
 function todayContext(): { iso: string; year: string } {
   const iso = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
   return { iso, year: iso.slice(0, 4) };
@@ -72,90 +74,13 @@ function researchSystem(): string {
   return (
     `Today's real date is ${iso} (current year ${year}) — do NOT rely on your training cutoff; treat ${year} as the present. ` +
     'You are a diligent research assistant preparing source material for a Telegram post. ' +
-    'Research the given topic thoroughly using web search and web fetch: find recent, factual, ' +
-    'specific information — key facts, figures, dates, names, and a few concrete examples or quotes. ' +
-    `Prioritize the most CURRENT information (${year}); do not present older (2024/2025) facts as current unless clearly historical context. ` +
-    'Then write a structured research brief (NOT a finished post): bullet the key points and facts, ' +
-    'note anything time-sensitive, and keep every claim grounded in the sources you read. ' +
+    'You are given raw gathered material (search results and article extracts). ' +
+    'Distill it into a structured research brief (NOT a finished post): bullet the key points and facts — ' +
+    'figures, dates, names, concrete examples or quotes — note anything time-sensitive, and keep every claim ' +
+    `grounded in the material. Prioritize the most CURRENT information (${year}); do not present older facts as current unless clearly historical context. ` +
     'Write the brief in the same language as the topic.'
   );
 }
-
-/** Pulls text + source URLs out of one Anthropic message's content blocks. */
-function collectFromContent(
-  content: unknown[],
-  outText: string[],
-  outSources: ResearchSource[],
-): void {
-  for (const raw of content) {
-    const block = raw as { type?: string; text?: string; content?: unknown };
-    if (block.type === 'text' && typeof block.text === 'string') {
-      outText.push(block.text);
-    } else if (block.type === 'web_search_tool_result') {
-      // content is a list of web_search_result { url, title, ... } (or an error object)
-      const items = block.content;
-      if (Array.isArray(items)) {
-        for (const r of items as { url?: string; title?: string }[]) {
-          if (r?.url) outSources.push({ url: r.url, title: r.title });
-        }
-      }
-    } else if (block.type === 'web_fetch_tool_result') {
-      // content is a web_fetch_result carrying the fetched url
-      const c = block.content as { url?: string; content?: { url?: string } } | undefined;
-      const url = c?.url ?? c?.content?.url;
-      if (url) outSources.push({ url });
-    }
-  }
-}
-
-async function researchViaOpus(query: string, extraContext: string|undefined, opts: ResearchOptions): Promise<ResearchResult> {
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-
-  const userPrompt =
-    (extraContext
-      ? `Project reference material (use where relevant):\n${extraContext.slice(0, MAX_EXTRA_CONTEXT_CHARS)}\n\n`
-      : '') +
-    `Only use the configured domains. Do not recommend publishers, channels or influencers. Research this topic and produce the brief:\n${query}`;
-
-  // Server tools run a bounded loop; on the iteration cap the API returns
-  // stop_reason 'pause_turn' — re-send to resume. Guard against runaway loops.
-  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userPrompt }];
-  const textParts: string[] = [];
-  const sources: ResearchSource[] = [];
-
-  for (let turn = 0; turn < 8; turn++) {
-    const msg = await client.messages.create({
-      model: env.CONTENT_RESEARCH_MODEL,
-      max_tokens: 16_000,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
-      system: researchSystem(),
-      tools: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { type: 'web_search_20260209', name: 'web_search', max_uses: Math.max(1,Math.min(8,opts.maxSearches??3)), ...domainToolFilter(opts) } as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: Math.max(1,Math.min(5,opts.maxSearches??3)), ...domainToolFilter(opts) } as any,
-      ],
-      messages,
-    });
-
-    collectFromContent(msg.content, textParts, sources);
-
-    if (msg.stop_reason === 'pause_turn') {
-      messages.push({ role: 'assistant', content: msg.content });
-      continue;
-    }
-    break;
-  }
-
-  return {
-    text: textParts.join('\n').trim(),
-    sources: dedupeSources(sources).filter(x=>sourceAllowed(x.url,opts)),
-    backend: 'opus',
-  };
-}
-
-// ─── DeepSeek backend (Serper/Tavily search + fetchArticle + synthesis) ──────
 
 /** Extracts up to `limit` unique http(s) URLs from a text block. */
 function extractUrls(text: string, limit: number): string[] {
@@ -170,42 +95,13 @@ function extractUrls(text: string, limit: number): string[] {
   return urls;
 }
 
-/** Synthesises gathered material into a research brief via DeepSeek. Null on failure. */
-async function deepseekSynthesize(
-  query: string,
-  material: string,
-  extraContext?: string,
-): Promise<string | null> {
-  if (!env.DEEPSEEK_API_KEY) return null;
-  const userPrompt =
-    (extraContext ? `Project reference material:\n${extraContext.slice(0, MAX_EXTRA_CONTEXT_CHARS)}\n\n` : '') +
-    `Topic: ${query}\n\nGathered material:\n${material.slice(0, 24_000)}\n\n` +
-    'Write the structured research brief now:';
-  try {
-    const res = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({
-        model: env.DEEPSEEK_MODEL,
-        messages: [
-          { role: 'system', content: researchSystem() },
-          { role: 'user', content: userPrompt },
-        ],
-        max_tokens: 2000,
-        temperature: 0.4,
-      }),
-    });
-    if (!res.ok) { console.warn(`[researchEngine] DeepSeek HTTP ${res.status}`); return null; }
-    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
-    return data.choices?.[0]?.message?.content?.trim() || null;
-  } catch (err) {
-    console.warn('[researchEngine] DeepSeek synthesis failed:', (err as Error).message);
-    return null;
-  }
-}
-
-async function researchViaDeepseek(query: string, extraContext: string|undefined, opts: ResearchOptions): Promise<ResearchResult> {
-  const searchBlock = (await webSearch(query,{allowedDomains:opts.allowedDomains,blockedDomains:opts.blockedDomains})) ?? '';
+/**
+ * Researches `query` and returns grounded material + sources: search → fetch
+ * top articles → Terra synthesis. Falls back to raw material when synthesis
+ * fails entirely.
+ */
+export async function research(query: string, opts: ResearchOptions = {}): Promise<ResearchResult> {
+  const searchBlock = (await webSearch(query, { allowedDomains: opts.allowedDomains, blockedDomains: opts.blockedDomains })) ?? '';
   const urls = extractUrls(searchBlock, 4);
 
   const articles: { url: string; title: string; text: string }[] = [];
@@ -219,38 +115,18 @@ async function researchViaDeepseek(query: string, extraContext: string|undefined
   for (const a of articles) materialParts.push(`## ${a.title}\n(${a.url})\n${a.text}`);
   const material = materialParts.join('\n\n');
 
-  const synthesised = await deepseekSynthesize(query, material, extraContext);
+  const userPrompt =
+    (opts.extraContext ? `Project reference material:\n${opts.extraContext.slice(0, MAX_EXTRA_CONTEXT_CHARS)}\n\n` : '') +
+    `Topic: ${query}\n\nGathered material:\n${material.slice(0, 24_000)}\n\n` +
+    'Write the structured research brief now:';
+
+  const synthesised = material
+    ? await terraText({ system: researchSystem(), prompt: userPrompt, maxTokens: 2000, effort: 'medium', timeoutMs: 120_000 })
+    : null;
 
   return {
     text: (synthesised ?? material).trim(),
-    sources: dedupeSources(articles.map(a => ({ url: a.url, title: a.title }))).filter(x=>sourceAllowed(x.url,opts)),
-    backend: 'deepseek',
+    sources: dedupeSources(articles.map(a => ({ url: a.url, title: a.title }))).filter(x => sourceAllowed(x.url, opts)),
+    backend: synthesised ? 'terra' : 'deepseek',
   };
-}
-
-// ─── Public API ──────────────────────────────────────────────────────────────
-
-/**
- * Researches `query` and returns grounded material + sources. Falls back from
- * 'opus' to 'deepseek' when ANTHROPIC_API_KEY is absent. Never throws for a
- * missing backend (individual tool failures inside a backend degrade gracefully).
- */
-export async function research(query: string, opts: ResearchOptions = {}): Promise<ResearchResult> {
-  let backend: ResearchBackend = opts.backend ?? env.CONTENT_RESEARCH_BACKEND;
-  if (backend === 'opus' && !env.ANTHROPIC_API_KEY) {
-    console.warn('[researchEngine] ANTHROPIC_API_KEY not set — falling back to DeepSeek research.');
-    backend = 'deepseek';
-  }
-
-  if (backend === 'opus') {
-    try {
-      return await researchViaOpus(query, opts.extraContext, opts);
-    } catch (err) {
-      // A hard Opus failure (rate limit, refusal, network) shouldn't sink the
-      // whole plan item — degrade to the DeepSeek pipeline.
-      console.warn('[researchEngine] Opus research failed, falling back to DeepSeek:', (err as Error).message);
-      return researchViaDeepseek(query, opts.extraContext, opts);
-    }
-  }
-  return researchViaDeepseek(query, opts.extraContext, opts);
 }

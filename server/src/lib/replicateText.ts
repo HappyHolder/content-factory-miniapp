@@ -112,3 +112,91 @@ export async function replicateText(params: ReplicateTextParams): Promise<string
     return null;
   }
 }
+
+interface StreamPrediction extends Prediction { urls?: { stream?: string } }
+
+/**
+ * Streaming variant: creates the prediction with `stream: true`, connects to
+ * Replicate's SSE endpoint and invokes `onChunk` for every output delta.
+ * Resolves to the FULL text (or null on failure — callers fall back to the
+ * non-streaming path). SSE events: `output` (text delta), `error`, `done`.
+ */
+export async function replicateTextStream(
+  params: ReplicateTextParams,
+  onChunk: (delta: string) => void,
+): Promise<string | null> {
+  if (!env.REPLICATE_API_TOKEN) return null;
+  const { model, prompt, systemPrompt, maxTokens, temperature, timeoutMs = 120_000, input: extraInput } = params;
+
+  try {
+    const createRes = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+      method:  'POST',
+      headers: { Authorization: `Token ${env.REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stream: true,
+        input: {
+          prompt,
+          ...(systemPrompt ? { system_prompt: systemPrompt } : {}),
+          ...(maxTokens   != null ? { max_tokens: maxTokens } : {}),
+          ...(temperature != null ? { temperature } : {}),
+          ...(extraInput ?? {}),
+        },
+      }),
+    });
+    if (!createRes.ok) { console.warn(`[replicateText] Stream create failed: HTTP ${createRes.status}`); return null; }
+    const prediction = await createRes.json() as StreamPrediction;
+    const streamUrl = prediction.urls?.stream;
+    if (!streamUrl) return null;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const sse = await fetch(streamUrl, {
+        signal:  controller.signal,
+        headers: { Accept: 'text/event-stream', 'Cache-Control': 'no-store' },
+      });
+      if (!sse.ok || !sse.body) { console.warn(`[replicateText] Stream connect failed: HTTP ${sse.status}`); return null; }
+
+      const reader = sse.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let full = '';
+      let eventName = '';
+      let dataLines: string[] = [];
+
+      const dispatch = (): 'done' | 'error' | null => {
+        // Per SSE spec, multi-line data joins with \n. Replicate encodes real
+        // newlines in output deltas as separate data lines.
+        const data = dataLines.join('\n');
+        const name = eventName; eventName = ''; dataLines = [];
+        if (name === 'output') { full += data; if (data) onChunk(data); return null; }
+        if (name === 'error') { console.warn('[replicateText] Stream error event:', data.slice(0, 200)); return 'error'; }
+        if (name === 'done') return 'done';
+        return null;
+      };
+
+      readLoop:
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).replace(/\r$/, '');
+          buffer = buffer.slice(nl + 1);
+          if (line === '') { const r = dispatch(); if (r === 'done') break readLoop; if (r === 'error') return full || null; }
+          else if (line.startsWith('event:')) eventName = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+          // comment lines (":") and other fields are ignored
+        }
+      }
+      return full || null;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    console.warn('[replicateText] Stream error:', (err as Error).message);
+    return null;
+  }
+}

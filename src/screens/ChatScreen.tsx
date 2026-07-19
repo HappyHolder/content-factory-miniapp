@@ -456,7 +456,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
           ))}
         </AnimatePresence>
 
-        {loading && (
+        {loading && !(messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.content) && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

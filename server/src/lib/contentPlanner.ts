@@ -11,6 +11,7 @@
 
 import { prisma } from '../db';
 import { env } from '../env';
+import { terraJson } from './assistantModel';
 
 export const MAX_POSTS_PER_DAY = 5;
 export const MAX_DAYS = 14;
@@ -216,7 +217,7 @@ async function generateItems(
       searchQuery: `${params.topic}`,
     }));
 
-  if (!env.DEEPSEEK_API_KEY) return fallback();
+  if (!env.REPLICATE_API_TOKEN && !env.DEEPSEEK_API_KEY) return fallback();
 
   const { iso, year } = todayContext();
   const system =
@@ -237,20 +238,8 @@ async function generateItems(
     `\nProduce the ${count}-item JSON plan now:`;
 
   try {
-    const res = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({
-        model: env.DEEPSEEK_MODEL,
-        response_format: { type: 'json_object' },
-        max_tokens: 4000,
-        temperature: 0.7,
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      }),
-    });
-    if (!res.ok) { console.warn(`[contentPlanner] DeepSeek HTTP ${res.status}`); return fallback(); }
-    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? '{}') as { items?: unknown };
+    const parsed = await terraJson({ system, prompt: user, maxTokens: 4000, effort: 'medium', timeoutMs: 120_000 }) as { items?: unknown } | null;
+    if (!parsed) { console.warn('[contentPlanner] item generation returned nothing'); return fallback(); }
     const items = Array.isArray(parsed.items) ? parsed.items : [];
     const cleaned: RawItem[] = [];
     for (const raw of items) {

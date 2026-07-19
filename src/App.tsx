@@ -68,13 +68,55 @@ function AppContent() {
           initData,
           channelId: activeChannel?.id ?? '',
           message:   trimmed,
+          stream:    true,
           ...(chatSessionId ? { sessionId: chatSessionId } : {}),
         }),
       })
-      const data = await res.json() as { reply?: string; error?: string; plan?: ContentPlan; sessionId?: string }
-      if (data.sessionId) setChatSessionId(data.sessionId)
-      const reply = data.reply ?? data.error ?? 'Ошибка'
-      setChatMessages(prev => [...prev, { role: 'assistant', content: reply, plan: data.plan }])
+
+      const ctype = res.headers.get('content-type') ?? ''
+      if (res.ok && ctype.includes('text/event-stream') && res.body) {
+        // Streaming path: grow the assistant bubble as chunks arrive.
+        setChatMessages(prev => [...prev, { role: 'assistant', content: '' }])
+        const updateLast = (content: string, plan?: ContentPlan) =>
+          setChatMessages(prev => {
+            const copy = [...prev]
+            const last = copy[copy.length - 1]
+            if (last?.role === 'assistant') copy[copy.length - 1] = { ...last, content, ...(plan ? { plan } : {}) }
+            return copy
+          })
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        let acc = ''
+        let donePlan: ContentPlan | undefined
+        let failed = false
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          let sep: number
+          while ((sep = buf.indexOf('\n\n')) >= 0) {
+            const rawEvent = buf.slice(0, sep)
+            buf = buf.slice(sep + 2)
+            const dataStr = rawEvent.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('')
+            if (!dataStr) continue
+            try {
+              const evt = JSON.parse(dataStr) as { type?: string; text?: string; sessionId?: string; plan?: ContentPlan }
+              if (evt.type === 'chunk' && typeof evt.text === 'string') { acc += evt.text; updateLast(acc) }
+              else if (evt.type === 'done') { if (evt.sessionId) setChatSessionId(evt.sessionId); donePlan = evt.plan }
+              else if (evt.type === 'error') failed = true
+            } catch { /* skip malformed event */ }
+          }
+        }
+        if (failed && !acc) updateLast('Не удалось получить ответ. Попробуй ещё раз.')
+        else if (donePlan) updateLast(acc, donePlan)
+      } else {
+        // JSON path: errors (quota, auth) or a non-streaming server.
+        const data = await res.json() as { reply?: string; error?: string; plan?: ContentPlan; sessionId?: string }
+        if (data.sessionId) setChatSessionId(data.sessionId)
+        const reply = data.reply ?? data.error ?? 'Ошибка'
+        setChatMessages(prev => [...prev, { role: 'assistant', content: reply, plan: data.plan }])
+      }
     } catch {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Ошибка соединения' }])
     } finally {

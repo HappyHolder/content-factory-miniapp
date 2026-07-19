@@ -3,14 +3,18 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { TIER_LIMITS } from '../lib/subscriptionLimits';
+import type { PlanTier } from '@prisma/client';
 import { webSearch } from '../lib/webSearch';
-import { replicateText } from '../lib/replicateText';
+import { terraText, terraTextStream, terraJson, type TerraEffort } from '../lib/assistantModel';
 import { generateContentPlan, type ContentPlanDTO, MAX_POSTS_PER_DAY, MAX_DAYS } from '../lib/contentPlanner';
 
 const router = Router();
 
 const HISTORY_LIMIT = 100; // messages fed to the model as context
 const STORE_LIMIT   = 300; // messages kept per session in DB
+
+// Daily assistant message caps per plan — cost protection, generous for normal use.
+const CHAT_DAILY_LIMIT: Record<PlanTier, number> = { FREE: 0, STARTER: 50, CREATOR: 200, STUDIO_PRO: 500 };
 
 /** Validates initData and resolves the DB user. Throws with a message on failure. */
 async function authChatUser(initData: unknown): Promise<{ id: string; name: string | null }> {
@@ -81,87 +85,46 @@ router.delete('/sessions/:sessionId', async (req: Request, res: Response): Promi
 });
 
 /**
- * HIGH-tier chat reply: Claude on Replicate. Replicate's text API has no
- * OpenAI-style tool-calling, so we run an optional Tavily search ourselves
- * first (a cheap DeepSeek call decides the query) and inject the results into
- * the prompt. Returns the reply text, or null to fall back to the DeepSeek loop.
+ * Search decision: a cheap low-effort Terra call decides whether answering
+ * needs a fresh web search, and with what query. Replaces the old behavior of
+ * force-searching EVERY message (cost + latency on "спасибо"-grade replies).
+ * On classifier failure falls back to searching the user's literal words —
+ * over-searching is safer than hallucinating.
  */
-async function generateHighChatReply(opts: {
-  systemPrompt: string;
-  history:      { role: string; content: string }[];
-  message:      string;
-  canSearch:    boolean;
-  currentYear:  number;
-}): Promise<string | null> {
-  const { systemPrompt, history, message, canSearch, currentYear } = opts;
-
-  // 1. Optional web search — a cheap DeepSeek JSON call decides the query.
-  let searchBlock = '';
-  if (canSearch && env.DEEPSEEK_API_KEY) {
-    try {
-      const decideRes = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
-        body: JSON.stringify({
-          model:           env.DEEPSEEK_MODEL,
-          response_format: { type: 'json_object' },
-          max_tokens:      80,
-          temperature:     0.1,
-          messages: [
-            { role: 'system', content: `Decide if answering the user needs a fresh web search (recent events, news, prices, "latest", current facts). If yes, return a focused query using the year ${currentYear} when time-relevant. Return ONLY JSON: {"query":"<query or empty string>"}` },
-            { role: 'user', content: message },
-          ],
-        }),
-      });
-      if (decideRes.ok) {
-        const d = await decideRes.json() as { choices?: { message?: { content?: string } }[] };
-        const q = JSON.parse(d.choices?.[0]?.message?.content ?? '{}')?.query;
-        if (typeof q === 'string' && q.trim()) {
-          const results = await webSearch(q.trim());
-          if (results) searchBlock = `\n\nWEB SEARCH RESULTS (use for current facts; cite briefly):\n${results}\n`;
-        }
-      }
-    } catch { /* non-fatal — answer without search */ }
-  }
-
-  // 2. Flatten the conversation into a single prompt for Claude on Replicate.
-  const convo = history
-    .map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
-    .join('\n\n');
-  const prompt = `${convo ? convo + '\n\n' : ''}${searchBlock}User: ${message}\n\nAssistant:`;
-
-  return replicateText({
-    model:        env.HIGH_TEXT_MODEL,
-    systemPrompt,
-    prompt,
-    maxTokens:    1024,
-    temperature:  0.6,
-    timeoutMs:    90_000,
+async function decideSearchBlock(message: string, history: { role: string; content: string }[], currentYear: number): Promise<string> {
+  const trimmed = message.trim();
+  if (trimmed.length < 6) return '';
+  const recent = history.slice(-4).map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content.slice(0, 300)}`).join('\n');
+  const decision = await terraJson({
+    system:
+      `Decide if answering the user's LATEST message needs a fresh web search (recent events, news, prices, stats, "latest", current facts, anything after the model's training cutoff). ` +
+      `Chit-chat, editing requests, rewrites of earlier text, brainstorming on evergreen topics need NO search. ` +
+      `If search is needed, build ONE focused query preserving the user's specifics (names, places), using the year ${currentYear} when time-relevant. ` +
+      `Return ONLY JSON: {"query":"<query, or empty string when no search needed>"}`,
+    prompt: (recent ? `Conversation so far:\n${recent}\n\n` : '') + `LATEST user message: ${trimmed.slice(0, 600)}`,
+    maxTokens: 120,
+    effort: 'low',
+    noFallback: true,
+    timeoutMs: 30_000,
   });
-}
-
-/**
- * Forced pre-search. Searches the user's OWN words (not a model-rewritten query —
- * that dropped specifics like place names and returned the wrong event). Grounds
- * the answer with real results so it doesn't depend on the model calling the tool.
- * Returns '' if not configured or nothing was found.
- */
-async function decidedSearchBlock(message: string, _currentYear: number): Promise<string> {
-  const q = message.trim();
-  if (q.length < 6) return '';   // skip trivial greetings
-  const results = await webSearch(q.slice(0, 400));
-  if (results) return `\n\nWEB SEARCH RESULTS for the user's query (current facts fetched for you — base any recent/real-world answer ONLY on these, cite briefly):\n${results}\n`;
+  let query: string | null = null;
+  if (decision) {
+    query = typeof decision['query'] === 'string' && decision['query'].trim() ? decision['query'].trim().slice(0, 400) : '';
+  } else {
+    query = trimmed.slice(0, 400); // classifier down → literal search, as before
+  }
+  if (!query) return '';
+  const results = await webSearch(query);
+  if (results) return `\n\nWEB SEARCH RESULTS (current facts fetched for you — base any recent/real-world answer ONLY on these, cite briefly):\n${results}\n`;
   return '';
 }
 
 /**
- * Deterministic content-plan intent detector. DeepSeek's tool-calling is
- * unreliable here — it tends to NARRATE "I'm building the plan" in prose instead
- * of emitting the create_content_plan_draft call — so we decide server-side with
- * a cheap JSON classifier over the conversation. Only fires `ready` when the
- * user is clearly asking to BUILD a multi-post series AND topic + postsPerDay +
- * days + startDate are all known (explicitly or inferable from context).
- * Returns null when not configured, on error, or when not ready.
+ * Deterministic content-plan intent detector — a cheap Terra JSON classifier
+ * over the conversation (models narrate "building the plan" instead of acting,
+ * so the server decides). Only fires `ready` when the user is clearly asking to
+ * BUILD a multi-post series AND topic + postsPerDay + days + startDate + times
+ * are all known. Returns null when not ready or on error.
  */
 interface PlanIntent {
   topic: string; postsPerDay: number; days: number; startDate: string;
@@ -172,8 +135,6 @@ async function detectPlanIntent(
   message: string,
   todayISO: string,
 ): Promise<PlanIntent | null> {
-  if (!env.DEEPSEEK_API_KEY) return null;
-
   const transcript = [...history.slice(-12), { role: 'user', content: message }]
     .map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
     .join('\n');
@@ -189,20 +150,8 @@ async function detectPlanIntent(
     `source: "web" for internet research, "uploads" for the user's own documents, "both". Default "web". rubricHint: a category name if the user named one, else "".`;
 
   try {
-    const res = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({
-        model: env.DEEPSEEK_MODEL,
-        response_format: { type: 'json_object' },
-        max_tokens: 200, temperature: 0.1,
-        messages: [{ role: 'system', content: system }, { role: 'user', content: transcript }],
-      }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const p = JSON.parse(data.choices?.[0]?.message?.content ?? '{}') as any;
+    const p = await terraJson({ system, prompt: transcript, maxTokens: 250, effort: 'low', noFallback: true, timeoutMs: 30_000 }) as any;
     if (!p || p.ready !== true) return null;
     const topic = typeof p.topic === 'string' ? p.topic.trim() : '';
     const postsPerDay = Number(p.postsPerDay);
@@ -266,11 +215,30 @@ router.get('/history', async (req: Request, res: Response): Promise<void> => {
 // Response 200: { reply: string }
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, message, sessionId } = req.body as {
+  const { initData, channelId, message, sessionId, stream } = req.body as {
     initData?:  unknown;
     channelId?: unknown;
     message?:   unknown;
     sessionId?: unknown;
+    stream?:    unknown;
+  };
+
+  // SSE mode: `stream: true` switches the response to text/event-stream with
+  // {type:'chunk'|'done'|'error'} events. Pre-generation errors (auth, quota)
+  // still return plain JSON — the client checks the content type.
+  const wantStream = stream === true;
+  let sseStarted = false;
+  const sseSend = (payload: Record<string, unknown>) => {
+    if (!sseStarted) {
+      sseStarted = true;
+      res.writeHead(200, {
+        'Content-Type':      'text/event-stream; charset=utf-8',
+        'Cache-Control':     'no-cache, no-transform',
+        'Connection':        'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+    }
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
 
   if (typeof channelId !== 'string' || !channelId.trim()) { res.status(400).json({ error: 'channelId required' }); return; }
@@ -305,7 +273,20 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  if (!env.DEEPSEEK_API_KEY) { res.status(503).json({ error: 'AI not configured' }); return; }
+  if (!env.REPLICATE_API_TOKEN && !env.DEEPSEEK_API_KEY) { res.status(503).json({ error: 'AI not configured' }); return; }
+
+  // Daily message quota (cost protection). Day boundary = midnight MSK.
+  const dailyLimit = CHAT_DAILY_LIMIT[tier] ?? 0;
+  const mskTodayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
+  const mskMidnight = new Date(`${mskTodayISO}T00:00:00+03:00`);
+  const usedToday = await prisma.chatMessage.count({ where: { userId: dbUser.id, role: 'user', createdAt: { gte: mskMidnight } } }).catch(() => 0);
+  if (usedToday >= dailyLimit) {
+    res.status(429).json({ error: `Дневной лимит сообщений ассистента (${dailyLimit}) исчерпан — обнулится в полночь по МСК.`, code: 'CHAT_LIMIT' });
+    return;
+  }
+
+  // One model (GPT-5.6 Terra), tiered by thinking depth.
+  const effort: TerraEffort = tier === 'STUDIO_PRO' || modelTier === 'HIGH' ? 'high' : tier === 'CREATOR' ? 'medium' : 'low';
 
   const [activeChannel, allChannels] = await Promise.all([
     prisma.channel.findUnique({
@@ -441,103 +422,22 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     `For any question about real-world or recent events, rely ONLY on a "WEB SEARCH RESULTS" block. ` +
     `If there is no such block, or it does not actually contain the answer, say plainly that you can't confirm it (and offer to look it up) — do NOT fabricate a plausible-sounding answer.\n` +
     (canSearch
-      ? (modelTier === 'HIGH'
-          ? `If a "WEB SEARCH RESULTS" block appears in the conversation, it holds current information fetched for you — base any time-sensitive or factual answer on it and briefly mention the sources, building reasoning around the year ${currentYear}. If no such block is present and the question depends on very recent events, answer from your knowledge and note any uncertainty rather than guessing.\n`
-          : `You have a web_search tool. You do NOT inherently know anything that happened after your training cutoff, including recent or live events. ` +
-            `For ANYTHING time-sensitive or factual — sports fixtures/scores, news, prices, "what is happening now", recent statistics, "latest" anything — you MUST call web_search before answering, and you MUST build the query using the current year ${currentYear} (e.g. "FIFA World Cup ${currentYear} schedule") rather than a year from memory. ` +
-            `Never answer such questions from memory. After searching, answer in your own words and briefly mention the sources. If the search returns nothing useful, say so plainly instead of guessing.\n`)
+      ? `If a "WEB SEARCH RESULTS" block appears in the conversation, it holds current information fetched for you — base any time-sensitive or factual answer ONLY on it and briefly mention the sources, building reasoning around the year ${currentYear}. If no such block is present and the question depends on very recent events, say you can't confirm and offer to look it up — never guess.\n`
       : '') +
     (canPlan
-      ? `\nCONTENT MANAGER: You can build a whole SERIES of posts (a mini-course, a themed multi-day plan) and drop them into the user's Отложка (scheduler). When the user asks for a series/mini-course/content-plan of MULTIPLE posts, do NOT write the posts yourself in chat. Instead:\n` +
-        `1) Ask a few brief CLARIFYING questions in one message if anything is missing: from which day to start the schedule (so they have time to review before posts go out), **at what time of day to publish** (e.g. 10:00, or 10:00 and 18:00 for two a day), how many posts per day and over how many days (max ${MAX_POSTS_PER_DAY}/day, ${MAX_DAYS} days), the sources (web research / uploaded project docs / both), and a preferred rubric if any. Do NOT invent a posting time — you must ask the user for it.\n` +
-        `2) Once you have topic + postsPerDay + days + startDate, call the create_content_plan_draft tool. A plan card with a «Приступить» button then appears for the user — after the tool returns, just confirm in ONE short sentence (e.g. "Готово, план на N постов ниже — нажми «Приступить»"). Do NOT re-list the posts or call the tool again.\n`
+      ? `\nCONTENT MANAGER: The system can build a whole SERIES of posts (a mini-course, a themed multi-day plan) and drop them into the user's Отложка (scheduler). When the user asks for a series/mini-course/content-plan of MULTIPLE posts, do NOT write the posts yourself in chat. ` +
+        `Your only job is to collect the missing details — ask brief CLARIFYING questions in one message: from which day to start the schedule (so they have time to review before posts go out), **at what time of day to publish** (e.g. 10:00, or 10:00 and 18:00 for two a day), how many posts per day and over how many days (max ${MAX_POSTS_PER_DAY}/day, ${MAX_DAYS} days), the sources (web research / uploaded project docs / both), and a preferred rubric if any. Do NOT invent a posting time — ask the user. ` +
+        `Once every detail is known, the system builds the plan AUTOMATICALLY and shows the user a plan card with a «Приступить» button — you never list the posts yourself.\n`
       : '') +
     `Be concise, practical, and creative. Give actionable advice.`;
-
-  // Tool set for the DeepSeek loop: web_search (when Tavily configured) and the
-  // content-series planner (CREATOR+). undefined when neither is available.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const toolList: any[] = [];
-  if (canSearch) {
-    toolList.push({
-      type: 'function',
-      function: {
-        name: 'web_search',
-        description: 'Search the web for up-to-date or factual information. Returns a short summary and the top results with title, URL and snippet.',
-        parameters: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: "Search query, ideally in the user's language" },
-          },
-          required: ['query'],
-        },
-      },
-    });
-  }
-  if (canPlan) {
-    toolList.push({
-      type: 'function',
-      function: {
-        name: 'create_content_plan_draft',
-        description: 'Build a DRAFT plan for a SERIES of posts (mini-course / multi-day content plan) for the active channel. Only call this once you know the topic, postsPerDay, days and startDate. The user reviews the plan and confirms it — you do NOT write the posts here.',
-        parameters: {
-          type: 'object',
-          properties: {
-            topic:       { type: 'string',  description: 'The overall subject of the series, in the channel language' },
-            postsPerDay: { type: 'integer', description: `How many posts per day (1–${MAX_POSTS_PER_DAY})` },
-            days:        { type: 'integer', description: `Over how many days (1–${MAX_DAYS})` },
-            startDate:   { type: 'string',  description: 'ISO date (YYYY-MM-DD) the schedule should start from — leave a few days for review' },
-            times:       { type: 'array', items: { type: 'string' }, description: 'Daily publish times as "HH:MM" (24h), one per post/day, e.g. ["10:00"] or ["10:00","18:00"]. Ask the user; do not invent.' },
-            source:      { type: 'string',  enum: ['web', 'uploads', 'both'], description: "Where to research: 'web', the channel's uploaded docs, or both" },
-            rubricHint:  { type: 'string',  description: 'Optional preferred rubric/category name for the series' },
-          },
-          required: ['topic', 'postsPerDay', 'days', 'startDate', 'times'],
-        },
-      },
-    });
-  }
-  const tools = toolList.length > 0 ? toolList : undefined;
-
-  // Conversation buffer for the tool-use loop. Typed loosely because assistant /
-  // tool turns carry extra fields (tool_calls, tool_call_id) beyond {role, content}.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const messages: any[] = [
-    { role: 'system', content: systemPrompt },
-    ...history,
-    { role: 'user', content: message },
-  ];
-
-  async function callModel() {
-    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model:       env.DEEPSEEK_MODEL,
-        messages,
-        max_tokens:  1024,
-        // 0.6 + top_p 0.9 — the assistant should stay grounded and factual;
-        // 0.8 made it drift into confident nonsense on some answers.
-        temperature: 0.6,
-        top_p:       0.9,
-        ...(tools ? { tools, tool_choice: 'auto' } : {}),
-      }),
-    });
-    if (!response.ok) throw new Error(`DeepSeek HTTP ${response.status}`);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await response.json() as { choices?: { message?: any }[] };
-    return data.choices?.[0]?.message ?? null;
-  }
 
   try {
     let reply = '';
     let pendingPlan: ContentPlanDTO | null = null; // set when a content-series plan is built
 
     // ── Deterministic content-plan path (CREATOR+) ────────────────────────────
-    // Decided server-side instead of trusting DeepSeek to emit the tool call —
-    // it reliably narrates "building the plan" without actually calling it.
+    // Decided server-side with a cheap Terra classifier — models narrate
+    // "building the plan" instead of acting, so the server acts itself.
     if (canPlan) {
       const todayISO = now.toLocaleDateString('en-CA', { timeZone: MSK_TZ }); // YYYY-MM-DD (MSK)
       const intent = await detectPlanIntent(history, message, todayISO).catch(() => null);
@@ -556,84 +456,24 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
           reply = `Готово — собрал план на ${pendingPlan.totalPosts} ${pendingPlan.totalPosts === 1 ? 'пост' : 'постов'} по теме «${pendingPlan.topic}». Проверь карточку ниже и нажми «Приступить» — я разложу их в Отложку.`;
         } catch (err) {
           console.error('[chat] plan build failed:', (err as Error).message);
-          // Fall through to the normal chat loop (the tool remains as a backup).
+          // Fall through to the normal reply (the assistant keeps clarifying).
         }
       }
     }
 
-    // HIGH tier: Claude on Replicate, with an optional manual Tavily pre-search
-    // (Replicate's text API has no tool-calling). Falls through to the DeepSeek
-    // tool-loop below if it yields nothing.
-    if (!reply && modelTier === 'HIGH' && env.REPLICATE_API_TOKEN) {
-      const high = await generateHighChatReply({ systemPrompt, history, message, canSearch, currentYear });
-      if (high && high.trim()) reply = high.trim();
-    }
-
-    // Forced pre-search (LOW / HIGH fallback): ground the answer with real data
-    // instead of trusting the model to call the tool. Inject the results as a
-    // system turn right before the latest user message.
-    if (!reply && canSearch) {
-      const block = await decidedSearchBlock(message, currentYear);
-      if (block) messages.splice(messages.length - 1, 0, { role: 'system', content: block });
-    }
-
-    // LOW (or HIGH fallback): up to 3 turns; the model may call web_search and
-    // we feed the results back before it produces the final answer.
-    for (let step = 0; !reply && step < 3; step++) {
-      const msg = await callModel();
-      if (!msg) break;
-
-      const toolCalls = msg.tool_calls as
-        | { id: string; function: { name: string; arguments: string } }[]
-        | undefined;
-
-      if (toolCalls && toolCalls.length > 0) {
-        messages.push(msg); // assistant turn carrying the tool calls
-        for (const tc of toolCalls) {
-          let result = 'No results found.';
-          if (tc.function?.name === 'web_search') {
-            let query = '';
-            try { query = String(JSON.parse(tc.function.arguments || '{}').query ?? ''); } catch { /* ignore */ }
-            result = (query && await webSearch(query)) || 'No results found.';
-          } else if (tc.function?.name === 'create_content_plan_draft' && canPlan) {
-            // Build the plan only once per message; ignore duplicate calls.
-            if (pendingPlan) {
-              result = 'A plan draft was already created for this request. Do not call this tool again.';
-            } else {
-              try {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const a = JSON.parse(tc.function.arguments || '{}') as any;
-                const topic = typeof a.topic === 'string' ? a.topic.trim() : '';
-                if (!topic) {
-                  result = 'Missing "topic". Ask the user what the series should be about.';
-                } else {
-                  pendingPlan = await generateContentPlan({
-                    channelId,
-                    topic,
-                    postsPerDay: Number(a.postsPerDay) || 1,
-                    days:        Number(a.days) || 1,
-                    startDate:   new Date(typeof a.startDate === 'string' ? a.startDate : Date.now()),
-                    source:      (a.source === 'uploads' || a.source === 'both') ? a.source : 'web',
-                    rubricHint:  typeof a.rubricHint === 'string' ? a.rubricHint : undefined,
-                    times:       Array.isArray(a.times) ? a.times.filter((t: unknown) => typeof t === 'string') : undefined,
-                  });
-                  result = `Draft plan created: ${pendingPlan.totalPosts} posts on "${pendingPlan.topic}", ` +
-                    `starting ${pendingPlan.startDate.slice(0, 10)}. A plan card with a «Приступить» button is now shown to the user. ` +
-                    `Confirm in ONE short sentence; do not list the posts or call this tool again.`;
-                }
-              } catch (err) {
-                console.error('[chat] create_content_plan_draft failed:', (err as Error).message);
-                result = 'Failed to build the plan. Apologize briefly and suggest trying again.';
-              }
-            }
-          }
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
-        }
-        continue; // ask the model again with the tool results
-      }
-
-      reply = String(msg.content ?? '').trim();
-      break;
+    // ── Terra reply ───────────────────────────────────────────────────────────
+    // Search is decided (not forced), results are injected into the flattened
+    // conversation, and one Terra call produces the answer. terraText falls
+    // back to a single DeepSeek completion only if Replicate is down.
+    let streamedAny = false;
+    if (!reply) {
+      const searchBlock = canSearch ? await decideSearchBlock(message, history, currentYear).catch(() => '') : '';
+      const convo = history.map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`).join('\n\n');
+      const prompt = `${convo ? convo + '\n\n' : ''}${searchBlock}User: ${message}\n\nAssistant:`;
+      const out = wantStream
+        ? await terraTextStream({ system: systemPrompt, prompt, maxTokens: 1024, effort, timeoutMs: 120_000 }, delta => { streamedAny = true; sseSend({ type: 'chunk', text: delta }); })
+        : await terraText({ system: systemPrompt, prompt, maxTokens: 1024, effort, timeoutMs: 90_000 });
+      if (out) reply = out;
     }
 
     if (!reply) reply = 'Не удалось получить ответ. Попробуй переформулировать.';
@@ -662,11 +502,22 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       }
     }).catch(() => {});
 
-    res.json({ reply, sessionId: sessionRef.id, ...(pendingPlan ? { plan: pendingPlan } : {}) });
+    if (wantStream) {
+      // Plan replies and fallback texts were never streamed — emit them whole.
+      if (!streamedAny) sseSend({ type: 'chunk', text: reply });
+      sseSend({ type: 'done', sessionId: sessionRef.id, ...(pendingPlan ? { plan: pendingPlan } : {}) });
+      res.end();
+    } else {
+      res.json({ reply, sessionId: sessionRef.id, ...(pendingPlan ? { plan: pendingPlan } : {}) });
+    }
 
   } catch (err) {
     console.error('[chat] Error:', (err as Error).message);
-    res.status(502).json({ error: 'AI request failed' });
+    if (sseStarted) {
+      try { sseSend({ type: 'error', error: 'AI request failed' }); res.end(); } catch { /* connection gone */ }
+    } else {
+      res.status(502).json({ error: 'AI request failed' });
+    }
   }
 });
 
