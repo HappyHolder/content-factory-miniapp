@@ -6,8 +6,8 @@ import fs from 'fs';
 import path from 'path';
 import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerPreCheckoutQuery, getBotIdFromToken, TelegramWebAppKeyboard } from '../lib/telegramBot';
 import { createDraftPostForChannel, type DraftPost } from '../lib/draftGenerator';
-import { isPostsLimitReached, applyMonthlyQuotaReset, canUseHtmlCovers, TIER_LIMITS } from '../lib/subscriptionLimits';
-import { isPaidTier, grantSubscription } from '../lib/payments';
+import { getEffectiveSubscription, reserveSubscriptionQuota, refundSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
+import { isPaidTier, grantSubscription, pricingFor } from '../lib/payments';
 import { grantStylePurchase } from '../lib/styles';
 import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContent } from '../lib/visionExtractor';
@@ -279,10 +279,8 @@ async function autoConnectChannelFromMembership(evt: TgChatMemberUpdated): Promi
   }
 
   // Enforce the subscription tier's channel limit.
-  const sub = await prisma.subscription
-    .findUnique({ where: { userId: dbUser.id }, select: { tier: true } })
-    .catch(() => null);
-  const tier         = (sub?.tier ?? 'FREE') as keyof typeof TIER_LIMITS;
+  const sub = await getEffectiveSubscription(dbUser.id);
+  const tier = sub.tier;
   const channelLimit = TIER_LIMITS[tier].channelLimit;
   const channelCount = await prisma.channel.count({ where: { userId: dbUser.id } }).catch(() => 0);
   if (channelCount >= channelLimit) {
@@ -333,7 +331,7 @@ async function autoConnectChannelFromMembership(evt: TgChatMemberUpdated): Promi
 //   4. Resolve user's first Channel (ordered by createdAt asc).
 //   5. Classify SourceType (URL or TEXT), extract URL if present.
 //   6. Persist SourceInput.
-//   7. Auto-generate draft via DeepSeek + Channel Style (non-fatal).
+//   7. Auto-generate draft via the primary AI model + Channel Style (non-fatal).
 //   8. Reply to user and return 200.
 
 router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
@@ -386,7 +384,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     const payChatId = update.message.chat.id;
     if (pay.currency === 'XTR') {
       try {
-        const data = JSON.parse(pay.invoice_payload) as { t?: string; tier?: unknown; mt?: unknown; uid?: string; sid?: string };
+        const data = JSON.parse(pay.invoice_payload) as { t?: string; tier?: unknown; uid?: string; sid?: string };
         if (data.t === 'style' && typeof data.sid === 'string' && typeof data.uid === 'string') {
           // One-time style purchase. Idempotent: a duplicate webhook resolves to
           // alreadyOwned (unique userId+styleId) and skips the confirmation reply.
@@ -395,31 +393,24 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
             await trySendReply(payChatId, '✅ Оплата получена. Стиль обложек разблокирован — открой вкладку «Стили» и нажми «Применить».');
           }
         } else if (data.t === 'sub' && isPaidTier(data.tier) && typeof data.uid === 'string') {
-          const mt: 'LOW' | 'HIGH' = data.mt === 'HIGH' ? 'HIGH' : 'LOW';
-          // Idempotency: record the charge first. Telegram may deliver the same
-          // successful_payment more than once; the unique chargeId stops a repeat
-          // delivery from re-granting (which would reset usage + push expiry forward).
-          // Fail-open: only a unique-constraint violation (P2002) means "already
-          // processed". Any other error (e.g. table not migrated yet) logs and still
-          // grants, so payments are never blocked by this guard.
-          let alreadyProcessed = false;
+          const tier = data.tier;
+          const userId = data.uid;
           const chargeId = pay.telegram_payment_charge_id;
-          if (chargeId) {
+          const expectedStars = pricingFor(tier).stars;
+          if (!chargeId || pay.total_amount !== expectedStars) {
+            console.error('[bot/webhook] Stars payment validation failed:', { chargeId: Boolean(chargeId), paid: pay.total_amount, expected: expectedStars });
+          } else {
             try {
-              await prisma.starsPayment.create({
-                data: { chargeId, userId: data.uid, tier: data.tier, amountStars: pay.total_amount },
+              await prisma.$transaction(async (tx) => {
+                await tx.starsPayment.create({
+                  data: { chargeId, userId, tier, amountStars: pay.total_amount },
+                });
+                await grantSubscription(userId, tier, undefined, tx);
               });
-            } catch (e) {
-              if ((e as { code?: string })?.code === 'P2002') {
-                alreadyProcessed = true;
-              } else {
-                console.error('[bot/webhook] StarsPayment record failed (continuing to grant):', (e as Error).message);
-              }
+              await trySendReply(payChatId, '✅ Оплата получена. Тариф активирован на 30 дней. Открой приложение.');
+            } catch (error) {
+              if ((error as { code?: string })?.code !== 'P2002') throw error;
             }
-          }
-          if (!alreadyProcessed) {
-            await grantSubscription(data.uid, data.tier, mt);
-            await trySendReply(payChatId, `✅ Оплата получена. Тариф ${data.tier}${mt === 'HIGH' ? ' Premium' : ''} активирован на 30 дней. Открой приложение.`);
           }
         }
       } catch (err) {
@@ -593,51 +584,35 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   }
 
   // ── 7. Return 200 immediately so Telegram doesn't retry ─────────────────
-  // Draft generation (DeepSeek call) runs in the background after the response.
+  // Draft generation runs in the background after the response.
   res.status(200).json({ ok: true });
 
   // ── 8. Generate draft and notify user asynchronously ─────────────────────
   (async () => {
-    // Check bot-posts quota before generating (with lazy monthly reset)
-    const rawSub = await prisma.subscription.findUnique({
-      where:  { userId: dbUser.id },
-      select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
-    }).catch(() => null);
-
-    const userSub = rawSub
-      ? await applyMonthlyQuotaReset({ userId: dbUser.id, ...rawSub })
-      : null;
-    // HTML covers are a paid feature; unknown tier (no row) → don't block.
-    const allowHtmlCovers = rawSub ? canUseHtmlCovers(rawSub.tier) : true;
-    // Model variant: HIGH → Claude/GPT Image; default LOW → DeepSeek/Flux.
-    const modelTier: 'LOW' | 'HIGH' = rawSub?.modelTier ?? 'LOW';
-
-    if (userSub && isPostsLimitReached(userSub.aiPostsUsed, userSub.aiPostsLimit)) {
-      try {
-        await sendBotMessage(
-          chatId,
-          `⚠️ Достигнут месячный лимит постов через бота (${userSub.aiPostsLimit}). Повысь тариф в приложении.`,
-          env.TELEGRAM_BOT_TOKEN,
-          openAppKeyboard('⭐ Тарифы'),
-        );
-      } catch (err) {
-        console.error('[bot/webhook] quota notice failed:', (err as Error).message);
-      }
+    const subscription = await getEffectiveSubscription(dbUser.id);
+    const limits = TIER_LIMITS[subscription.tier];
+    const textQuota = await reserveSubscriptionQuota(dbUser.id, 'text');
+    if (!textQuota.ok) {
+      await sendBotMessage(chatId, `⚠️ Месячный лимит AI-текста исчерпан (${textQuota.limit}).`, env.TELEGRAM_BOT_TOKEN, openAppKeyboard('⭐ Тарифы')).catch(() => undefined);
       return;
     }
+    let reservedVisual = false;
+    if (limits.canUseAiVisuals) {
+      const visualQuota = await reserveSubscriptionQuota(dbUser.id, 'visual');
+      if (!visualQuota.ok) {
+        await refundSubscriptionQuota(dbUser.id, 'text');
+        await sendBotMessage(chatId, `⚠️ Визуальные генерации закончились (${visualQuota.limit}). Создай текстовый пост в приложении без обложки.`, env.TELEGRAM_BOT_TOKEN, openAppKeyboard('⭐ Тарифы')).catch(() => undefined);
+        return;
+      }
+      reservedVisual = true;
+    }
 
-    // For link sources, fetch the page and extract the real article text so the
-    // AI rewrites actual content instead of just seeing a bare URL. Any failure
-    // falls back to the original message text — generation never blocks on this.
     let genInput = sourceText;
     if (photoFileId) {
-      // Read the photo (OCR + scene) and feed it into generation.
       try {
         const extracted = await extractImageContent(photoFileId);
         if (extracted) genInput = sourceText.trim() ? `${sourceText.trim()}\n\n${extracted}` : extracted;
-      } catch (err) {
-        console.error('[bot/webhook] Image extraction failed (using caption):', (err as Error).message);
-      }
+      } catch (error) { console.error('[bot/webhook] Image extraction failed:', (error as Error).message); }
     } else if (extractedUrl) {
       try {
         const article = await fetchArticle(extractedUrl);
@@ -645,14 +620,12 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
           const commentary = sourceText.replace(extractedUrl, '').trim();
           genInput = commentary ? `${commentary}\n\n${article.text}` : article.text;
         }
-      } catch (err) {
-        console.error('[bot/webhook] Article extraction failed (using raw text):', (err as Error).message);
-      }
+      } catch (error) { console.error('[bot/webhook] Article extraction failed:', (error as Error).message); }
     }
 
-    // Nothing usable (e.g. a photo we couldn't read and no caption) → don't
-    // produce an empty draft; tell the user instead.
     if (!genInput.trim()) {
+      if (reservedVisual) await refundSubscriptionQuota(dbUser.id, 'visual');
+      await refundSubscriptionQuota(dbUser.id, 'text');
       await sendDraftNotification(chatId, null);
       return;
     }
@@ -660,25 +633,18 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     let draft: DraftPost | null = null;
     try {
       draft = await createDraftPostForChannel({
-        channelId:  targetChannel.id,
-        input:      genInput,
-        sourceType: photoFileId ? 'photo' : (extractedUrl ? 'link' : 'prompt'),
-        sourceUrl:  extractedUrl ?? null,
-        allowHtmlCovers,
-        modelTier,
+        channelId: targetChannel.id,
+        input: genInput,
+        sourceType: photoFileId ? 'photo' : extractedUrl ? 'link' : 'prompt',
+        sourceUrl: extractedUrl ?? null,
+        allowHtmlCovers: limits.canUseHtmlCovers,
+        generateVisual: limits.canUseAiVisuals,
       });
-    } catch (err) {
-      console.error('[bot/webhook] Draft generation failed:', (err as Error).message);
+    } catch (error) {
+      if (reservedVisual) await refundSubscriptionQuota(dbUser.id, 'visual');
+      await refundSubscriptionQuota(dbUser.id, 'text');
+      console.error('[bot/webhook] Draft generation failed:', (error as Error).message);
     }
-
-    if (draft && userSub) {
-      prisma.subscription.update({
-        where: { userId: dbUser.id },
-        data:  { aiPostsUsed: { increment: 1 } },
-      }).catch(err => console.error('[bot/webhook] Usage increment failed:', (err as Error).message));
-    }
-
-    // Rich notification: cover preview + "Open & review" button (localized).
     await sendDraftNotification(chatId, draft);
   })();
 });

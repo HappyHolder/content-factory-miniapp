@@ -9,6 +9,7 @@ import { startLogin, confirmCode, confirmPassword, withPersonaClient, updateProf
 import { decryptPersonaSession } from '../communityCore/personaCrypto';
 import { startPersona, stopPersona, reloadPersona } from '../communityCore/engine';
 import { participantPublic } from '../communityCore/personaParticipant';
+import { getEffectiveSubscription, TIER_LIMITS } from '../lib/subscriptionLimits';
 
 const router = Router();
 
@@ -18,12 +19,23 @@ async function auth(req: Request) {
   if (!user) throw new Error('USER_NOT_FOUND');
   return { user };
 }
-function fail(res: Response, e: unknown) { const m = e instanceof Error ? e.message : ''; res.status(m === 'NOT_FOUND' ? 404 : 401).json({ error: m === 'SESSION_EXPIRED' ? 'Сессия истекла. Переоткройте Publium.' : 'Недействительная авторизация' }); }
+function fail(res: Response, e: unknown) {
+  const message = e instanceof Error ? e.message : '';
+  const status = message === 'NOT_FOUND' ? 404 : message === 'PLAN_REQUIRED' ? 403 : 401;
+  const error = message === 'PLAN_REQUIRED'
+    ? 'Community Core доступен со Starter'
+    : message === 'SESSION_EXPIRED'
+      ? 'Сессия истекла. Переоткройте Publium.'
+      : 'Недействительная авторизация';
+  res.status(status).json({ error });
+}
 async function ownedPersona(req: Request, id: string) {
   const a = await auth(req);
   const persona = await prisma.persona.findFirst({ where: { id, ownerUserId: a.user.id }, include: { community: { include: { moderatorChat: true, channel: true } } } });
   if (!persona) throw new Error('NOT_FOUND');
-  return { ...a, persona };
+  const subscription = await getEffectiveSubscription(a.user.id);
+  if (!TIER_LIMITS[subscription.tier].canUseCommunityCore) throw new Error('PLAN_REQUIRED');
+  return { ...a, persona, subscription };
 }
 const publicPersona = (p: any) => ({ id: p.id, status: p.status, enabled: p.enabled, username: p.username, tgUserId: p.tgUserId, lastError: p.lastError, lastActionAt: p.lastActionAt, connected: Boolean(p.sessionCipher), config: parsePersonaConfig(p.draftConfig), published: Boolean(p.publishedConfig) });
 
@@ -38,6 +50,11 @@ router.get('/channels/:channelId', async (req, res) => {
 // Create a persona (draft, no account yet).
 router.post('/channels/:channelId/personas', async (req, res) => {
   let a; try { a = await auth(req); } catch (e) { return fail(res, e); }
+  const subscription = await getEffectiveSubscription(a.user.id);
+  const personaLimit = TIER_LIMITS[subscription.tier].communityCorePersonaLimit;
+  if (personaLimit <= 0) { res.status(403).json({ error: 'Community Core доступен со Starter', limit: 0 }); return; }
+  const used = await prisma.persona.count({ where: { ownerUserId: a.user.id } });
+  if (used >= personaLimit) { res.status(403).json({ error: 'Лимит личностей исчерпан', limit: personaLimit, used }); return; }
   const community = await prisma.community.findFirst({ where: { channelId: req.params.channelId, channel: { userId: a.user.id } }, select: { id: true } });
   if (!community) { res.status(404).json({ error: 'Сначала подключите группу через Moderator' }); return; }
   const persona = await prisma.persona.create({ data: { communityId: community.id, ownerUserId: a.user.id, draftConfig: DEFAULT_PERSONA_CONFIG as any, status: 'DRAFT' } });

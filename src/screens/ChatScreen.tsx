@@ -46,6 +46,8 @@ export interface ChatMessage {
   content: string
   /** Present when the assistant produced a content-series plan (renders a card). */
   plan?: ContentPlan
+  /** Server-set: the reply is publishable post material → show «Отправить в Create». */
+  createWorthy?: boolean
 }
 
 const SUGGESTIONS = [
@@ -59,18 +61,6 @@ const SOURCE_LABELS: Record<string, string> = {
   web: 'Веб-поиск', uploads: 'Материалы проекта', both: 'Веб + материалы',
 }
 
-/**
- * Show «Отправить в Create» only for replies that look like post material:
- * long enough to be content, and not a clarifying question / greeting (those
- * end with a question). Interim heuristic — stage 2 makes the model flag it.
- */
-function looksLikePostMaterial(text: string): boolean {
-  const trimmed = text.trim()
-  if (trimmed.length < 200) return false
-  const lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean)
-  const lastLine = lines[lines.length - 1] ?? ''
-  return !lastLine.includes('?')
-}
 
 function formatStartDate(iso: string): string {
   const d = new Date(iso)
@@ -437,7 +427,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
                       onCancel={onCancelPlan}
                       confirming={confirmingPlanId === msg.plan.id}
                     />
-                  ) : onSendToCreate && looksLikePostMaterial(msg.content) && (
+                  ) : onSendToCreate && msg.createWorthy === true && (
                     <button
                       onClick={() => onSendToCreate(msg.content)}
                       disabled={loading}

@@ -77,8 +77,8 @@ function requireAdmin(initData: unknown, res: Response): string | null {
 // Response 200: { code: { code, tier, durationDays, createdAt } }
 
 router.post('/promo/create', async (req: Request, res: Response): Promise<void> => {
-  const { initData, tier, modelTier, durationDays } = req.body as {
-    initData?: unknown; tier?: unknown; modelTier?: unknown; durationDays?: unknown;
+  const { initData, tier, durationDays } = req.body as {
+    initData?: unknown; tier?: unknown; durationDays?: unknown;
   };
 
   const adminId = requireAdmin(initData, res);
@@ -88,8 +88,6 @@ router.post('/promo/create', async (req: Request, res: Response): Promise<void> 
     res.status(400).json({ error: `tier must be one of: ${VALID_TIERS.join(', ')}` });
     return;
   }
-  // Model variant: LOW (base models) or HIGH (premium). Defaults to LOW.
-  const modelTierVal: 'LOW' | 'HIGH' = modelTier === 'HIGH' ? 'HIGH' : 'LOW';
   const days = Number(durationDays);
   if (!Number.isInteger(days) || days < 1 || days > 3650) {
     res.status(400).json({ error: 'durationDays must be an integer between 1 and 3650' });
@@ -106,8 +104,8 @@ router.post('/promo/create', async (req: Request, res: Response): Promise<void> 
 
   try {
     const created = await prisma.promoCode.create({
-      data: { code, tier: tier as PlanTier, modelTier: modelTierVal, durationDays: days, createdById: adminId },
-      select: { code: true, tier: true, modelTier: true, durationDays: true, createdAt: true },
+      data: { code, tier: tier as PlanTier, durationDays: days, createdById: adminId },
+      select: { code: true, tier: true, durationDays: true, createdAt: true },
     });
     res.json({ code: { ...created, createdAt: created.createdAt.toISOString() } });
   } catch (err) {
@@ -130,13 +128,12 @@ router.post('/promo/list', async (req: Request, res: Response): Promise<void> =>
     const rows = await prisma.promoCode.findMany({
       orderBy: { createdAt: 'desc' },
       take:    100,
-      select:  { code: true, tier: true, modelTier: true, durationDays: true, redeemedAt: true, createdAt: true },
+      select:  { code: true, tier: true, durationDays: true, redeemedAt: true, createdAt: true },
     });
     res.json({
       codes: rows.map(r => ({
         code:         r.code,
         tier:         r.tier,
-        modelTier:    r.modelTier,
         durationDays: r.durationDays,
         redeemed:     r.redeemedAt !== null,
         redeemedAt:   r.redeemedAt?.toISOString() ?? null,

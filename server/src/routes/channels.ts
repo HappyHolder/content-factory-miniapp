@@ -8,7 +8,7 @@ import {
   getBotIdFromToken,
   TelegramApiError,
 } from '../lib/telegramBot';
-import { TIER_LIMITS } from '../lib/subscriptionLimits';
+import { TIER_LIMITS, getEffectiveSubscription } from '../lib/subscriptionLimits';
 
 const router = Router();
 
@@ -180,28 +180,20 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 8. Check channel limit for subscription tier ─────────────────────────
+  // ── 8. Enforce the effective plan limit server-side ───────────────────────
   try {
-    const userSub = await prisma.subscription.findUnique({
-      where:  { userId: dbUser.id },
-      select: { tier: true },
-    });
-    const tier = (userSub?.tier ?? 'FREE') as keyof typeof TIER_LIMITS;
-    const channelLimit = TIER_LIMITS[tier].channelLimit;
+    const subscription = await getEffectiveSubscription(dbUser.id);
+    const channelLimit = TIER_LIMITS[subscription.tier].channelLimit;
     const channelCount = await prisma.channel.count({ where: { userId: dbUser.id } });
     if (channelCount >= channelLimit) {
-      res.status(403).json({
-        error:  `Your ${tier} plan allows up to ${channelLimit} channel${channelLimit > 1 ? 's' : ''}. Upgrade to add more.`,
-        code:   'CHANNEL_LIMIT_REACHED',
-        limit:  channelLimit,
-      });
+      res.status(403).json({ error: `Тариф ${subscription.tier} позволяет подключить до ${channelLimit} каналов.`, code: 'CHANNEL_LIMIT_REACHED', limit: channelLimit });
       return;
     }
   } catch (err) {
     console.error('[channels/connect] Subscription check failed:', err);
-    // Non-fatal: allow the connection if the check fails
+    res.status(503).json({ error: 'Не удалось проверить лимит тарифа. Попробуйте ещё раз.' });
+    return;
   }
-
   // ── 9. Duplicate-ownership check ─────────────────────────────────────────
   let existingChannel: { id: string; userId: string } | null = null;
   try {

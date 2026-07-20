@@ -15,6 +15,7 @@
 import { prisma } from '../db';
 import { research } from './researchEngine';
 import { createDraftPostForChannel } from './draftGenerator';
+import { refundSubscriptionQuota } from './subscriptionLimits';
 
 // ─── Single-flight queue (one plan at a time per process) ────────────────────
 const queue: string[] = [];
@@ -88,22 +89,15 @@ export async function runContentPlan(planId: string): Promise<void> {
   if (!plan) { console.warn(`[contentWorker] plan ${planId} not found`); return; }
   if (plan.status === 'CANCELLED') return;
 
-  // Owner subscription drives model tier (premium text/covers) + quota tracking.
   const channel = await prisma.channel.findUnique({
     where: { id: plan.channelId }, select: { userId: true },
   });
-  const sub = channel
-    ? await prisma.subscription.findUnique({
-        where: { userId: channel.userId }, select: { modelTier: true },
-      }).catch(() => null)
-    : null;
-  const modelTier: 'LOW' | 'HIGH' = sub?.modelTier ?? 'LOW';
-
+  if (!channel) throw new Error('Content plan channel not found');
   const docContext = (plan.source === 'uploads' || plan.source === 'both')
     ? await loadPlanDocContext(plan.channelId)
     : '';
 
-  console.log(`[contentWorker] plan ${planId}: ${plan.items.length} item(s), modelTier=${modelTier}`);
+  console.log(`[contentWorker] plan ${planId}: ${plan.items.length} item(s), generateVisuals=${plan.generateVisuals}`);
 
   for (const item of plan.items) {
     if (item.status === 'DONE' || item.status === 'SKIPPED') continue;
@@ -125,8 +119,8 @@ export async function runContentPlan(planId: string): Promise<void> {
         sourceType:  'plan',
         sourceUrl:   null,
         useBrandKit: true,
-        allowHtmlCovers: true, // content manager is CREATOR+ (paid cover modes allowed)
-        modelTier,
+        allowHtmlCovers: plan.generateVisuals,
+        generateVisual: plan.generateVisuals,
         forcedRubric: item.rubricId ? { id: item.rubricId, name: item.rubricName ?? '' } : undefined,
       });
 
@@ -136,20 +130,15 @@ export async function runContentPlan(planId: string): Promise<void> {
         data:  { status: 'SCHEDULED', scheduledAt: item.scheduledAt, sourceType: 'plan' },
       });
 
-      // 4. Item done; count the post against the monthly quota (best-effort) ---
       await prisma.contentPlanItem.update({
         where: { id: item.id },
         data:  { status: 'DONE', generatedPostId: draft.id, errorMessage: null },
       });
-      if (channel) {
-        await prisma.subscription.update({
-          where: { userId: channel.userId },
-          data:  { aiPostsUsed: { increment: 1 } },
-        }).catch(() => {});
-      }
       console.log(`[contentWorker] plan ${planId} item ${item.orderIndex + 1}/${plan.items.length} → scheduled ${draft.id}`);
     } catch (err) {
       // A single bad item never sinks the plan — mark SKIPPED and move on.
+      await refundSubscriptionQuota(channel.userId, 'contentManagerPosts');
+      if (plan.generateVisuals) await refundSubscriptionQuota(channel.userId, 'visual');
       console.error(`[contentWorker] plan ${planId} item ${item.id} failed:`, (err as Error).message);
       await prisma.contentPlanItem.update({
         where: { id: item.id },

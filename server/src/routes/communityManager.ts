@@ -9,6 +9,7 @@ import { communityManagerExecutor, incomingManagedCommunityBot, managedCommunity
 import { decryptManagedBotToken } from '../moderator/managedBotCrypto';
 import { actionPresentation } from '../communityManager/actionPresentation';
 import { participantPublic } from '../communityManager/participantMemory';
+import { getEffectiveSubscription, hasCustomBotSlot, refundSubscriptionQuota, reserveSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
 
 const router=Router();
 async function auth(req:Request){
@@ -16,10 +17,10 @@ async function auth(req:Request){
   const user=await prisma.user.findUnique({where:{telegramId:session.tgUserId},select:{id:true,telegramId:true}});
   if(!user)throw new Error('USER_NOT_FOUND');return{user,tgUserId:session.tgUserId};
 }
-function fail(res:Response,e:unknown){const m=e instanceof Error?e.message:'';res.status(m==='NOT_FOUND'?404:401).json({error:m==='SESSION_EXPIRED'?'Сессия истекла. Переоткройте Publium.':'Недействительная авторизация'})}
+function fail(res:Response,e:unknown){const m=e instanceof Error?e.message:'';res.status(m==='NOT_FOUND'?404:m==='PLAN_REQUIRED'?403:401).json({error:m==='PLAN_REQUIRED'?'Функция доступна со Starter':m==='SESSION_EXPIRED'?'Сессия истекла. Переоткройте Publium.':'Недействительная авторизация'})}
 async function owned(req:Request,id:string){
   const a=await auth(req),manager=await prisma.communityManager.findFirst({where:{id,community:{channel:{userId:a.user.id}}},include:{community:{include:{moderatorChat:true,channel:true,managedCommunityManagerBot:true}}}});
-  if(!manager)throw new Error('NOT_FOUND');return{...a,manager};
+  if(!manager)throw new Error('NOT_FOUND'); const subscription=await getEffectiveSubscription(a.user.id); if(!TIER_LIMITS[subscription.tier].canUseCommunityManager)throw new Error('PLAN_REQUIRED'); return{...a,manager,subscription};
 }
 const publicManager=(m:any)=>m?{id:m.id,status:m.status,enabled:m.enabled,mode:m.mode,draftVersion:m.draftVersion,publishedVersion:m.publishedVersion,lastActionAt:m.lastActionAt,lastHealthyAt:m.lastHealthyAt,lastError:m.lastError,executorType:m.executorType}:null;
 
@@ -35,6 +36,7 @@ router.get('/channels/:channelId',async(req,res)=>{
 
 router.post('/channels/:channelId/create',async(req,res)=>{
   let a;try{a=await auth(req)}catch(e){fail(res,e);return}
+  const subscription=await getEffectiveSubscription(a.user.id); if(!TIER_LIMITS[subscription.tier].canUseCommunityManager){res.status(403).json({error:'Community Manager доступен со Starter'});return}
   const community=await prisma.community.findFirst({where:{channelId:req.params.channelId,channel:{userId:a.user.id}},include:{moderatorChat:true}});
   if(!community){res.status(409).json({error:'Сначала подключите группу в Moderator'});return}
   const manager=await prisma.communityManager.upsert({where:{communityId:community.id},create:{communityId:community.id,mode:'AUTOPILOT',configs:{create:{version:1,config:DEFAULT_CM_CONFIG}}},update:{}});
@@ -153,9 +155,11 @@ router.post('/:id/actions/:actionId/send',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
   const action=await prisma.communityManagerAction.findFirst({where:{id:req.params.actionId,communityManagerId:c.manager.id,decision:'DRAFT'}});
   if(!action?.response||!c.manager.community.moderatorChat){res.status(404).json({error:'Черновик не найден'});return}
+  const quota=await reserveSubscriptionQuota(c.user.id,'communityManagerActions');
+  if(!quota.ok){res.status(429).json({error:'Лимит действий Community Manager исчерпан',limit:quota.limit,used:quota.used});return}
   const claim=await prisma.communityManagerAction.updateMany({where:{id:action.id,communityManagerId:c.manager.id,decision:'DRAFT'},data:{decision:'SENDING'}});
-  if(claim.count!==1){res.status(409).json({error:'Черновик уже отправляется или был отправлен'});return}
-  try{const executor=await communityManagerExecutor(c.manager.community.id);const ref=await sendBotMessage(c.manager.community.moderatorChat.tgChatId,action.response,executor.token);await prisma.communityManagerAction.update({where:{id:action.id},data:{decision:'RESPOND',telegramMessageId:ref?.messageId}});res.json({ok:true})}catch(e){await prisma.communityManagerAction.updateMany({where:{id:action.id,decision:'SENDING'},data:{decision:'DRAFT',error:e instanceof Error?e.message.slice(0,500):'Send failed'}});res.status(502).json({error:e instanceof Error?e.message:'Send failed'})}
+  if(claim.count!==1){await refundSubscriptionQuota(c.user.id,'communityManagerActions');res.status(409).json({error:'Черновик уже отправляется или был отправлен'});return}
+  try{const executor=await communityManagerExecutor(c.manager.community.id);const ref=await sendBotMessage(c.manager.community.moderatorChat.tgChatId,action.response,executor.token);await prisma.communityManagerAction.update({where:{id:action.id},data:{decision:'RESPOND',telegramMessageId:ref?.messageId}});res.json({ok:true})}catch(e){await refundSubscriptionQuota(c.user.id,'communityManagerActions');await prisma.communityManagerAction.updateMany({where:{id:action.id,decision:'SENDING'},data:{decision:'DRAFT',error:e instanceof Error?e.message.slice(0,500):'Send failed'}});res.status(502).json({error:e instanceof Error?e.message:'Send failed'})}
 });
 
 router.get('/:id/faq',async(req,res)=>{let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}res.json({faqs:await prisma.communityManagerFaq.findMany({where:{communityManagerId:c.manager.id},orderBy:[{priority:'desc'},{createdAt:'desc'}]})})});
@@ -173,6 +177,7 @@ router.post('/:id/activities/run',async(req,res)=>{
 router.post('/communities/:communityId/managed-bot/request',async(req,res)=>{
   let a;try{a=await auth(req)}catch(e){fail(res,e);return}
   const community=await prisma.community.findFirst({where:{id:req.params.communityId,channel:{userId:a.user.id}},include:{managedCommunityManagerBot:true}});if(!community){res.status(404).json({error:'Community not found'});return}
+  const slot=await hasCustomBotSlot(a.user.id,community.id);if(!slot.ok){res.status(403).json({error:'Лимит персональных ботов исчерпан',limit:slot.limit,used:slot.used});return}
   const name=typeof req.body?.displayName==='string'?req.body.displayName.trim().slice(0,64):'',username=typeof req.body?.username==='string'?req.body.username.trim().replace(/^@/,''):'';
   if(name.length<2){res.status(400).json({error:'Название должно содержать минимум 2 символа'});return}if(!/^[A-Za-z][A-Za-z0-9_]{3,30}[Bb][Oo][Tt]$/.test(username)){res.status(400).json({error:'Username: 5–32 символа, латиница/цифры/_ и окончание bot'});return}
   if(community.managedCommunityManagerBot&&['READY','ACTIVE'].includes(community.managedCommunityManagerBot.status)){res.status(409).json({error:'Персональный CM-бот уже создан — измените его оформление'});return}

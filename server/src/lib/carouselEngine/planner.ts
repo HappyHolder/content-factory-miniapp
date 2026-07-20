@@ -12,6 +12,7 @@
 
 import { env } from '../../env';
 import { MAX_ITEMS, MIN_ITEMS, type CarouselContent, type CarouselContext, type CarouselItem, type CarouselPosition } from './types';
+import { replicateText } from '../replicateText';
 
 interface AiPlan {
   carousel?:   unknown;
@@ -128,36 +129,20 @@ function sanitize(plan: AiPlan): CarouselContent | null {
  * existed.
  */
 export async function planCarousel(ctx: CarouselContext): Promise<CarouselContent | null> {
-  if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
-  if (ctx.postText.length < 200) return null; // too short to hold 3+ real points
-
+  if (!env.REPLICATE_API_TOKEN || ctx.postText.length < 200) return null;
   const { system, user } = buildPrompt(ctx);
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25_000);
   try {
-    const res = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({
-        model: env.DEEPSEEK_MODEL,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        max_tokens: 1200,
-        temperature: 0.2,
-      }),
+    const raw = await replicateText({
+      model: env.LAYOUT_MODEL,
+      systemPrompt: system,
+      prompt: user,
+      maxTokens: 1200,
+      timeoutMs: 25_000,
+      input: { max_completion_tokens: 1200, reasoning_effort: 'low' },
     });
-    if (!res.ok) {
-      console.warn('[carouselEngine] planner HTTP', res.status);
-      return null;
-    }
-    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? '{}') as AiPlan;
-    return sanitize(parsed);
+    return sanitize(JSON.parse(raw ?? '{}') as AiPlan);
   } catch (err) {
     console.warn('[carouselEngine] planner failed:', (err as Error).message);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }

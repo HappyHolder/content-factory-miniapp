@@ -43,13 +43,6 @@ enum PlanTier {
   STUDIO_PRO
 }
 
-// Model strength variant within a plan. LOW = base models (DeepSeek/Flux),
-// HIGH = premium models (Claude/GPT Image). Defaults to LOW so existing rows
-// keep today's behavior. See docs/low-high-plan.md.
-enum ModelTier {
-  LOW
-  HIGH
-}
 
 // Lifecycle of an AI content-manager plan (a whole series of posts).
 // DRAFT      = built by the planner, awaiting the user's «Приступить».
@@ -305,7 +298,6 @@ model PromoCode {
   id           String    @id @default(cuid())
   code         String    @unique // stored uppercased; matched case-insensitively in app
   tier         PlanTier // tier granted on redemption
-  modelTier    ModelTier @default(LOW) // LOW = base models, HIGH = premium models
   durationDays Int // days of access the grant lasts
   redeemedAt   DateTime? // null = unused; set = burned (single-use)
   redeemedById String? // userId that redeemed it
@@ -317,16 +309,17 @@ model PromoCode {
 }
 
 model Subscription {
-  id             String    @id @default(cuid())
-  userId         String    @unique
-  tier           PlanTier  @default(FREE)
-  modelTier      ModelTier @default(LOW) // LOW = base models, HIGH = premium models
-  aiPostsLimit   Int       @default(5)
-  aiPostsUsed    Int       @default(0)
-  aiCreatesLimit Int?      @default(5) // null = unlimited (Studio Pro)
-  aiCreatesUsed  Int       @default(0)
-  quotaResetAt   DateTime? // when aiPostsUsed/aiCreatesUsed next reset (monthly)
-  expiresAt      DateTime?
+  id                          String   @id @default(cuid())
+  userId                      String   @unique
+  tier                        PlanTier @default(FREE)
+  textGenerationsUsed         Int      @default(0)
+  visualGenerationsUsed       Int      @default(0)
+  bonusVisualGenerations      Int      @default(0)
+  assistantMessagesUsed       Int      @default(0)
+  contentManagerPostsUsed     Int      @default(0)
+  communityManagerActionsUsed Int      @default(0)
+  quotaResetAt                DateTime?
+  expiresAt                   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -508,6 +501,7 @@ model ContentPlan {
   startDate    DateTime
   source       String            @default("web") // 'web' | 'uploads' | 'both'
   status       ContentPlanStatus @default(DRAFT)
+  generateVisuals Boolean          @default(true)
   errorMessage String?
 
   createdAt DateTime @default(now())

@@ -15,16 +15,9 @@ function requireEnv(key: string): string {
   return value;
 }
 
-const AI_PROVIDER = (process.env['AI_PROVIDER'] ?? 'placeholder') as 'placeholder' | 'deepseek';
+const configuredAIProvider = (): 'placeholder' | 'deepseek' => 'placeholder';
+const AI_PROVIDER = configuredAIProvider();
 
-// DEEPSEEK_API_KEY is only required when the provider is explicitly set to deepseek.
-// This lets the server start without an AI key in placeholder / dev mode.
-if (AI_PROVIDER === 'deepseek' && !process.env['DEEPSEEK_API_KEY']) {
-  throw new Error(
-    '[env] DEEPSEEK_API_KEY is required when AI_PROVIDER=deepseek.\n' +
-    '      Set it in server/.env (dev) or deploy/.env (the Docker stack).'
-  );
-}
 
 if (process.env['NODE_ENV'] === 'production' && Buffer.byteLength(process.env['MANAGED_BOT_ENCRYPTION_KEY'] ?? '', 'utf8') < 32) {
   throw new Error('[env] MANAGED_BOT_ENCRYPTION_KEY must contain at least 32 random bytes in production.');
@@ -111,7 +104,7 @@ export const env = {
   // Sonnet (not Haiku): strong enough to genuinely re-compose a fresh layout per
   // post from the CSS design system, instead of cloning the reference structure.
   COVER_HTML_MODEL: process.env['COVER_HTML_MODEL'] ?? 'anthropic/claude-4.5-sonnet',
-  // ── HIGH (premium) model variant — used when a subscription's modelTier=HIGH.
+  // Unified production model configuration for all subscription tiers.
   // Post text goes to Claude on Replicate; covers to GPT Image on Replicate.
   // LOW keeps DeepSeek (text) + IMAGE_MODEL/Flux (covers). See docs/low-high-plan.md.
   HIGH_TEXT_MODEL:  process.env['HIGH_TEXT_MODEL']  ?? 'anthropic/claude-4.5-sonnet',

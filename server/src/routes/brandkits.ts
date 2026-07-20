@@ -5,6 +5,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { analyzeReferenceStyle } from '../lib/visionExtractor';
+import { replicateText } from '../lib/replicateText';
 
 // ─── Multer setup ─────────────────────────────────────────────────────────────
 // Memory storage: file lives only in RAM (req.file.buffer), never on disk.
@@ -442,7 +443,7 @@ router.patch('/:channelId', async (req: Request, res: Response): Promise<void> =
 });
 
 // ─── POST /api/brandkits/generate-cover-style ────────────────────────────────
-// Uses DeepSeek to generate a visualCoverStyle string from the channel's
+// Uses the unified primary model to generate a visualCoverStyle string from the channel's
 // current BrandKit settings (colors, topic, mood).
 router.post('/generate-cover-style', async (req: Request, res: Response): Promise<void> => {
   const { initData, channelId, visualKit } = req.body as {
@@ -508,17 +509,14 @@ router.post('/generate-cover-style', async (req: Request, res: Response): Promis
   const userPrompt = contextParts.join('\n') + '\n\nWrite the cover style description:';
 
   try {
-    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({
-        model:    env.DEEPSEEK_MODEL,
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens: 200, temperature: 0.7,
-      }),
-    });
-    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
-    const style = data.choices?.[0]?.message?.content?.trim() ?? '';
+    const style = (await replicateText({
+      model: env.LAYOUT_MODEL,
+      systemPrompt,
+      prompt: userPrompt,
+      maxTokens: 200,
+      timeoutMs: 30_000,
+      input: { max_completion_tokens: 200, reasoning_effort: 'low' },
+    }))?.trim() ?? '';
     res.json({ style });
   } catch (err) {
     console.error('[brandkits/generate-cover-style] Error:', (err as Error).message);

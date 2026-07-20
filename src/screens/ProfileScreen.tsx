@@ -37,7 +37,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
   const { user, channels, activeChannelId } = state
   const { subscription } = user
 
-  const isPaidPlan = true // all plans are paid (no free tier)
+  const isPaidPlan = subscription.planTier !== 'free'
   const [langSheetOpen,    setLangSheetOpen]    = useState(false)
   const [connectSheetOpen, setConnectSheetOpen] = useState(false)
   const [settingsOpen,     setSettingsOpen]     = useState(false)
@@ -47,7 +47,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
 
   // Billing period display
   const billingLabel = t('profile.monthly')
-  const renewsLabel  = t('profile.renews')
+  const expiryLabel = subscription.expiresAt ? new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(subscription.expiresAt)) : null
 
   // Disconnect a channel: delete it on the server (cascades posts / style / plans)
   // then trim it from local state. Confirmed first — this is irreversible.
@@ -124,16 +124,9 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
                 <span className="text-[11px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)] px-2 py-px rounded-full">
                   {t('profile.active')}
                 </span>
-                {subscription.modelTier === 'high' && (
-                  <span className="text-[11px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.22)] px-2 py-px rounded-full">
-                    {t('plans.modelHigh')}
-                  </span>
-                )}
               </div>
               <p className="text-[12px] text-[#55555D]">
-                {billingLabel}
-                {' · '}
-                {renewsLabel} {subscription.renewsAt}
+                {billingLabel}{expiryLabel ? ` · действует до ${expiryLabel}` : ' · без оплаты'}
               </p>
             </div>
             <Button variant="primary" size="sm" onClick={onOpenPlans} fullWidth>

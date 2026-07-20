@@ -3,7 +3,7 @@
  *
  * Builds a ContentPlan(DRAFT) + items for the AI content manager. Loads the
  * channel's BrandKit (topic/voice) and, when the source includes uploads, its
- * ProjectDoc texts, then asks DeepSeek for a cohesive N-item series (working
+ * ProjectDoc texts, then asks the unified AI model for a cohesive N-item series (working
  * titles / angles / research queries). Rubrics are assigned in code (round-robin,
  * auto-creating one if the channel has none). Scheduling slots are spread across
  * the day. See docs/content-manager-plan.md.
@@ -179,7 +179,7 @@ async function resolveRubrics(
   return [created];
 }
 
-// ─── Item generation (DeepSeek) ───────────────────────────────────────────────
+// ─── Item generation (unified AI model) ───────────────────────────────────────────────
 
 interface RawItem { workingTitle: string; angle: string; searchQuery: string }
 
@@ -217,7 +217,7 @@ async function generateItems(
       searchQuery: `${params.topic}`,
     }));
 
-  if (!env.REPLICATE_API_TOKEN && !env.DEEPSEEK_API_KEY) return fallback();
+  if (!env.REPLICATE_API_TOKEN) return fallback();
 
   const { iso, year } = todayContext();
   const system =

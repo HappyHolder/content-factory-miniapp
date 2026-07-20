@@ -7,7 +7,7 @@ import { env } from '../env';
 import { verifyModeratorSession } from '../lib/moderatorSession';
 import { answerBotCallback, banChatUser, buildInlineKeyboard, deleteBotMessage, getBotIdFromToken, getBotIdentity, getChatMember, kickChatUser, restrictChatUser, sendBotMessage, setBotWebhook, unbanChatUser, sendRichMessage, TelegramApiError, type TelegramInlineKeyboard } from '../lib/telegramBot';
 import { blocksToRichHtml, parseInline, type PostBlock } from '../lib/richPost';
-import { processIntervention, reserveModeratorAiCheck, simulateIntervention } from '../moderator/interventionEngine';
+import { processIntervention, reserveModeratorAiCheck, simulateIntervention, syncModeratorEntitlement } from '../moderator/interventionEngine';
 import { moderateWithTerra } from '../moderator/modelRouter';
 import { activeWarningCount, issueWarning } from '../moderator/warningEngine';
 import { decryptManagedBotToken, moderatorTokenForCommunity } from '../moderator/managedBotCrypto';
@@ -16,6 +16,7 @@ import { handleManualCommand } from '../moderator/manualCommands';
 import { matchRegexWithTimeout } from '../moderator/regexGuard';
 import { DEFAULT_BLOCKS, parseBlocks, type AiModerationBlock, type AntiSpamBlock, type CaptchaBlock, type ContentFiltersBlock, type ProbationBlock, type TextFilterCategory, type WarningPolicyBlock, type WelcomeBlock, type TriggersBlock, type TriggerReply } from '../moderator/config';
 import { ownerFeedbackContext } from '../moderator/feedbackContext';
+import { TIER_LIMITS, getEffectiveSubscription, hasCustomBotSlot } from '../lib/subscriptionLimits';
 
 const router = Router();
 type ModeratorRuntime = { token: string; botId: number; managed: boolean };
@@ -489,7 +490,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   await moderatorRuntime.run({ token: env.MODERATOR_BOT_TOKEN, botId: getBotIdFromToken(env.MODERATOR_BOT_TOKEN), managed: false }, () => processModeratorWebhook(req, res));
 });
 
-router.get('/ai-entitlement', async (req,res)=>{let auth;try{auth=await authenticate(req)}catch(e){authError(res,e);return}const now=new Date(),reset=new Date(now);reset.setMonth(reset.getMonth()+1);const entitlement=await prisma.aiModeratorEntitlement.upsert({where:{userId:auth.user.id},create:{userId:auth.user.id,status:'TRIAL',quotaResetAt:reset},update:{}});res.json({entitlement})});
+router.get('/ai-entitlement', async (req, res) => { let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; } const entitlement = await syncModeratorEntitlement(auth.user.id); res.json({ entitlement }); });
 
 router.post('/moderators/:moderatorId/simulate-intervention',async(req,res)=>{const{conversation}=req.body as{conversation?:unknown};let auth;try{auth=await authenticate(req)}catch(e){authError(res,e);return}if(typeof conversation!=='string'||conversation.trim().length<10){res.status(400).json({error:'Добавьте пример диалога'});return}const moderator=await prisma.moderator.findFirst({where:{id:req.params['moderatorId'],community:{channel:{userId:auth.user.id}}},include:{community:{include:{channel:{include:{brandKit:true}}}}}});if(!moderator){res.status(404).json({error:'Moderator not found'});return}const draft=await prisma.moderatorConfig.findUnique({where:{moderatorId_version:{moderatorId:moderator.id,version:moderator.draftVersion}}}),block=parseBlocks(draft?.blocks??[]).find(b=>b.type==='ai_moderation') as AiModerationBlock|undefined;if(!block){res.status(409).json({error:'Сначала сохраните AI-модерацию'});return}const allowed=await reserveModeratorAiCheck(auth.user.id,Math.ceil(conversation.length/4),100);if(!allowed){res.status(429).json({error:'Месячный лимит AI-модерации исчерпан'});return}const decision=await simulateIntervention({conversation:conversation.trim(),rules:block.rules,scenarios:block.interventionScenarios,tone:block.interventionTone,personality:block.personality,channelContext:{channel:moderator.community.channel.name,handle:moderator.community.channel.handle,brandKit:moderator.community.channel.brandKit}});if(!decision){res.status(502).json({error:'Terra не вернула решение'});return}res.json({decision})});
 
@@ -508,13 +509,67 @@ router.get('/channels/:channelId/community', async (req, res) => {
   const { managedBot, ...safeCommunity } = community;
   res.json({ community: { ...safeCommunity, managedBot: managedBotPublic(managedBot) }, requiredRights: REQUIRED_BASE_RIGHTS, botUsername: env.MODERATOR_BOT_USERNAME, aiModerator: entitlement });
 });
-router.post('/channels/:channelId/community', async (req, res) => { const { moderatorChatId } = req.body as { moderatorChatId?: unknown }; let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; } if (typeof moderatorChatId !== 'string') { res.status(400).json({ error: 'moderatorChatId is required' }); return; } const channel = await prisma.channel.findFirst({ where: { id: req.params['channelId'], userId: auth.user.id }, select: { id: true } }); const chat = await prisma.moderatorChat.findFirst({ where: { id: moderatorChatId, addedByTgId: auth.tgUserId } }); if (!channel || !chat) { res.status(404).json({ error: 'Channel or group not found' }); return; } try { const [bot, user] = await Promise.all([getChatMember(chat.tgChatId, getBotIdFromToken(currentToken()), currentToken()), getChatMember(chat.tgChatId, Number(auth.tgUserId), currentToken())]); if (!['administrator', 'creator'].includes(bot.status) || !['administrator', 'creator'].includes(user.status)) { res.status(403).json({ error: 'ModerBot and you must be group administrators.' }); return; } } catch (e) { res.status(502).json({ error: e instanceof TelegramApiError ? e.message : 'Telegram check failed' }); return; } const community = await prisma.$transaction(async tx => { const base = await tx.community.upsert({ where: { channelId: channel.id }, create: { channelId: channel.id, moderatorChatId: chat.id }, update: { moderatorChatId: chat.id } }); const moderator = await tx.moderator.upsert({ where: { communityId: base.id }, create: { communityId: base.id, requiredRights: REQUIRED_BASE_RIGHTS, grantedRights: chat.grantedRights ?? undefined }, update: { grantedRights: chat.grantedRights ?? undefined, lastRightsCheckAt: new Date() } }); await tx.moderatorConfig.upsert({ where: { moderatorId_version: { moderatorId: moderator.id, version: 1 } }, create: { moderatorId: moderator.id, version: 1, blocks: [], createdById: auth.user.id }, update: {} }); return tx.community.findUnique({ where: { id: base.id }, include: { moderatorChat: true, moderator: true } }); }); res.status(201).json({ community }); });
+router.post('/channels/:channelId/community', async (req, res) => {
+  const { moderatorChatId } = req.body as { moderatorChatId?: unknown };
+  let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; }
+  if (typeof moderatorChatId !== 'string') { res.status(400).json({ error: 'moderatorChatId is required' }); return; }
 
+  const channel = await prisma.channel.findFirst({
+    where: { id: req.params['channelId'], userId: auth.user.id },
+    include: { community: { select: { id: true, moderatorChatId: true } } },
+  });
+  const chat = await prisma.moderatorChat.findFirst({ where: { id: moderatorChatId, addedByTgId: auth.tgUserId } });
+  if (!channel || !chat) { res.status(404).json({ error: 'Channel or group not found' }); return; }
+
+  const subscription = await getEffectiveSubscription(auth.user.id);
+  const chatLimit = TIER_LIMITS[subscription.tier].communityChatLimit;
+  if (!channel.community?.moderatorChatId) {
+    const usedChats = await prisma.community.count({ where: { channel: { userId: auth.user.id }, moderatorChatId: { not: null } } });
+    if (usedChats >= chatLimit) {
+      res.status(403).json({ error: `Тариф ${subscription.tier} позволяет подключить до ${chatLimit} чатов.`, code: 'COMMUNITY_CHAT_LIMIT', limit: chatLimit });
+      return;
+    }
+  }
+
+  try {
+    const [bot, user] = await Promise.all([
+      getChatMember(chat.tgChatId, getBotIdFromToken(currentToken()), currentToken()),
+      getChatMember(chat.tgChatId, Number(auth.tgUserId), currentToken()),
+    ]);
+    if (!['administrator', 'creator'].includes(bot.status) || !['administrator', 'creator'].includes(user.status)) {
+      res.status(403).json({ error: 'ModerBot and you must be group administrators.' }); return;
+    }
+  } catch (e) {
+    res.status(502).json({ error: e instanceof TelegramApiError ? e.message : 'Telegram check failed' }); return;
+  }
+
+  const community = await prisma.$transaction(async tx => {
+    const base = await tx.community.upsert({
+      where: { channelId: channel.id },
+      create: { channelId: channel.id, moderatorChatId: chat.id },
+      update: { moderatorChatId: chat.id },
+    });
+    const moderator = await tx.moderator.upsert({
+      where: { communityId: base.id },
+      create: { communityId: base.id, requiredRights: REQUIRED_BASE_RIGHTS, grantedRights: chat.grantedRights ?? undefined },
+      update: { grantedRights: chat.grantedRights ?? undefined, lastRightsCheckAt: new Date() },
+    });
+    await tx.moderatorConfig.upsert({
+      where: { moderatorId_version: { moderatorId: moderator.id, version: 1 } },
+      create: { moderatorId: moderator.id, version: 1, blocks: [], createdById: auth.user.id },
+      update: {},
+    });
+    return tx.community.findUnique({ where: { id: base.id }, include: { moderatorChat: true, moderator: true } });
+  });
+  res.status(201).json({ community });
+});
 router.post('/communities/:communityId/managed-bot/request', async (req, res) => {
   const { displayName, username, avatarUrl } = req.body as { displayName?: unknown; username?: unknown; avatarUrl?: unknown };
   let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; }
   const community = await prisma.community.findFirst({ where: { id: req.params['communityId'], channel: { userId: auth.user.id } }, include: { channel: true, managedBot: true } });
   if (!community) { res.status(404).json({ error: 'Community not found' }); return; }
+  const slot = await hasCustomBotSlot(auth.user.id, community.id);
+  if (!slot.ok) { res.status(403).json({ error: `Лимит персональных ботов исчерпан (${slot.limit} чатов).`, code: 'CUSTOM_BOT_LIMIT', limit: slot.limit }); return; }
   const entitlement = await prisma.aiModeratorEntitlement.upsert({ where: { userId: auth.user.id }, create: { userId: auth.user.id, status: 'TRIAL' }, update: {} });
   if (entitlement.status === 'DISABLED') { res.status(402).json({ error: 'Подписка AI Moderator не активна' }); return; }
   const name = typeof displayName === 'string' ? displayName.trim().slice(0, 64) : '';

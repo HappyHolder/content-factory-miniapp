@@ -33,8 +33,12 @@ function joinOutput(output: string | string[] | null): string {
 
 async function pollText(id: string, token: string, timeoutMs: number): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
+  // Adaptive backoff: fast first checks so short (classifier-grade) predictions
+  // return in <1s instead of a fixed 3s floor, settling at 3s for long runs.
+  let delay = 500;
   while (Date.now() < deadline) {
-    await sleep(3_000);
+    await sleep(delay);
+    delay = Math.min(delay * 2, 3_000);
     const res = await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
       headers: { Authorization: `Token ${token}` },
     });

@@ -8,18 +8,45 @@ import { rememberModeratorIntervention } from '../communityManager/moderatorBrid
 import { interventionCooldownSeconds, selectRepeatedParticipant } from './interventionPolicy';
 import { acceptableInterventionResponse, moderatorFallback, moderatorSanctionNotice, targetedModeratorSanctionNotice } from './interventionResponse';
 import { ownerFeedbackContext } from './feedbackContext';
+import { getEffectiveSubscription, TIER_LIMITS } from '../lib/subscriptionLimits';
 
 type ConversationDecision = { intervene: boolean; category: string; severity: 'low'|'medium'|'high'; confidence: number; reason: string; response: string; participantIds: string[] };
 const jsonOf = (raw: string): Record<string, unknown> | null => { try { const clean=raw.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/i,'').trim(),a=clean.indexOf('{'),b=clean.lastIndexOf('}'); return a>=0&&b>a?JSON.parse(clean.slice(a,b+1)) as Record<string,unknown>:null } catch { return null } };
 const oneMonth = (d: Date) => { const n=new Date(d); n.setMonth(n.getMonth()+1); return n };
 
-async function entitlement(userId: string) {
-  const now=new Date(); let row=await prisma.aiModeratorEntitlement.upsert({ where:{userId}, create:{userId,status:'TRIAL',quotaResetAt:oneMonth(now)}, update:{} });
-  if (!row.quotaResetAt || row.quotaResetAt <= now) row=await prisma.aiModeratorEntitlement.update({ where:{userId}, data:{checksUsed:0,inputTokensUsed:0,outputTokensUsed:0,estimatedCostMicros:0,quotaResetAt:oneMonth(now)} });
+export async function syncModeratorEntitlement(userId: string) {
+  const subscription = await getEffectiveSubscription(userId);
+  const limit = TIER_LIMITS[subscription.tier].aiModeratorChecksLimit;
+  const status = limit > 0 ? 'ACTIVE' : 'DISABLED';
+  const resetAt = subscription.quotaResetAt ?? oneMonth(new Date());
+  let row = await prisma.aiModeratorEntitlement.upsert({
+    where: { userId },
+    create: { userId, status, monthlyChecksLimit: limit, quotaResetAt: resetAt },
+    update: { status, monthlyChecksLimit: limit, quotaResetAt: resetAt },
+  });
+  if (row.quotaResetAt && row.quotaResetAt <= new Date()) {
+    row = await prisma.aiModeratorEntitlement.update({
+      where: { userId },
+      data: { checksUsed: 0, inputTokensUsed: 0, outputTokensUsed: 0, estimatedCostMicros: 0, quotaResetAt: resetAt },
+    });
+  }
   return row;
 }
 
-export async function reserveModeratorAiCheck(userId:string,inputTokens:number,outputTokensEstimate=100):Promise<boolean>{const access=await entitlement(userId);if(access.status==='DISABLED')return false;const reserved=await prisma.aiModeratorEntitlement.updateMany({where:{id:access.id,status:{not:'DISABLED'},checksUsed:{lt:access.monthlyChecksLimit}},data:{checksUsed:{increment:1},inputTokensUsed:{increment:inputTokens},outputTokensUsed:{increment:outputTokensEstimate},estimatedCostMicros:{increment:Math.round(inputTokens*2.5+outputTokensEstimate*15)}}});return reserved.count===1}
+export async function reserveModeratorAiCheck(userId: string, inputTokens: number, outputTokensEstimate = 100): Promise<boolean> {
+  const access = await syncModeratorEntitlement(userId);
+  if (access.status === 'DISABLED' || access.monthlyChecksLimit <= 0) return false;
+  const reserved = await prisma.aiModeratorEntitlement.updateMany({
+    where: { id: access.id, status: 'ACTIVE', checksUsed: { lt: access.monthlyChecksLimit } },
+    data: {
+      checksUsed: { increment: 1 },
+      inputTokensUsed: { increment: inputTokens },
+      outputTokensUsed: { increment: outputTokensEstimate },
+      estimatedCostMicros: { increment: Math.round(inputTokens * 2.5 + outputTokensEstimate * 15) },
+    },
+  });
+  return reserved.count === 1;
+}
 
 export async function processIntervention(input: { updateId:number|string; communityId:string; ownerUserId:string; chatId:number; tgUserId:string; username?:string; displayName?:string; telegramMessageId:number; text:string; block:AiModerationBlock; warningPolicy?:WarningPolicyBlock; channelContext:unknown; token:string }): Promise<{ analyzed:boolean; intervened:boolean; limited?:boolean }> {
   const now=new Date(), expiresAt=new Date(now.getTime()+60*60_000);

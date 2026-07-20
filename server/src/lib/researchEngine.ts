@@ -6,7 +6,7 @@
  *
  * Pipeline (Replicate-only, per product decision — no Anthropic API):
  *   Serper/Tavily search → fetchArticle on the top links → GPT-5.6 Terra
- *   synthesis pass (via assistantModel, with its emergency DeepSeek fallback).
+ *   synthesis pass through the unified primary model.
  *
  * The legacy `backend` option is accepted for call-site compatibility but
  * ignored — there is one pipeline now. Never throws: individual tool failures
@@ -127,6 +127,6 @@ export async function research(query: string, opts: ResearchOptions = {}): Promi
   return {
     text: (synthesised ?? material).trim(),
     sources: dedupeSources(articles.map(a => ({ url: a.url, title: a.title }))).filter(x => sourceAllowed(x.url, opts)),
-    backend: synthesised ? 'terra' : 'deepseek',
+    backend: 'terra',
   };
 }

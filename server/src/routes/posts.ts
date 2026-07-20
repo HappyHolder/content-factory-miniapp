@@ -36,7 +36,7 @@ import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContentFromUrl } from '../lib/visionExtractor';
 import { generateImageForPost, buildVisualKitPromptHints, renderCoverFromBase } from '../lib/imageGenerator';
 import { generateImagePromptWithAI } from '../lib/aiGenerator';
-import { isCreatesLimitReached, applyMonthlyQuotaReset, canUseHtmlCovers, MAX_TEXT_REGENS_PER_POST, MAX_IMAGE_REGENS_PER_POST } from '../lib/subscriptionLimits';
+import { TIER_LIMITS, getEffectiveSubscription, reserveSubscriptionQuota, refundSubscriptionQuota, serializeSubscription, MAX_TEXT_REGENS_PER_POST, MAX_IMAGE_REGENS_PER_POST } from '../lib/subscriptionLimits';
 import { generatePostVariants } from '../lib/aiGenerator';
 
 // ─── Multer for image uploads ─────────────────────────────────────────────────
@@ -85,7 +85,7 @@ function mapStatus(s: string): 'new' | 'scheduled' | 'published' {
 
 // ─── POST /api/posts/generate ─────────────────────────────────────────────────
 //
-// Generates 3 post variants via AI (or placeholder when AI_PROVIDER=placeholder)
+// Generates post variants via the unified primary AI model
 // and persists them as a GeneratedPost + 3 PostVariant rows in Neon.
 //
 // Request body: { initData, channelId, input, sourceType }
@@ -97,187 +97,86 @@ function mapStatus(s: string): 'new' | 'scheduled' | 'published' {
 // Response 500: DB error
 
 router.post('/generate', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, input, sourceType, imagePrompt, useBrandKit, imageOnly, coverMode, imageUrl } = req.body as {
-    initData?:    unknown;
-    channelId?:   unknown;
-    input?:       unknown;
-    sourceType?:  unknown;
-    imagePrompt?: unknown;
-    useBrandKit?: unknown;
-    imageOnly?:   unknown;
-    coverMode?:   unknown;
-    imageUrl?:    unknown;  // uploaded screenshot URL → vision-extracted into the source
+  const { initData, channelId, input, sourceType, imagePrompt, useBrandKit, imageOnly, coverMode, imageUrl, generateVisual } = req.body as {
+    initData?: unknown; channelId?: unknown; input?: unknown; sourceType?: unknown; imagePrompt?: unknown;
+    useBrandKit?: unknown; imageOnly?: unknown; coverMode?: unknown; imageUrl?: unknown; generateVisual?: unknown;
   };
-
-  // ── 1. Input validation ───────────────────────────────────────────────────
-  if (typeof initData !== 'string' || !initData.trim()) {
-    res.status(400).json({ error: 'initData is required' });
-    return;
-  }
-  if (typeof channelId !== 'string' || !channelId.trim()) {
-    res.status(400).json({ error: 'channelId is required' });
-    return;
-  }
-  // input is required unless imageOnly mode (image prompt is used as the creative brief)
+  if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
+  if (typeof channelId !== 'string' || !channelId.trim()) { res.status(400).json({ error: 'channelId is required' }); return; }
   const isImageOnly = imageOnly === true;
   const hasImageUrl = typeof imageUrl === 'string' && /^https?:\/\//i.test(imageUrl);
-  // input is required unless: imageOnly mode, or a screenshot (imageUrl) is provided.
-  if (!isImageOnly && !hasImageUrl && (typeof input !== 'string' || !input.trim())) {
-    res.status(400).json({ error: 'input is required and must be a non-empty string' });
-    return;
-  }
-  if (typeof input === 'string' && input.length > 8000) {
-    res.status(400).json({ error: 'input exceeds maximum length of 8000 characters' });
-    return;
-  }
-  if (typeof sourceType !== 'string' || !sourceType.trim()) {
-    res.status(400).json({ error: 'sourceType is required' });
-    return;
-  }
+  if (!isImageOnly && !hasImageUrl && (typeof input !== 'string' || !input.trim())) { res.status(400).json({ error: 'input is required' }); return; }
+  if (typeof input === 'string' && input.length > 8000) { res.status(400).json({ error: 'input exceeds maximum length of 8000 characters' }); return; }
+  if (typeof sourceType !== 'string' || !sourceType.trim()) { res.status(400).json({ error: 'sourceType is required' }); return; }
+  const trimmedInput = typeof input === 'string' ? input.trim() : typeof imagePrompt === 'string' ? imagePrompt.trim() : '';
 
-  const trimmedInput = typeof input === 'string' ? input.trim() : (typeof imagePrompt === 'string' ? imagePrompt.trim() : '');
-
-  // ── 2. Validate Telegram initData ────────────────────────────────────────
   let parsed;
-  try {
-    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
-  } catch (err) {
-    res.status(401).json({
-      error: err instanceof Error ? err.message : 'Invalid initData',
-    });
-    return;
-  }
+  try { parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN); }
+  catch (error) { res.status(401).json({ error: error instanceof Error ? error.message : 'Invalid initData' }); return; }
+  const dbUser = await prisma.user.findUnique({ where: { telegramId: String(parsed.user.id) }, select: { id: true } }).catch(() => null);
+  if (!dbUser) { res.status(401).json({ error: 'User not found. Please re-open the app.' }); return; }
+  const channel = await prisma.channel.findUnique({ where: { id: channelId }, select: { id: true, userId: true, handle: true, name: true } }).catch(() => null);
+  if (!channel) { res.status(404).json({ error: 'Channel not found.' }); return; }
+  if (channel.userId !== dbUser.id) { res.status(403).json({ error: 'This channel does not belong to your account.' }); return; }
 
-  // ── 3. Resolve authenticated user ────────────────────────────────────────
-  const telegramId = String(parsed.user.id);
-  let dbUser: { id: string } | null = null;
-  try {
-    dbUser = await prisma.user.findUnique({
-      where:  { telegramId },
-      select: { id: true },
-    });
-  } catch (err) {
-    console.error('[posts/generate] User lookup failed:', (err as Error).message);
-    res.status(500).json({ error: 'Internal server error' });
-    return;
-  }
-  if (!dbUser) {
-    res.status(401).json({ error: 'User not found. Please re-open the app.' });
-    return;
-  }
+  const subscription = await getEffectiveSubscription(dbUser.id);
+  const limits = TIER_LIMITS[subscription.tier];
+  const wantsVisual = isImageOnly || generateVisual !== false;
+  if (wantsVisual && !limits.canUseAiVisuals) { res.status(403).json({ error: 'AI visuals are available from Starter.', code: 'VISUAL_PLAN_REQUIRED' }); return; }
 
-  // ── 4. Check Create-mode generation quota (with lazy monthly reset) ──────
-  let subscription: { aiCreatesLimit: number | null; aiCreatesUsed: number } | null = null;
-  // Unknown tier (no row / DB error) → don't block the HTML feature.
-  let allowHtmlCovers = true;
-  let modelTier: 'LOW' | 'HIGH' = 'LOW';
-  try {
-    const sub = await prisma.subscription.findUnique({
-      where:  { userId: dbUser.id },
-      select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
-    });
-    if (sub) {
-      const fresh = await applyMonthlyQuotaReset({ userId: dbUser.id, ...sub });
-      subscription = { aiCreatesLimit: fresh.aiCreatesLimit, aiCreatesUsed: fresh.aiCreatesUsed };
-      allowHtmlCovers = canUseHtmlCovers(sub.tier);
-      modelTier = sub.modelTier;
+  let reservedText = false;
+  let reservedVisual = false;
+  if (!isImageOnly) {
+    const quota = await reserveSubscriptionQuota(dbUser.id, 'text');
+    if (!quota.ok) { res.status(429).json({ error: 'Monthly AI text limit reached.', code: 'TEXT_LIMIT_REACHED', used: quota.used, limit: quota.limit }); return; }
+    reservedText = true;
+  }
+  if (wantsVisual) {
+    const quota = await reserveSubscriptionQuota(dbUser.id, 'visual');
+    if (!quota.ok) {
+      if (reservedText) await refundSubscriptionQuota(dbUser.id, 'text');
+      res.status(429).json({ error: 'Monthly AI visual limit reached.', code: 'VISUAL_LIMIT_REACHED', used: quota.used, limit: quota.limit });
+      return;
     }
-  } catch (err) {
-    console.error('[posts/generate] Subscription lookup failed:', (err as Error).message);
-  }
-  if (subscription && isCreatesLimitReached(subscription.aiCreatesUsed, subscription.aiCreatesLimit)) {
-    res.status(403).json({
-      error:       'Monthly Create-mode generation limit reached. Upgrade your plan.',
-      code:        'CREATES_LIMIT_REACHED',
-      used:        subscription.aiCreatesUsed,
-      limit:       subscription.aiCreatesLimit,
-    });
-    return;
+    reservedVisual = true;
   }
 
-  // ── 5. Find channel + verify ownership ───────────────────────────────────
-  let channel: { id: string; userId: string; handle: string | null; name: string } | null = null;
-  try {
-    channel = await prisma.channel.findUnique({
-      where:  { id: channelId },
-      select: { id: true, userId: true, handle: true, name: true },
-    });
-  } catch (err) {
-    console.error('[posts/generate] Channel lookup failed:', (err as Error).message);
-    res.status(500).json({ error: 'Internal server error' });
-    return;
-  }
-  if (!channel) {
-    res.status(404).json({ error: 'Channel not found.' });
-    return;
-  }
-  if (channel.userId !== dbUser.id) {
-    res.status(403).json({ error: 'This channel does not belong to your account.' });
-    return;
-  }
-
-  // ── 5b. Resolve a rich source: screenshot (vision) or pasted link (article) ──
-  // Mirrors the bot flow so Create accepts the same inputs. Non-fatal: on any
-  // failure we fall back to the raw text the user typed.
   let effectiveInput = trimmedInput;
   let resolvedSourceUrl: string | null = null;
   try {
     if (hasImageUrl) {
-      const vis = await extractImageContentFromUrl(imageUrl as string);
-      if (vis) effectiveInput = [trimmedInput, vis].filter(s => s && s.trim()).join('\n\n');
+      const extracted = await extractImageContentFromUrl(imageUrl as string);
+      if (extracted) effectiveInput = [trimmedInput, extracted].filter(Boolean).join('\n\n');
     } else {
       const urlMatch = trimmedInput.match(/https?:\/\/\S+/);
-      // Treat the input as a link only when it is essentially just a URL.
       if (urlMatch && trimmedInput.replace(urlMatch[0], '').trim().length < 40) {
         const article = await fetchArticle(urlMatch[0]);
-        if (article && article.text.trim()) {
-          effectiveInput = `${article.title}\n\n${article.text}`.trim();
-          resolvedSourceUrl = urlMatch[0];
-        }
+        if (article?.text.trim()) { effectiveInput = `${article.title}\n\n${article.text}`.trim(); resolvedSourceUrl = urlMatch[0]; }
       }
     }
-  } catch (err) {
-    console.warn('[posts/generate] source extraction failed (non-fatal):', (err as Error).message);
-  }
+  } catch (error) { console.warn('[posts/generate] source extraction failed:', (error as Error).message); }
 
-  // ── 6. Create draft: BrandKit load + AI generation + DB persist ─────────────
-  // Delegated to the shared draftGenerator helper so the logic is not
-  // duplicated between this route and the bot webhook auto-draft flow.
   try {
     const draft = await createDraftPostForChannel({
-      channelId:   channel.id,
-      input:       effectiveInput,
-      sourceType:  sourceType as string,
-      sourceUrl:   resolvedSourceUrl,
+      channelId: channel.id,
+      input: effectiveInput,
+      sourceType: typeof sourceType === 'string' ? sourceType : 'prompt',
+      sourceUrl: resolvedSourceUrl,
       imagePrompt: typeof imagePrompt === 'string' ? imagePrompt : undefined,
-      useBrandKit: useBrandKit === false ? false : true,
-      imageOnly:   isImageOnly,
-      allowHtmlCovers,
-      coverModeOverride: (coverMode === 'ai' || coverMode === 'html' || coverMode === 'ai_html') ? coverMode : undefined,
-      modelTier,
+      useBrandKit: useBrandKit !== false,
+      imageOnly: isImageOnly,
+      allowHtmlCovers: limits.canUseHtmlCovers,
+      coverModeOverride: coverMode === 'ai' || coverMode === 'html' || coverMode === 'ai_html' ? coverMode : undefined,
+      generateVisual: wantsVisual,
     });
-
-    // Increment Create-mode usage counter (non-fatal if it fails)
-    if (subscription) {
-      prisma.subscription.update({
-        where: { userId: dbUser.id },
-        data:  { aiCreatesUsed: { increment: 1 } },
-      }).catch(err => console.error('[posts/generate] Usage increment failed:', (err as Error).message));
-    }
-
-    res.json({
-      post: draft,
-      usage: subscription ? {
-        aiCreatesUsed:  (subscription.aiCreatesUsed ?? 0) + 1,
-        aiCreatesLimit: subscription.aiCreatesLimit,
-      } : undefined,
-    });
-  } catch (err) {
-    console.error('[posts/generate] Draft creation failed:', (err as Error).message);
+    res.json({ post: draft, subscription: serializeSubscription(await getEffectiveSubscription(dbUser.id)) });
+  } catch (error) {
+    if (reservedVisual) await refundSubscriptionQuota(dbUser.id, 'visual');
+    if (reservedText) await refundSubscriptionQuota(dbUser.id, 'text');
+    console.error('[posts/generate] Draft creation failed:', (error as Error).message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
 // ─── POST /api/posts/create-blank ─────────────────────────────────────────────
 //
 // Creates an EMPTY draft post for manual composition in the block editor — no AI
@@ -1137,6 +1036,9 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
     res.status(403).json({ error: 'Режим 4×4 временно доступен только администратору Publium.' });
     return;
   }
+  const visualQuota = await reserveSubscriptionQuota(dbUser.id, 'visual');
+  if (!visualQuota.ok) { res.status(429).json({ error: 'Visual generation limit reached', code: 'VISUAL_LIMIT_REACHED', used: visualQuota.used, limit: visualQuota.limit }); return; }
+  let visualCommitted = false;
   let count = parseInt(String((req.body as { count?: unknown }).count ?? ''), 10);
   if (!Number.isFinite(count)) count = 4;
   count = Math.min(Math.max(count, 2), 8);
@@ -1193,6 +1095,7 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
           ).then(o => o.url),
         )),
       ));
+      visualCommitted = true;
       res.json({ urls: groups.flat(), groups, layout: 'slideshow', count: 16, rows: 4, columns: 4 });
       return;
     }
@@ -1202,10 +1105,13 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
     const urls = await Promise.all(slices.map((buf, i) =>
       putObject(`posts/panorama/${dbUser.id}-${Date.now()}-${i}.png`, buf, { contentType: 'image/png' }).then(o => o.url)));
 
+    visualCommitted = true;
     res.json({ urls, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count: slices.length });
   } catch (err) {
     console.error('[posts/generate-panorama] failed:', (err as Error).message);
     res.status(500).json({ error: 'Не удалось сгенерировать панораму. Попробуйте ещё раз.' });
+  } finally {
+    if (!visualCommitted) await refundSubscriptionQuota(dbUser.id, 'visual');
   }
 });
 
@@ -1289,6 +1195,8 @@ router.post('/generate-block-image', async (req: Request, res: Response): Promis
   }).catch(() => null);
   if (!post) { res.status(404).json({ error: 'Post not found.' }); return; }
   if (post.channel.userId !== dbUser.id) { res.status(403).json({ error: 'This post does not belong to your account.' }); return; }
+  const visualQuota = await reserveSubscriptionQuota(dbUser.id, 'visual');
+  if (!visualQuota.ok) { res.status(429).json({ error: 'Visual generation limit reached', code: 'VISUAL_LIMIT_REACHED', used: visualQuota.used, limit: visualQuota.limit }); return; }
 
   const visualKit = post.channel.brandKit?.visualKit ?? undefined;
   const vkObj = visualKit && typeof visualKit === 'object' ? visualKit as Record<string, unknown> : null;
@@ -1305,20 +1213,14 @@ router.post('/generate-block-image', async (req: Request, res: Response): Promis
     if (aiPrompt) prompt = aiPrompt;
   } catch { /* non-fatal — use fallback prompt */ }
 
-  let modelTier: 'LOW' | 'HIGH' = 'LOW';
-  try {
-    const sub = await prisma.subscription.findUnique({ where: { userId: dbUser.id }, select: { modelTier: true } });
-    if (sub) modelTier = sub.modelTier;
-  } catch { /* default LOW */ }
-
   let cover: Awaited<ReturnType<typeof generateImageForPost>> = null;
   try {
     // No headline → a clean illustration for the post body (not a cover with text).
-    cover = await generateImageForPost({ prompt, visualKit, aspectRatio, model: modelTier === 'HIGH' ? env.HIGH_IMAGE_MODEL : env.IMAGE_MODEL });
+    cover = await generateImageForPost({ prompt, visualKit, aspectRatio, model: env.HIGH_IMAGE_MODEL });
   } catch (err) {
     console.warn('[posts/generate-block-image] generation threw:', (err as Error).message);
   }
-  if (!cover?.bannerUrl) { res.status(502).json({ error: 'Не удалось сгенерировать картинку. Попробуй ещё раз.' }); return; }
+  if (!cover?.bannerUrl) { await refundSubscriptionQuota(dbUser.id, 'visual'); res.status(502).json({ error: 'Не удалось сгенерировать картинку. Попробуй ещё раз.' }); return; }
   res.json({ url: cover.bannerUrl });
 });
 
@@ -1587,14 +1489,8 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
     res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
   }
 
-  // ── 4. Check scheduling permission (Creator+ only) ───────────────────────
-  const sub = await prisma.subscription.findUnique({
-    where:  { userId: dbUser.id },
-    select: { tier: true },
-  }).catch(() => null);
-  if (sub?.tier === 'STARTER') {
-    res.status(403).json({ error: 'Scheduled posts are available on the Creator plan and above.', code: 'UPGRADE_REQUIRED' }); return;
-  }
+  const scheduleSubscription = await getEffectiveSubscription(dbUser.id);
+  if (!TIER_LIMITS[scheduleSubscription.tier].canSchedule) { res.status(403).json({ error: 'Scheduling is unavailable.', code: 'UPGRADE_REQUIRED' }); return; }
 
   // ── 5. Load post + channel for ownership check ────────────────────────────
   let post: { id: string; status: string; channel: { userId: string } } | null = null;
@@ -1912,6 +1808,9 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   // ── 5. Build image prompt ────────────────────────────────────────────────
   // Priority: saved imagePrompt → AI-generated → simple title fallback.
   // Never uses variantText (post body prose renders as visible text on image).
+  const visualQuota = await reserveSubscriptionQuota(dbUser.id, 'visual');
+  if (!visualQuota.ok) { res.status(429).json({ error: 'Visual generation limit reached', code: 'VISUAL_LIMIT_REACHED', used: visualQuota.used, limit: visualQuota.limit }); return; }
+
   const visualKit = variant.generatedPost.channel.brandKit?.visualKit ?? undefined;
   const vkObj = visualKit && typeof visualKit === 'object'
     ? visualKit as Record<string, unknown>
@@ -1941,13 +1840,8 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
     }
   }
 
-  // Model variant for this user (HIGH → GPT Image; default LOW → Flux).
-  let modelTier: 'LOW' | 'HIGH' = 'LOW';
-  try {
-    const sub = await prisma.subscription.findUnique({ where: { userId: dbUser.id }, select: { modelTier: true } });
-    if (sub) modelTier = sub.modelTier;
-  } catch { /* non-fatal — default LOW */ }
-  const imageModel = modelTier === 'HIGH' ? env.HIGH_IMAGE_MODEL : env.IMAGE_MODEL;
+  // Generate through the single primary image model.
+  const imageModel = env.HIGH_IMAGE_MODEL;
 
   // ── 6. Generate new image via Replicate ───────────────────────────────────
   let cover: Awaited<ReturnType<typeof generateImageForPost>> = null;
@@ -1966,6 +1860,7 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
   const imageUrl = cover?.bannerUrl ?? null;
   if (!imageUrl) {
     res.status(502).json({ error: 'Image generation failed or returned no result. Try again.' });
+    await refundSubscriptionQuota(dbUser.id, 'visual');
     return;
   }
 
@@ -1990,6 +1885,7 @@ router.post('/regenerate-visual', async (req: Request, res: Response): Promise<v
     ]);
   } catch (err) {
     console.error('[posts/regenerate-visual] DB update failed:', (err as Error).message);
+    await refundSubscriptionQuota(dbUser.id, 'visual');
     res.status(500).json({ error: 'Internal server error' }); return;
   }
 
@@ -2095,6 +1991,9 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
   }
 
   // ── 6. Load BrandKit for style context (non-fatal) ───────────────────────
+  const textQuota = await reserveSubscriptionQuota(dbUser.id, 'text');
+  if (!textQuota.ok) { res.status(429).json({ error: 'Text generation limit reached', code: 'TEXT_LIMIT_REACHED', used: textQuota.used, limit: textQuota.limit }); return; }
+
   let brandKit: unknown | null = null;
   try {
     brandKit = await prisma.brandKit.findUnique({
@@ -2106,12 +2005,7 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
     brandKit = null;
   }
 
-  // Model variant for this user (HIGH → Claude; default LOW → DeepSeek).
-  let modelTier: 'LOW' | 'HIGH' = 'LOW';
-  try {
-    const sub = await prisma.subscription.findUnique({ where: { userId: dbUser.id }, select: { modelTier: true } });
-    if (sub) modelTier = sub.modelTier;
-  } catch { /* non-fatal — default LOW */ }
+  // Generate through the single primary text model.
 
   // ── 7. Generate fresh variants via AI ────────────────────────────────────
   const input = post.sourceSummary?.trim() || post.channel.name;
@@ -2122,12 +2016,14 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
       sourceType: post.sourceType ?? 'prompt',
       channel:    { handle: post.channel.handle, name: post.channel.name },
       brandKit,
-    }, modelTier);
+    });
   } catch (err) {
     console.error('[posts/regenerate-text] AI generation failed:', (err as Error).message);
+    await refundSubscriptionQuota(dbUser.id, 'text');
     res.status(502).json({ error: 'Text generation failed. Try again.' }); return;
   }
   if (!Array.isArray(variantDrafts) || variantDrafts.length === 0) {
+    await refundSubscriptionQuota(dbUser.id, 'text');
     res.status(502).json({ error: 'Text generation returned no variants. Try again.' }); return;
   }
 
@@ -2166,6 +2062,7 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
     });
   } catch (err) {
     console.error('[posts/regenerate-text] DB transaction failed:', (err as Error).message);
+    await refundSubscriptionQuota(dbUser.id, 'text');
     res.status(500).json({ error: 'Internal server error' }); return;
   }
 
@@ -2466,17 +2363,13 @@ router.post('/set-rubric', async (req: Request, res: Response): Promise<void> =>
     chosenId   = typeof r['id'] === 'string' && r['id'] ? r['id'] as string : chosenName;
   }
 
-  // Plan guards: FREE coerces html/hybrid → ai; HIGH picks GPT Image, LOW Flux.
-  let allowHtmlCovers = true;
-  let modelTier: 'LOW' | 'HIGH' = 'LOW';
-  try {
-    const sub = await prisma.subscription.findUnique({ where: { userId: dbUser.id }, select: { tier: true, modelTier: true } });
-    if (sub) { allowHtmlCovers = canUseHtmlCovers(sub.tier); modelTier = sub.modelTier; }
-  } catch { /* default allow + LOW */ }
+  const effectiveSub = await getEffectiveSubscription(dbUser.id);
+  const allowHtmlCovers = TIER_LIMITS[effectiveSub.tier].canUseHtmlCovers;
   let coverMode: 'ai' | 'html' | 'ai_html' = chosenMode;
   if ((coverMode === 'html' || coverMode === 'ai_html') && !allowHtmlCovers) coverMode = 'ai';
-  const imageModel = modelTier === 'HIGH' ? env.HIGH_IMAGE_MODEL : env.IMAGE_MODEL;
-
+  const imageModel = env.HIGH_IMAGE_MODEL;
+  const visualQuota = await reserveSubscriptionQuota(dbUser.id, 'visual');
+  if (!visualQuota.ok) { res.status(429).json({ error: 'Visual generation limit reached', code: 'VISUAL_LIMIT_REACHED', used: visualQuota.used, limit: visualQuota.limit }); return; }
   const rawAr = post.coverAspectRatio ?? vkObj?.['aspectRatio'];
   const aspectRatio: '1:1' | '16:9' | '4:5' | '9:16' =
     rawAr === '16:9' || rawAr === '4:5' || rawAr === '9:16' ? rawAr : '1:1';
@@ -2514,7 +2407,7 @@ router.post('/set-rubric', async (req: Request, res: Response): Promise<void> =>
   } catch (err) {
     console.warn('[posts/set-rubric] buildCover threw:', (err as Error).message);
   }
-  if (!cover?.bannerUrl) { res.status(502).json({ error: 'Не удалось пересобрать обложку. Попробуй ещё раз.' }); return; }
+  if (!cover?.bannerUrl) { await refundSubscriptionQuota(dbUser.id, 'visual'); res.status(502).json({ error: 'Не удалось пересобрать обложку. Попробуй ещё раз.' }); return; }
 
   // Swap the cover image inside the selected variant's blocks (match the old cover
   // URL, else the first image block, else prepend) so the editor shows the new cover.
@@ -2546,6 +2439,7 @@ router.post('/set-rubric', async (req: Request, res: Response): Promise<void> =>
     ]);
   } catch (err) {
     console.error('[posts/set-rubric] DB update failed:', (err as Error).message);
+    await refundSubscriptionQuota(dbUser.id, 'visual');
     res.status(500).json({ error: 'Internal server error' }); return;
   }
 

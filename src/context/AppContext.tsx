@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react'
-import type { AppState, GeneratedPost, Channel, BrandKit } from '@/types'
+import type { AppState, GeneratedPost, Channel, BrandKit, Subscription, PlanTier } from '@/types'
 import { mockInitialState } from '@/data/mockData'
 import { postService } from '@/services/postService'
 import { brandKitService } from '@/services/brandKitService'
@@ -21,6 +21,19 @@ import { normalizePostBlocks } from '@/lib/postBlockNormalizer'
 // 'authenticated' — auth succeeded; real user/channels/posts in state
 // 'failed'        — auth or network error; minimal error screen shown, app stable
 export type AuthStatus = 'mock' | 'checking' | 'authenticated' | 'failed'
+interface ServerSubscription {
+  tier: string
+  expiresAt: string | null
+  quotaResetAt: string | null
+  usage: Subscription['usage']
+  limits: Subscription['limits']
+}
+
+function fromServerSubscription(sub: ServerSubscription): Subscription {
+  const planTier = sub.tier.toLowerCase() as PlanTier
+  const planName = planTier === 'studio_pro' ? 'Studio Pro' : planTier === 'creator' ? 'Creator' : planTier === 'starter' ? 'Starter' : 'Free'
+  return { planTier, planName, billingPeriod: 'monthly', status: 'active', expiresAt: sub.expiresAt, quotaResetAt: sub.quotaResetAt, usage: sub.usage, limits: sub.limits }
+}
 
 // ─── Default BrandKit factory ─────────────────────────────────────────────────
 // The server stores BrandKit sections as nullable JSON blobs. The frontend
@@ -102,14 +115,7 @@ interface AppContextValue {
   connectChannel: (channel: Channel) => void
   disconnectChannel: (channelId: string) => void
   updateBrandKit: (channelId: string, kit: Partial<BrandKit>) => void
-  applyServerSubscription: (sub: {
-    tier: string
-    modelTier?: string
-    aiPostsLimit: number
-    aiPostsUsed: number
-    aiCreatesLimit: number | null
-    aiCreatesUsed: number
-  }) => void
+  applyServerSubscription: (sub: ServerSubscription) => void
   toasts: Toast[]
   showToast: (message: string, type?: Toast['type']) => void
 }
@@ -251,15 +257,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         signature:    unknown
         postRules:    unknown
       }[]
-      subscription: {
-        tier:           string
-        modelTier?:     string
-        aiPostsLimit:   number
-        aiPostsUsed:    number
-        aiCreatesLimit: number | null
-        aiCreatesUsed:  number
-        expiresAt:      string | null
-      } | null
+      subscription: ServerSubscription | null
     }
 
     // Async IIFE — lets us await auth then posts sequentially while keeping
@@ -369,15 +367,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           name:     authData!.user.name     ?? prev.user.name,
           username: authData!.user.username ?? prev.user.username,
           isAdmin:  authData!.user.isAdmin ?? false,
-          subscription: serverSub ? {
-            ...prev.user.subscription,
-            planTier:       serverSub.tier.toLowerCase().replace('_pro', '_pro') as import('@/types').PlanTier,
-            modelTier:      (serverSub.modelTier?.toLowerCase() ?? 'low') as import('@/types').ModelTier,
-            aiPostsLimit:   serverSub.aiPostsLimit,
-            aiPostsUsed:    serverSub.aiPostsUsed,
-            aiCreatesLimit: serverSub.aiCreatesLimit,
-            aiCreatesUsed:  serverSub.aiCreatesUsed,
-          } : prev.user.subscription,
+          subscription: serverSub ? fromServerSubscription(serverSub) : prev.user.subscription,
         },
         channels:        realChannels,
         brandKits:       realBrandKits,
@@ -440,17 +430,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addPost = useCallback((post: GeneratedPost) => {
     postService.add(post)
     refreshPosts()
-    // Increment local Create-mode usage counter optimistically
-    setState(prev => ({
-      ...prev,
-      user: {
-        ...prev.user,
-        subscription: {
-          ...prev.user.subscription,
-          aiCreatesUsed: prev.user.subscription.aiCreatesUsed + 1,
-        },
-      },
-    }))
   }, [refreshPosts])
 
   const updatePost = useCallback((id: string, updates: Partial<GeneratedPost>) => {
@@ -522,35 +501,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
-  const applyServerSubscription = useCallback((sub: {
-    tier: string
-    modelTier?: string
-    aiPostsLimit: number
-    aiPostsUsed: number
-    aiCreatesLimit: number | null
-    aiCreatesUsed: number
-  }) => {
-    const planTier = sub.tier.toLowerCase() as import('@/types').PlanTier
-    const planName = planTier === 'studio_pro' ? 'Studio Pro'
-      : planTier === 'creator' ? 'Creator'
-      : planTier === 'starter' ? 'Starter'
-      : 'Free'
-    setState(prev => ({
-      ...prev,
-      user: {
-        ...prev.user,
-        subscription: {
-          ...prev.user.subscription,
-          planTier,
-          planName,
-          modelTier:      (sub.modelTier?.toLowerCase() ?? prev.user.subscription.modelTier) as import('@/types').ModelTier,
-          aiPostsLimit:   sub.aiPostsLimit,
-          aiPostsUsed:    sub.aiPostsUsed,
-          aiCreatesLimit: sub.aiCreatesLimit,
-          aiCreatesUsed:  sub.aiCreatesUsed,
-        },
-      },
-    }))
+  const applyServerSubscription = useCallback((sub: ServerSubscription) => {
+    setState(prev => ({ ...prev, user: { ...prev.user, subscription: fromServerSubscription(sub) } }))
   }, [])
 
   const setActiveChannel = useCallback((id: string) => {
@@ -659,17 +611,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const activeChannel = state.channels.find(c => c.id === state.activeChannelId)
 
-  // Only CREATOR and STUDIO_PRO can schedule posts (FREE/STARTER cannot)
-  const planTier = state.user.subscription.planTier
-  const canSchedulePosts = planTier === 'creator' || planTier === 'studio_pro'
-  // AI assistant is gated to STARTER and above (FREE has no access)
-  const canUseAiAssistant = planTier !== 'free'
-
-  // Check if user can still generate in Create mode
-  const aiCreatesLimit = state.user.subscription.aiCreatesLimit ?? null
-  const aiCreatesUsed  = state.user.subscription.aiCreatesUsed  ?? 0
-  const canGenerate = aiCreatesLimit === null || aiCreatesUsed < aiCreatesLimit
-  const createsRemaining = aiCreatesLimit === null ? null : Math.max(0, aiCreatesLimit - aiCreatesUsed)
+  const subscription = state.user.subscription
+  const canSchedulePosts = subscription.limits.canSchedule
+  const canUseAiAssistant = subscription.limits.canUseAiAssistant
+  const canGenerate = subscription.usage.text.used < subscription.usage.text.limit
+  const createsRemaining = Math.max(0, subscription.usage.text.limit - subscription.usage.text.used)
 
   return (
     <AppContext.Provider value={{

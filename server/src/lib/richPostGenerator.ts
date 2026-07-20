@@ -127,45 +127,10 @@ async function layoutViaReplicate(system: string, user: string): Promise<AiLayou
   return raw ? parseLayout(raw) : null;
 }
 
-/** DeepSeek OpenAI-compatible endpoint with forced JSON. Returns null on failure. */
-async function layoutViaDeepseek(system: string, user: string): Promise<AiLayout | null> {
-  if (!env.DEEPSEEK_API_KEY) return null;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30_000);
-  try {
-    const res = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({
-        model: env.DEEPSEEK_MODEL,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        max_tokens: 4096,
-        temperature: 0.3,
-      }),
-    });
-    if (!res.ok) { console.error('[richPostGenerator] DeepSeek', res.status); return null; }
-    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
-    return parseLayout(data.choices?.[0]?.message?.content ?? '');
-  } catch (err) {
-    console.error('[richPostGenerator] layout AI failed:', (err as Error).message);
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-/** Primary = LAYOUT_MODEL on Replicate (Terra); falls back to DeepSeek. */
+/** Uses the same primary text model as the rest of the product. */
 async function callLayoutAI(system: string, user: string): Promise<AiLayout | null> {
-  if (env.LAYOUT_PROVIDER === 'replicate') {
-    const viaTerra = await layoutViaReplicate(system, user);
-    if (viaTerra) return viaTerra;
-    console.warn('[richPostGenerator] layout model unavailable — falling back to DeepSeek');
-  }
-  return layoutViaDeepseek(system, user);
+  return layoutViaReplicate(system, user);
 }
-
 // ─── Mapping AiLayout → PostBlock[] ─────────────────────────────────────────────
 
 function isStr(x: unknown): x is string { return typeof x === 'string' && x.trim().length > 0; }

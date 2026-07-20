@@ -12,7 +12,6 @@ import { env } from '../env';
 import { replicateText } from './replicateText';
 import { stripDisabledHighlightMarkers } from './richPost';
 
-type ModelTier = 'LOW' | 'HIGH';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -651,7 +650,7 @@ export interface GenerateImagePromptParams {
 export async function generateImagePromptWithAI(
   params: GenerateImagePromptParams,
 ): Promise<string | null> {
-  if (env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY) return null;
+  if (!env.REPLICATE_API_TOKEN) return null;
 
   const { title, excerpt, visualKit, artDirection, fullBleed, backgroundKind, hybridPrompt, bodyImage } = params;
   const styleDesc = buildVisualStyleDescription(visualKit);
@@ -725,48 +724,23 @@ export async function generateImagePromptWithAI(
   return callImagePromptModel(systemPrompt, userPrompt);
 }
 
-/** Runs the image-prompt system+user messages through DeepSeek; null on failure. */
+/** Runs image-prompt generation through the unified primary text model. */
 async function callImagePromptModel(systemPrompt: string, userPrompt: string): Promise<string | null> {
-  const controller = new AbortController();
-  const timeoutId  = setTimeout(() => controller.abort(), 20_000);
-
   try {
-    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method:  'POST',
-      signal:  controller.signal,
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model:       env.DEEPSEEK_MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user',   content: userPrompt   },
-        ],
-        max_tokens:  150,
-        temperature: 0.7,
-      }),
+    const result = await replicateText({
+      model: env.HIGH_TEXT_MODEL,
+      systemPrompt,
+      prompt: userPrompt,
+      maxTokens: 150,
+      timeoutMs: 20_000,
+      input: { max_completion_tokens: 150, reasoning_effort: 'low' },
     });
-
-    if (!response.ok) {
-      console.warn(`[aiGenerator] Image prompt generation failed: HTTP ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json() as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const result = data.choices?.[0]?.message?.content?.trim() ?? '';
-    return result || null;
+    return result?.trim() || null;
   } catch (err) {
     console.warn('[aiGenerator] Image prompt generation error:', (err as Error).message);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
-
 // ─── Template slot filling ────────────────────────────────────────────────────
 
 /** Escapes HTML text-node special characters in a slot value. */
@@ -1337,17 +1311,7 @@ export async function classifyPostRubric(
  *   falls back to placeholder on any error (non-200, timeout, bad JSON,
  *   empty/invalid variants).
  */
-export async function generatePostVariants(
-  params: GenerateParams,
-  modelTier: ModelTier = 'LOW',
-): Promise<VariantDraft[]> {
-  // HIGH: premium text model (Claude) on Replicate. Falls back to DeepSeek/
-  // placeholder inside generateWithClaude on any failure.
-  if (modelTier === 'HIGH' && env.REPLICATE_API_TOKEN) {
-    return generateWithClaude(params);
-  }
-  if (env.AI_PROVIDER === 'deepseek') {
-    return generateWithDeepSeek(params);
-  }
-  return buildPlaceholderVariants(params.input);
+export async function generatePostVariants(params: GenerateParams): Promise<VariantDraft[]> {
+  if (!env.REPLICATE_API_TOKEN) throw new Error('Primary text model is not configured');
+  return generateWithClaude(params);
 }

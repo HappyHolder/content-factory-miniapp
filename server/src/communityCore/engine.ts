@@ -20,6 +20,7 @@ import { parseInner, evolveInner, describeInner } from './personaState';
 import { sanitizeConversationReply } from '../communityManager/conversationStyle';
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions';
+import { getEffectiveSubscription, TIER_LIMITS } from '../lib/subscriptionLimits';
 
 type Running = { client: TelegramClient; stop: () => Promise<void> };
 const running = new Map<string, Running>();
@@ -135,7 +136,7 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
     let external = '';
     const b = budget(personaId);
     if (config.research.mode === 'topics' && freshCue(text) && topicHit(text, config) && b.research < config.research.dailyLimit) {
-      try { const rr = await research(text.slice(0, 500), { backend: 'deepseek', blockedDomains: config.research.blockedDomains, maxSearches: 3 }); if (rr.text) { external = rr.text.slice(0, 4000); b.research++; } } catch { /* research is best-effort */ }
+      try { const rr = await research(text.slice(0, 500), { backend: 'opus', blockedDomains: config.research.blockedDomains, maxSearches: 3 }); if (rr.text) { external = rr.text.slice(0, 4000); b.research++; } } catch { /* research is best-effort */ }
     }
 
     const recentReacted = await countActions(personaId, ['REACT', 'REACT_REPLY'], 3600_000);
@@ -230,6 +231,8 @@ export async function startPersona(personaId: string): Promise<void> {
     include: { community: { include: { moderatorChat: true, channel: true } } },
   });
   if (!persona || !persona.publishedConfig || !persona.sessionCipher) return;
+  const subscription = await getEffectiveSubscription(persona.ownerUserId);
+  if (!TIER_LIMITS[subscription.tier].canUseCommunityCore) { await prisma.persona.update({ where: { id: persona.id }, data: { enabled: false, status: 'PAUSED', lastError: 'Subscription required' } }); return; }
   const chatId = persona.community.moderatorChat?.tgChatId;
   if (!chatId) return;
 
@@ -274,6 +277,8 @@ async function maybeInitiate(personaId: string): Promise<void> {
   if (!entry) return;
   const persona = await prisma.persona.findFirst({ where: { id: personaId, enabled: true }, include: { community: { include: { moderatorChat: true, channel: true } } } });
   if (!persona?.publishedConfig) return;
+  const subscription = await getEffectiveSubscription(persona.ownerUserId);
+  if (!TIER_LIMITS[subscription.tier].canUseCommunityCore) { await stopPersona(persona.id); return; }
   const config = parsePersonaConfig(persona.publishedConfig);
   const chatId = persona.community.moderatorChat?.tgChatId;
   if (!config.proactive.enabled || !isPersonaAwake(config) || !chatId) return;

@@ -1,6 +1,7 @@
 import type {
   User, Channel, BrandKit, GeneratedPost, AppState
 } from '@/types'
+import { SUBSCRIPTION_LIMITS } from '@/lib/subscriptionCatalog'
 
 export const mockUser: User = {
   id: 'u1',
@@ -8,15 +9,17 @@ export const mockUser: User = {
   username: 'alexfounder',
   subscription: {
     planTier: 'creator',
-    modelTier: 'low',
     planName: 'Creator',
     billingPeriod: 'monthly',
-    renewsAt: 'Jun 25',
     status: 'active',
-    aiPostsLimit:   150,
-    aiPostsUsed:    0,
-    aiCreatesLimit: 60,
-    aiCreatesUsed:  0,
+    expiresAt: null,
+    quotaResetAt: null,
+    usage: {
+      text: { used: 0, limit: 600 }, visuals: { used: 0, included: 200, bonus: 0, limit: 200 },
+      assistant: { used: 0, limit: 3000 }, contentManagerPosts: { used: 0, limit: 200 },
+      communityManagerActions: { used: 0, limit: 1500 },
+    },
+    limits: SUBSCRIPTION_LIMITS.creator,
   },
 }
 

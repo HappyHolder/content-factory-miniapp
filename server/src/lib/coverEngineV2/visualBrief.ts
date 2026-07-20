@@ -1,5 +1,6 @@
 import { env } from '../../env';
 import type { CoverContextV2, VisualBriefV2 } from './types';
+import { replicateText } from '../replicateText';
 
 function extractJsonObject(raw: string): string {
   const start = raw.indexOf('{');
@@ -38,7 +39,7 @@ export function fallbackVisualBriefV2(ctx: CoverContextV2): VisualBriefV2 {
 
 export async function createVisualBriefV2(ctx: CoverContextV2, dryRun = false): Promise<VisualBriefV2> {
   const fallback = fallbackVisualBriefV2(ctx);
-  if (dryRun || env.AI_PROVIDER !== 'deepseek' || !env.DEEPSEEK_API_KEY || !ctx.postText) return fallback;
+  if (dryRun || !env.REPLICATE_API_TOKEN || !ctx.postText) return fallback;
 
   const systemPrompt =
     'You are a visual editor. Return ONLY valid JSON. Extract the post story as visual guidance: event, actors, conflict, consequence, and one concrete visual metaphor. Do not write an image prompt.';
@@ -47,24 +48,16 @@ export async function createVisualBriefV2(ctx: CoverContextV2, dryRun = false): 
     `Full post:\n${ctx.postText.slice(0, 2800)}\n\n` +
     'Return JSON exactly with keys: coreEvent string, actors string[], conflict string, consequence string, visualMetaphor string, avoid string[], keywords string[].';
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12_000);
   try {
-    const response = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({
-        model: env.DEEPSEEK_MODEL,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens: 500,
-        temperature: 0.2,
-      }),
+    const raw = await replicateText({
+      model: env.LAYOUT_MODEL,
+      systemPrompt,
+      prompt: userPrompt,
+      maxTokens: 500,
+      timeoutMs: 20_000,
+      input: { max_completion_tokens: 500, reasoning_effort: 'low' },
     });
-    if (!response.ok) return fallback;
-    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
-    const parsed = JSON.parse(extractJsonObject(data.choices?.[0]?.message?.content?.trim() ?? '{}')) as Record<string, unknown>;
+    const parsed = JSON.parse(extractJsonObject(raw?.trim() ?? '{}')) as Record<string, unknown>;
     return {
       coreEvent: cleanText(parsed.coreEvent, fallback.coreEvent),
       actors: cleanList(parsed.actors).length ? cleanList(parsed.actors) : fallback.actors,
@@ -76,7 +69,5 @@ export async function createVisualBriefV2(ctx: CoverContextV2, dryRun = false): 
     };
   } catch {
     return fallback;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }

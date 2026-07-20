@@ -2,8 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { TIER_LIMITS } from '../lib/subscriptionLimits';
-import { applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
+import { TIER_LIMITS, getEffectiveSubscription, reserveSubscriptionQuota, refundSubscriptionQuota } from '../lib/subscriptionLimits';
 import { enqueueContentPlan } from '../lib/contentWorker';
 
 // ─── Content plans ────────────────────────────────────────────────────────────
@@ -63,40 +62,31 @@ router.post('/:id/confirm', async (req: Request, res: Response): Promise<void> =
     res.status(409).json({ error: 'Plan already started.', status: plan.status }); return;
   }
 
-  // Feature gate — content manager is CREATOR+.
-  const sub = await prisma.subscription.findUnique({
-    where:  { userId: auth.userId },
-    select: { tier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true },
-  }).catch(() => null);
-  const tier = sub?.tier ?? 'FREE';
-  if (!TIER_LIMITS[tier].canUseContentManager) {
-    res.status(403).json({ error: 'Контент-менеджер доступен на тарифе Creator и выше.', code: 'UPGRADE_REQUIRED' }); return;
-  }
-
-  // Quota gate — need at least N free monthly posts for the pending items.
+  const subscription = await getEffectiveSubscription(auth.userId);
+  const limits = TIER_LIMITS[subscription.tier];
   const pending = plan.items.filter(i => i.status !== 'DONE' && i.status !== 'SKIPPED').length;
-  if (sub) {
-    const q = await applyMonthlyQuotaReset({
-      userId: auth.userId,
-      aiPostsLimit: sub.aiPostsLimit, aiPostsUsed: sub.aiPostsUsed,
-      aiCreatesLimit: sub.aiCreatesLimit, aiCreatesUsed: sub.aiCreatesUsed,
-      quotaResetAt: sub.quotaResetAt,
-    });
-    const free = q.aiPostsLimit - q.aiPostsUsed;
-    if (free < pending) {
-      res.status(402).json({
-        error: `Недостаточно квоты постов: нужно ${pending}, доступно ${Math.max(0, free)}.`,
-        code: 'QUOTA_EXCEEDED', needed: pending, available: Math.max(0, free),
-      });
+  const contentQuota = await reserveSubscriptionQuota(auth.userId, 'contentManagerPosts', pending);
+  if (!contentQuota.ok) {
+    res.status(429).json({ error: `Недостаточно лимита Content Manager: нужно ${pending}, доступно ${Math.max(0, contentQuota.limit - contentQuota.used)}.`, code: 'CONTENT_MANAGER_LIMIT', needed: pending, available: Math.max(0, contentQuota.limit - contentQuota.used) });
+    return;
+  }
+  let visualsReserved = false;
+  if (limits.canUseAiVisuals) {
+    const visualQuota = await reserveSubscriptionQuota(auth.userId, 'visual', pending);
+    if (!visualQuota.ok) {
+      await refundSubscriptionQuota(auth.userId, 'contentManagerPosts', pending);
+      res.status(429).json({ error: `Для плана нужно ${pending} визуальных генераций, доступно ${Math.max(0, visualQuota.limit - visualQuota.used)}.`, code: 'VISUAL_LIMIT_REACHED', needed: pending, available: Math.max(0, visualQuota.limit - visualQuota.used) });
       return;
     }
+    visualsReserved = true;
   }
-
   try {
-    await prisma.contentPlan.update({ where: { id: planId }, data: { status: 'GENERATING', errorMessage: null } });
+    await prisma.contentPlan.update({ where: { id: planId }, data: { status: 'GENERATING', generateVisuals: limits.canUseAiVisuals, errorMessage: null } });
     enqueueContentPlan(planId);
     res.json({ ok: true, planId, status: 'GENERATING' });
   } catch (err) {
+    if (visualsReserved) await refundSubscriptionQuota(auth.userId, 'visual', pending);
+    await refundSubscriptionQuota(auth.userId, 'contentManagerPosts', pending);
     console.error('[content-plan/confirm] failed:', (err as Error).message);
     res.status(500).json({ error: 'Internal server error' });
   }

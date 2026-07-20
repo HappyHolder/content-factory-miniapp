@@ -7,16 +7,16 @@ import { verifyTonDeposit } from '../lib/tonVerification';
 import {
   pricingFor, isPaidTier, grantSubscription, serializeSub, type PaidTier,
 } from '../lib/payments';
-import { applyTierExpiry, applyMonthlyQuotaReset } from '../lib/subscriptionLimits';
+import { getEffectiveSubscription } from '../lib/subscriptionLimits';
 import { grantStylePurchase } from '../lib/styles';
 
 const router = Router();
 
 // Display names for the paid tiers (DB enum stays STARTER/CREATOR/STUDIO_PRO).
 const TIER_DISPLAY: Record<PaidTier, string> = {
-  STARTER:    'Blogger',
-  CREATOR:    'Business',
-  STUDIO_PRO: 'Agency',
+  STARTER:    'Starter',
+  CREATOR:    'Creator',
+  STUDIO_PRO: 'Studio Pro',
 };
 const PLAN_TITLE: Record<PaidTier, string> = {
   STARTER:    `Publium · ${TIER_DISPLAY.STARTER}`,
@@ -49,45 +49,25 @@ router.post('/subscription', async (req: Request, res: Response): Promise<void> 
   const { initData } = req.body as { initData?: unknown };
   const dbUser = await resolveUser(initData, res);
   if (!dbUser) return;
-
-  const sub = await prisma.subscription.findUnique({
-    where:  { userId: dbUser.id },
-    select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true, expiresAt: true },
-  }).catch(() => null);
-  if (!sub) { res.json({ subscription: null }); return; }
-
-  const tierState = await applyTierExpiry({ userId: dbUser.id, tier: sub.tier, aiPostsLimit: sub.aiPostsLimit, aiCreatesLimit: sub.aiCreatesLimit, expiresAt: sub.expiresAt });
-  const downgraded = tierState.tier !== sub.tier;
-  const fresh = await applyMonthlyQuotaReset({
-    userId: dbUser.id,
-    aiPostsLimit: tierState.aiPostsLimit, aiPostsUsed: downgraded ? 0 : sub.aiPostsUsed,
-    aiCreatesLimit: tierState.aiCreatesLimit, aiCreatesUsed: downgraded ? 0 : sub.aiCreatesUsed,
-    quotaResetAt: sub.quotaResetAt,
-  });
-  res.json({ subscription: serializeSub({ tier: tierState.tier, modelTier: downgraded ? 'LOW' : sub.modelTier, expiresAt: tierState.expiresAt, ...fresh }) });
+  const sub = await getEffectiveSubscription(dbUser.id);
+  res.json({ subscription: serializeSub(sub) });
 });
 
-// ─── POST /api/payments/stars/create-invoice ─────────────────────────────────
-// Creates a Telegram Stars invoice for the chosen plan. The actual grant happens
-// in the bot's successful_payment handler (authoritative).
 // Body: { initData, tier }  Response: { invoiceUrl }
 
 router.post('/stars/create-invoice', async (req: Request, res: Response): Promise<void> => {
-  const { initData, tier, modelTier } = req.body as { initData?: unknown; tier?: unknown; modelTier?: unknown };
+  const { initData, tier } = req.body as { initData?: unknown; tier?: unknown };
   const dbUser = await resolveUser(initData, res);
   if (!dbUser) return;
   if (!isPaidTier(tier)) { res.status(400).json({ error: 'Invalid plan tier' }); return; }
-  const mt: 'LOW' | 'HIGH' = modelTier === 'HIGH' ? 'HIGH' : 'LOW';
-
-  const price = pricingFor(tier, mt);
-  // Payload echoed back in successful_payment — identifies user + tier + variant.
-  const payload = JSON.stringify({ t: 'sub', tier, mt, uid: dbUser.id });
+  const price = pricingFor(tier);
+  const payload = JSON.stringify({ t: 'sub', tier, uid: dbUser.id });
   if (Buffer.byteLength(payload, 'utf8') > 128) { res.status(400).json({ error: 'payload too large' }); return; }
 
   try {
     const invoiceUrl = await createStarsInvoiceLink({
-      title:       `${PLAN_TITLE[tier]}${mt === 'HIGH' ? ' Premium' : ''}`,
-      description: `Подписка ${TIER_DISPLAY[tier]}${mt === 'HIGH' ? ' Premium' : ''} на 30 дней`,
+      title:       PLAN_TITLE[tier],
+      description: 'Subscription ' + TIER_DISPLAY[tier] + ' for 30 days',
       payload,
       amountStars: price.stars,
       token:       env.TELEGRAM_BOT_TOKEN,
@@ -104,7 +84,7 @@ router.post('/stars/create-invoice', async (req: Request, res: Response): Promis
 // Body: { initData, tier, senderWallet }  Response: { subscription } | error
 
 router.post('/ton/verify', async (req: Request, res: Response): Promise<void> => {
-  const { initData, tier, senderWallet, modelTier } = req.body as { initData?: unknown; tier?: unknown; senderWallet?: unknown; modelTier?: unknown };
+  const { initData, tier, senderWallet } = req.body as { initData?: unknown; tier?: unknown; senderWallet?: unknown };
   const dbUser = await resolveUser(initData, res);
   if (!dbUser) return;
   if (!isPaidTier(tier)) { res.status(400).json({ error: 'Invalid plan tier' }); return; }
@@ -112,9 +92,7 @@ router.post('/ton/verify', async (req: Request, res: Response): Promise<void> =>
   if (!env.TON_RECEIVING_WALLET || !env.TONCENTER_API_KEY) {
     res.status(503).json({ error: 'TON payments are not configured.' }); return;
   }
-  const mt: 'LOW' | 'HIGH' = modelTier === 'HIGH' ? 'HIGH' : 'LOW';
-
-  const expectedTon = pricingFor(tier as PaidTier, mt).ton;
+  const expectedTon = pricingFor(tier as PaidTier).ton;
 
   const result = await verifyTonDeposit({
     expectedTon,
@@ -132,18 +110,22 @@ router.post('/ton/verify', async (req: Request, res: Response): Promise<void> =>
     return;
   }
 
-  // Record the tx hash (unique) then grant. The unique constraint is the final
-  // double-credit guard against a race between two verify calls.
   try {
-    await prisma.tonPayment.create({
-      data: { txHash: result.txHash, userId: dbUser.id, tier: tier as PaidTier, amountTon: result.actualTon ?? expectedTon },
+    const granted = await prisma.$transaction(async (tx) => {
+      await tx.tonPayment.create({
+        data: { txHash: result.txHash!, userId: dbUser.id, tier: tier as PaidTier, amountTon: result.actualTon ?? expectedTon },
+      });
+      return grantSubscription(dbUser.id, tier as PaidTier, undefined, tx);
     });
-  } catch {
-    res.status(409).json({ error: 'Этот платёж уже зачтён.' }); return;
+    res.json({ subscription: serializeSub(granted) });
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2002') {
+      res.status(409).json({ error: 'Этот платёж уже зачтён.' });
+      return;
+    }
+    console.error('[payments/ton] grant failed:', (error as Error).message);
+    res.status(500).json({ error: 'Не удалось активировать тариф. Платёж можно проверить повторно.' });
   }
-
-  const granted = await grantSubscription(dbUser.id, tier as PaidTier, mt);
-  res.json({ subscription: serializeSub(granted) });
 });
 
 // ─── POST /api/payments/stars/create-style-invoice ────────────────────────────

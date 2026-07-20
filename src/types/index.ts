@@ -25,23 +25,43 @@ export interface ChannelAbout {
 
 export type PlanTier = 'free' | 'starter' | 'creator' | 'studio_pro'
 
-// Model strength variant within a plan: low = base models, high = premium.
-export type ModelTier = 'low' | 'high'
+export interface SubscriptionTierLimits {
+  textGenerationsLimit: number
+  visualGenerationsLimit: number
+  channelLimit: number
+  communityChatLimit: number
+  assistantMessagesLimit: number
+  contentManagerPostsLimit: number
+  aiModeratorChecksLimit: number
+  communityManagerActionsLimit: number
+  communityCorePersonaLimit: number
+  customBotChatLimit: number
+  canSchedule: boolean
+  canUseAiAssistant: boolean
+  canUseContentManager: boolean
+  canUseAiVisuals: boolean
+  canUseHtmlCovers: boolean
+  canUseAiModerator: boolean
+  canUseCommunityManager: boolean
+  canUseCommunityCore: boolean
+}
 
 export interface Subscription {
   planTier: PlanTier
-  modelTier: ModelTier
   planName: string
   billingPeriod: 'monthly'
-  renewsAt: string
   status: 'active'
-  // Quota counters from backend
-  aiPostsLimit: number
-  aiPostsUsed: number
-  aiCreatesLimit: number | null  // null = unlimited
-  aiCreatesUsed: number
+  expiresAt: string | null
+  quotaResetAt: string | null
+  usage: {
+    text: { used: number; limit: number }
+    visuals: { used: number; included: number; bonus: number; limit: number }
+    assistant: { used: number; limit: number }
+    contentManagerPosts: { used: number; limit: number }
+    communityManagerActions: { used: number; limit: number }
+  }
+  limits: SubscriptionTierLimits
 }
-
 export interface Plan {
   tier: PlanTier
   name: string

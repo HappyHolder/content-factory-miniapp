@@ -59,7 +59,7 @@ export interface CreateDraftParams {
   imageOnly?:   boolean;   // skip text AI generation, produce one empty-text variant
   allowHtmlCovers?: boolean; // default true; false (FREE tier) forces coverMode 'ai'
   coverModeOverride?: 'ai' | 'html' | 'ai_html'; // per-generation cover engine; overrides channel setting
-  modelTier?: 'LOW' | 'HIGH'; // LOW = DeepSeek/Flux (default); HIGH = Claude/GPT Image
+  generateVisual?: boolean; // false = text-only post; no image provider call
   // Content-manager path: use this pre-chosen rubric instead of classifying.
   // Resolved against visualKit.rubrics for its mode/template; a plain AI rubric
   // is used if the id isn't found. See docs/content-manager-plan.md.
@@ -152,7 +152,7 @@ function extractButtonLinks(brandKit: unknown): {
  * Creates a GeneratedPost with exactly 3 PostVariant rows for the given channel.
  *
  * - Loads BrandKit for Channel Style context (non-fatal if absent or DB error).
- * - Calls generatePostVariants() — uses DeepSeek or placeholder fallback.
+ * - Calls generatePostVariants() through the unified primary AI model.
  * - Runs a Prisma interactive transaction: create post+variants → set selectedVariantId.
  * - Returns the mapped frontend post shape.
  *
@@ -162,10 +162,9 @@ function extractButtonLinks(brandKit: unknown): {
 export async function createDraftPostForChannel(
   params: CreateDraftParams,
 ): Promise<DraftPost> {
-  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false, allowHtmlCovers = true, coverModeOverride, modelTier = 'LOW', forcedRubric } = params;
+  const { channelId, input, sourceType, sourceUrl, imagePrompt, useBrandKit = true, imageOnly = false, allowHtmlCovers = true, coverModeOverride, generateVisual = true, forcedRubric } = params;
 
-  // HIGH tier routes the AI picture model to GPT Image; LOW keeps Flux (env.IMAGE_MODEL).
-  const imageModel = modelTier === 'HIGH' ? env.HIGH_IMAGE_MODEL : env.IMAGE_MODEL;
+  const imageModel = env.HIGH_IMAGE_MODEL;
 
   // ── Load channel ──────────────────────────────────────────────────────────
   const channel = await prisma.channel.findUniqueOrThrow({
@@ -210,7 +209,7 @@ export async function createDraftPostForChannel(
         sourceType,
         channel: { handle: channel.handle, name: channel.name },
         brandKit,
-      }, modelTier);
+      });
 
   // Prefer the AI-written headline (first line of the generated post) over the
   // raw input's first line — for links/tweets the latter is often junk (author
@@ -262,7 +261,7 @@ export async function createDraftPostForChannel(
   // Image prompt priority:
   //   1. User-provided imagePrompt (explicit override — use as-is)
   //   2. AI-generated prompt from post title + BrandKit visual style (auto)
-  //   3. Skip image generation (AI_PROVIDER=placeholder, no DeepSeek configured)
+  //   3. Skip image generation when the primary AI provider is unavailable
   //
   // The AI translates post topic + brand colors/mood into natural visual English
   // so the image model receives "electric blue neon road, dark space atmosphere"
@@ -378,12 +377,12 @@ export async function createDraftPostForChannel(
   });
 
   // ── Cover generation (extracted to coverBuilder; reused by set-rubric) ─────
-  cover = await buildCoverRouted({
+  cover = generateVisual ? await buildCoverRouted({
     coverMode, useBrandKit, visualKit, vkObj, rubricTemplate, rubricHybridPrompt, rubricSelected: rubricMode !== null,
     title, sourceSummary, finalTitle, input,
     imagePrompt: imagePrompt?.trim() || undefined,
     coverLanguage, aspectRatio, imageModel, slotBrandCtx,
-  });
+  }) : null;
 
   // Persist cover URLs to DB (non-fatal)
   if (cover?.bannerUrl) {

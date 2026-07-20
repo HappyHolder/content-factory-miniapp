@@ -77,11 +77,11 @@ function AppContent() {
       if (res.ok && ctype.includes('text/event-stream') && res.body) {
         // Streaming path: grow the assistant bubble as chunks arrive.
         setChatMessages(prev => [...prev, { role: 'assistant', content: '' }])
-        const updateLast = (content: string, plan?: ContentPlan) =>
+        const updateLast = (content: string, plan?: ContentPlan, createWorthy?: boolean) =>
           setChatMessages(prev => {
             const copy = [...prev]
             const last = copy[copy.length - 1]
-            if (last?.role === 'assistant') copy[copy.length - 1] = { ...last, content, ...(plan ? { plan } : {}) }
+            if (last?.role === 'assistant') copy[copy.length - 1] = { ...last, content, ...(plan ? { plan } : {}), ...(createWorthy ? { createWorthy } : {}) }
             return copy
           })
         const reader = res.body.getReader()
@@ -89,6 +89,7 @@ function AppContent() {
         let buf = ''
         let acc = ''
         let donePlan: ContentPlan | undefined
+        let doneWorthy = false
         let failed = false
         for (;;) {
           const { done, value } = await reader.read()
@@ -101,21 +102,21 @@ function AppContent() {
             const dataStr = rawEvent.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('')
             if (!dataStr) continue
             try {
-              const evt = JSON.parse(dataStr) as { type?: string; text?: string; sessionId?: string; plan?: ContentPlan }
+              const evt = JSON.parse(dataStr) as { type?: string; text?: string; sessionId?: string; plan?: ContentPlan; createWorthy?: boolean }
               if (evt.type === 'chunk' && typeof evt.text === 'string') { acc += evt.text; updateLast(acc) }
-              else if (evt.type === 'done') { if (evt.sessionId) setChatSessionId(evt.sessionId); donePlan = evt.plan }
+              else if (evt.type === 'done') { if (evt.sessionId) setChatSessionId(evt.sessionId); donePlan = evt.plan; doneWorthy = evt.createWorthy === true }
               else if (evt.type === 'error') failed = true
             } catch { /* skip malformed event */ }
           }
         }
         if (failed && !acc) updateLast('Не удалось получить ответ. Попробуй ещё раз.')
-        else if (donePlan) updateLast(acc, donePlan)
+        else updateLast(acc, donePlan, doneWorthy)
       } else {
         // JSON path: errors (quota, auth) or a non-streaming server.
-        const data = await res.json() as { reply?: string; error?: string; plan?: ContentPlan; sessionId?: string }
+        const data = await res.json() as { reply?: string; error?: string; plan?: ContentPlan; sessionId?: string; createWorthy?: boolean }
         if (data.sessionId) setChatSessionId(data.sessionId)
         const reply = data.reply ?? data.error ?? 'Ошибка'
-        setChatMessages(prev => [...prev, { role: 'assistant', content: reply, plan: data.plan }])
+        setChatMessages(prev => [...prev, { role: 'assistant', content: reply, plan: data.plan, createWorthy: data.createWorthy === true }])
       }
     } catch {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Ошибка соединения' }])

@@ -6,11 +6,12 @@
  * an HTML template card, etc. The executor (draftGenerator) then renders each
  * spec with the right engine and feeds the URLs into the layout.
  *
- * Pure + safe: one cheap DeepSeek call, strict JSON, capped to maxImages, and a
+ * Pure + safe: one unified primary-model call, strict JSON, capped to maxImages, and a
  * sensible 1-image fallback. Never throws.
  */
 
 import { env } from '../env';
+import { replicateText } from './replicateText';
 
 export type ImageEngine = 'ai' | 'template';
 export type ImageRole = 'cover' | 'illustration' | 'quote_card';
@@ -68,30 +69,21 @@ export async function planPostImages(input: {
   postText: string; rubric?: string | null; maxImages: number;
 }): Promise<ImageSpec[]> {
   const cap = Math.max(1, Math.min(input.maxImages, 6));
-  if (!env.DEEPSEEK_API_KEY) return [{ role: 'cover', engine: 'ai' }];
+  if (!env.REPLICATE_API_TOKEN) return [{ role: 'cover', engine: 'ai' }];
 
   const { system, user } = buildPrompt(input.postText, cap, input.rubric ?? null);
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25_000);
   try {
-    const res = await fetch(`${env.DEEPSEEK_BASE_URL}/chat/completions`, {
-      method: 'POST', signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({
-        model: env.DEEPSEEK_MODEL,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        max_tokens: 800, temperature: 0.3,
-      }),
+    const raw = await replicateText({
+      model: env.LAYOUT_MODEL,
+      systemPrompt: system,
+      prompt: user,
+      maxTokens: 800,
+      timeoutMs: 25_000,
+      input: { max_completion_tokens: 800, reasoning_effort: 'low' },
     });
-    if (!res.ok) { console.error('[imagePlanner] DeepSeek', res.status); return [{ role: 'cover', engine: 'ai' }]; }
-    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? '{}') as AiPlan;
-    return sanitize(parsed, cap);
+    return sanitize(JSON.parse(raw ?? '{}') as AiPlan, cap);
   } catch (err) {
     console.error('[imagePlanner] failed:', (err as Error).message);
     return [{ role: 'cover', engine: 'ai' }];
-  } finally {
-    clearTimeout(timeoutId);
   }
 }

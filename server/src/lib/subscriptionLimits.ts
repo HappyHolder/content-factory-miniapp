@@ -1,167 +1,190 @@
-import type { PlanTier } from '@prisma/client';
+import type { PlanTier, Subscription } from '@prisma/client';
 import { prisma } from '../db';
 
-interface TierLimits {
-  aiPostsLimit: number;
-  aiCreatesLimit: number | null; // null = unlimited
+export interface TierLimits {
+  textGenerationsLimit: number;
+  visualGenerationsLimit: number;
   channelLimit: number;
+  communityChatLimit: number;
+  assistantMessagesLimit: number;
+  contentManagerPostsLimit: number;
+  aiModeratorChecksLimit: number;
+  communityManagerActionsLimit: number;
+  communityCorePersonaLimit: number;
+  customBotChatLimit: number;
   canSchedule: boolean;
   canUseAiAssistant: boolean;
-  canUseHtmlCovers: boolean; // HTML cover mode (Sonnet, ~6¢/gen) — paid plans only
-  canUseContentManager: boolean; // AI content-series manager (deep research, heavy) — CREATOR+
+  canUseContentManager: boolean;
+  canUseAiVisuals: boolean;
+  canUseHtmlCovers: boolean;
+  canUseAiModerator: boolean;
+  canUseCommunityManager: boolean;
+  canUseCommunityCore: boolean;
 }
 
+/** The single authoritative product catalogue used by every route and the UI API. */
 export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
-  FREE:       { aiPostsLimit: 5,   aiCreatesLimit: 5,  channelLimit: 1,  canSchedule: false, canUseAiAssistant: false, canUseHtmlCovers: false, canUseContentManager: false },
-  STARTER:    { aiPostsLimit: 30,  aiCreatesLimit: 20, channelLimit: 1,  canSchedule: false, canUseAiAssistant: true,  canUseHtmlCovers: true,  canUseContentManager: false },
-  CREATOR:    { aiPostsLimit: 150, aiCreatesLimit: 60, channelLimit: 3,  canSchedule: true,  canUseAiAssistant: true,  canUseHtmlCovers: true,  canUseContentManager: true  },
-  STUDIO_PRO: { aiPostsLimit: 700, aiCreatesLimit: null, channelLimit: 10, canSchedule: true, canUseAiAssistant: true, canUseHtmlCovers: true, canUseContentManager: true },
+  FREE: {
+    textGenerationsLimit: 30, visualGenerationsLimit: 0, channelLimit: 1, communityChatLimit: 1,
+    assistantMessagesLimit: 100, contentManagerPostsLimit: 7, aiModeratorChecksLimit: 0,
+    communityManagerActionsLimit: 0, communityCorePersonaLimit: 0, customBotChatLimit: 0,
+    canSchedule: true, canUseAiAssistant: true, canUseContentManager: true, canUseAiVisuals: false,
+    canUseHtmlCovers: false, canUseAiModerator: false, canUseCommunityManager: false, canUseCommunityCore: false,
+  },
+  STARTER: {
+    textGenerationsLimit: 150, visualGenerationsLimit: 45, channelLimit: 2, communityChatLimit: 2,
+    assistantMessagesLimit: 1_000, contentManagerPostsLimit: 45, aiModeratorChecksLimit: 5_000,
+    communityManagerActionsLimit: 300, communityCorePersonaLimit: 2, customBotChatLimit: 1,
+    canSchedule: true, canUseAiAssistant: true, canUseContentManager: true, canUseAiVisuals: true,
+    canUseHtmlCovers: true, canUseAiModerator: true, canUseCommunityManager: true, canUseCommunityCore: true,
+  },
+  CREATOR: {
+    textGenerationsLimit: 600, visualGenerationsLimit: 200, channelLimit: 5, communityChatLimit: 5,
+    assistantMessagesLimit: 3_000, contentManagerPostsLimit: 200, aiModeratorChecksLimit: 25_000,
+    communityManagerActionsLimit: 1_500, communityCorePersonaLimit: 5, customBotChatLimit: 2,
+    canSchedule: true, canUseAiAssistant: true, canUseContentManager: true, canUseAiVisuals: true,
+    canUseHtmlCovers: true, canUseAiModerator: true, canUseCommunityManager: true, canUseCommunityCore: true,
+  },
+  STUDIO_PRO: {
+    textGenerationsLimit: 2_000, visualGenerationsLimit: 700, channelLimit: 10, communityChatLimit: 10,
+    assistantMessagesLimit: 10_000, contentManagerPostsLimit: 700, aiModeratorChecksLimit: 100_000,
+    communityManagerActionsLimit: 5_000, communityCorePersonaLimit: 20, customBotChatLimit: 10,
+    canSchedule: true, canUseAiAssistant: true, canUseContentManager: true, canUseAiVisuals: true,
+    canUseHtmlCovers: true, canUseAiModerator: true, canUseCommunityManager: true, canUseCommunityCore: true,
+  },
 };
 
-/** True when the given tier may use HTML cover mode (all paid plans). */
+export type SubscriptionQuota = 'text' | 'visual' | 'assistant' | 'contentManagerPosts' | 'communityManagerActions';
+const USAGE_FIELD: Record<SubscriptionQuota, keyof Subscription> = {
+  text: 'textGenerationsUsed',
+  visual: 'visualGenerationsUsed',
+  assistant: 'assistantMessagesUsed',
+  contentManagerPosts: 'contentManagerPostsUsed',
+  communityManagerActions: 'communityManagerActionsUsed',
+};
+
+const zeroUsage = {
+  textGenerationsUsed: 0,
+  visualGenerationsUsed: 0,
+  assistantMessagesUsed: 0,
+  contentManagerPostsUsed: 0,
+  communityManagerActionsUsed: 0,
+};
+
+function addOneMonth(from: Date): Date {
+  const next = new Date(from);
+  next.setMonth(next.getMonth() + 1);
+  return next;
+}
+
+function quotaLimit(sub: Subscription, quota: SubscriptionQuota): number {
+  const limits = TIER_LIMITS[sub.tier];
+  if (quota === 'text') return limits.textGenerationsLimit;
+  if (quota === 'visual') return limits.visualGenerationsLimit + sub.bonusVisualGenerations;
+  if (quota === 'assistant') return limits.assistantMessagesLimit;
+  if (quota === 'contentManagerPosts') return limits.contentManagerPostsLimit;
+  return limits.communityManagerActionsLimit;
+}
+
+/**
+ * Returns the effective subscription and performs expiry/monthly reset first.
+ * Every paid feature route must use this function instead of reading tier raw.
+ */
+export async function getEffectiveSubscription(userId: string): Promise<Subscription> {
+  const now = new Date();
+  let sub = await prisma.subscription.upsert({
+    where: { userId },
+    create: { userId, tier: 'FREE', quotaResetAt: addOneMonth(now) },
+    update: {},
+  });
+
+  const expired = sub.tier !== 'FREE' && sub.expiresAt !== null && sub.expiresAt <= now;
+  const resetDue = sub.quotaResetAt === null || sub.quotaResetAt <= now;
+  if (expired || resetDue) {
+    let nextReset = sub.quotaResetAt ?? addOneMonth(now);
+    while (nextReset <= now) nextReset = addOneMonth(nextReset);
+    sub = await prisma.subscription.update({
+      where: { userId },
+      data: {
+        ...(expired ? { tier: 'FREE' as const, expiresAt: null } : {}),
+        ...zeroUsage,
+        quotaResetAt: nextReset,
+      },
+    });
+  }
+  return sub;
+}
+
+/** Atomically reserves quota before an external AI call. */
+export async function reserveSubscriptionQuota(
+  userId: string,
+  quota: SubscriptionQuota,
+  amount = 1,
+): Promise<{ ok: boolean; subscription: Subscription; limit: number; used: number }> {
+  if (!Number.isInteger(amount) || amount <= 0) throw new Error('Quota amount must be a positive integer');
+  let sub = await getEffectiveSubscription(userId);
+  const field = USAGE_FIELD[quota] as 'textGenerationsUsed' | 'visualGenerationsUsed' | 'assistantMessagesUsed' | 'contentManagerPostsUsed' | 'communityManagerActionsUsed';
+  const limit = quotaLimit(sub, quota);
+  const used = sub[field];
+  if (limit <= 0 || used + amount > limit) return { ok: false, subscription: sub, limit, used };
+
+  const claimed = await prisma.subscription.updateMany({
+    where: { userId, [field]: { lte: limit - amount } },
+    data: { [field]: { increment: amount } },
+  });
+  if (claimed.count !== 1) {
+    sub = await getEffectiveSubscription(userId);
+    return { ok: false, subscription: sub, limit: quotaLimit(sub, quota), used: sub[field] };
+  }
+  sub = await prisma.subscription.findUniqueOrThrow({ where: { userId } });
+  return { ok: true, subscription: sub, limit: quotaLimit(sub, quota), used: sub[field] };
+}
+
+/** Returns reserved quota after a provider/transaction failure. */
+export async function refundSubscriptionQuota(userId: string, quota: SubscriptionQuota, amount = 1): Promise<void> {
+  const field = USAGE_FIELD[quota] as 'textGenerationsUsed' | 'visualGenerationsUsed' | 'assistantMessagesUsed' | 'contentManagerPostsUsed' | 'communityManagerActionsUsed';
+  await prisma.subscription.updateMany({
+    where: { userId, [field]: { gte: amount } },
+    data: { [field]: { decrement: amount } },
+  });
+}
+
+export function serializeSubscription(sub: Subscription) {
+  const limits = TIER_LIMITS[sub.tier];
+  return {
+    tier: sub.tier,
+    expiresAt: sub.expiresAt?.toISOString() ?? null,
+    quotaResetAt: sub.quotaResetAt?.toISOString() ?? null,
+    usage: {
+      text: { used: sub.textGenerationsUsed, limit: limits.textGenerationsLimit },
+      visuals: {
+        used: sub.visualGenerationsUsed,
+        included: limits.visualGenerationsLimit,
+        bonus: sub.bonusVisualGenerations,
+        limit: limits.visualGenerationsLimit + sub.bonusVisualGenerations,
+      },
+      assistant: { used: sub.assistantMessagesUsed, limit: limits.assistantMessagesLimit },
+      contentManagerPosts: { used: sub.contentManagerPostsUsed, limit: limits.contentManagerPostsLimit },
+      communityManagerActions: { used: sub.communityManagerActionsUsed, limit: limits.communityManagerActionsLimit },
+    },
+    limits,
+  };
+}
+
+export async function hasCustomBotSlot(userId: string, communityId: string): Promise<{ ok: boolean; limit: number; used: number }> {
+  const subscription = await getEffectiveSubscription(userId);
+  const limit = TIER_LIMITS[subscription.tier].customBotChatLimit;
+  const activeStatuses = ['REQUESTED', 'READY', 'ACTIVE'];
+  const [moderatorBots, managerBots] = await Promise.all([
+    prisma.managedModeratorBot.findMany({ where: { ownerUserId: userId, status: { in: activeStatuses } }, select: { communityId: true } }),
+    prisma.managedCommunityManagerBot.findMany({ where: { ownerUserId: userId, status: { in: activeStatuses } }, select: { communityId: true } }),
+  ]);
+  const occupied = new Set([...moderatorBots, ...managerBots].map(bot => bot.communityId));
+  return { ok: occupied.has(communityId) || occupied.size < limit, limit, used: occupied.size };
+}
 export function canUseHtmlCovers(tier: PlanTier): boolean {
   return TIER_LIMITS[tier].canUseHtmlCovers;
 }
 
-// ─── Model variant (LOW / HIGH) ─────────────────────────────────────────────
-// LOW = base models (today's behavior). HIGH = premium models. The two share
-// the same plan limits except where premium cost requires a tighter cap.
-export type ModelTier = 'LOW' | 'HIGH';
-
-/**
- * Effective limits for a (tier, modelTier) pair. LOW returns the plan's base
- * limits unchanged. HIGH applies premium-cost guards — currently capping the
- * otherwise-unlimited Agency Create quota (see docs/low-high-plan.md).
- */
-export function limitsFor(tier: PlanTier, modelTier: ModelTier = 'LOW'): TierLimits {
-  const base = TIER_LIMITS[tier];
-  if (modelTier === 'HIGH' && tier === 'STUDIO_PRO') {
-    return { ...base, aiCreatesLimit: 400 };
-  }
-  return base;
-}
-
-export function isCreatesLimitReached(used: number, limit: number | null): boolean {
-  if (limit === null) return false; // unlimited
-  return used >= limit;
-}
-
-export function isPostsLimitReached(used: number, limit: number): boolean {
-  return used >= limit;
-}
-
-// ─── Monthly quota reset (lazy) ─────────────────────────────────────────────
-// Called before reading/enforcing quota. If the billing period has rolled over
-// (now >= quotaResetAt), zero the monthly counters and advance the anchor by one
-// month. No cron needed — the reset happens on the next user action after the
-// boundary. Returns the up-to-date counters so callers don't need a re-fetch.
-
-export interface QuotaState {
-  aiPostsLimit: number;
-  aiPostsUsed: number;
-  aiCreatesLimit: number | null;
-  aiCreatesUsed: number;
-}
-
-function addOneMonth(from: Date): Date {
-  const d = new Date(from);
-  d.setMonth(d.getMonth() + 1);
-  return d;
-}
-
-/**
- * Lazily resets a subscription's monthly usage counters if the period elapsed.
- * Safe to call on every quota check. Returns the effective (post-reset) counters.
- */
-export async function applyMonthlyQuotaReset(sub: {
-  userId: string;
-  aiPostsLimit: number;
-  aiPostsUsed: number;
-  aiCreatesLimit: number | null;
-  aiCreatesUsed: number;
-  quotaResetAt: Date | null;
-}): Promise<QuotaState> {
-  const now = new Date();
-
-  // First-ever check (legacy rows with null anchor): set the anchor, no reset.
-  if (!sub.quotaResetAt) {
-    await prisma.subscription.update({
-      where: { userId: sub.userId },
-      data:  { quotaResetAt: addOneMonth(now) },
-    }).catch(() => {});
-    return {
-      aiPostsLimit: sub.aiPostsLimit, aiPostsUsed: sub.aiPostsUsed,
-      aiCreatesLimit: sub.aiCreatesLimit, aiCreatesUsed: sub.aiCreatesUsed,
-    };
-  }
-
-  if (now < sub.quotaResetAt) {
-    // Period still active — counters unchanged.
-    return {
-      aiPostsLimit: sub.aiPostsLimit, aiPostsUsed: sub.aiPostsUsed,
-      aiCreatesLimit: sub.aiCreatesLimit, aiCreatesUsed: sub.aiCreatesUsed,
-    };
-  }
-
-  // Period rolled over — reset counters and advance the anchor.
-  // Advance from the old anchor (not now) so missed periods don't drift the date.
-  let nextReset = addOneMonth(sub.quotaResetAt);
-  while (nextReset <= now) nextReset = addOneMonth(nextReset);
-
-  await prisma.subscription.update({
-    where: { userId: sub.userId },
-    data:  { aiPostsUsed: 0, aiCreatesUsed: 0, quotaResetAt: nextReset },
-  }).catch(() => {});
-
-  return {
-    aiPostsLimit: sub.aiPostsLimit, aiPostsUsed: 0,
-    aiCreatesLimit: sub.aiCreatesLimit, aiCreatesUsed: 0,
-  };
-}
-
-// ─── Tier expiry (lazy downgrade) ───────────────────────────────────────────
-// A promo/paid grant sets expiresAt. When that passes, the user must fall back
-// to STARTER. Done lazily on the next action — no cron. Returns the effective
-// tier + limits after any downgrade.
-
-export interface TierState {
-  tier: PlanTier;
-  aiPostsLimit: number;
-  aiCreatesLimit: number | null;
-  expiresAt: Date | null;
-}
-
-export async function applyTierExpiry(sub: {
-  userId: string;
-  tier: PlanTier;
-  aiPostsLimit: number;
-  aiCreatesLimit: number | null;
-  expiresAt: Date | null;
-}): Promise<TierState> {
-  const now = new Date();
-  const expired = sub.tier !== 'FREE' && sub.expiresAt !== null && now >= sub.expiresAt;
-  if (!expired) {
-    return { tier: sub.tier, aiPostsLimit: sub.aiPostsLimit, aiCreatesLimit: sub.aiCreatesLimit, expiresAt: sub.expiresAt };
-  }
-  const l = TIER_LIMITS.FREE;
-  await prisma.subscription.update({
-    where: { userId: sub.userId },
-    data:  {
-      tier: 'FREE',
-      modelTier:      'LOW',   // premium grant ends with the subscription
-      aiPostsLimit:   l.aiPostsLimit,
-      aiCreatesLimit: l.aiCreatesLimit,
-      aiPostsUsed:    0,
-      aiCreatesUsed:  0,
-      expiresAt:      null,
-    },
-  }).catch(() => {});
-  return { tier: 'FREE', aiPostsLimit: l.aiPostsLimit, aiCreatesLimit: l.aiCreatesLimit, expiresAt: null };
-}
-
-// ─── Per-post regeneration caps ─────────────────────────────────────────────
-// Flat across all tiers — these protect against hammering the neural API on a
-// single post, not a plan value lever. Tracked per-post in GeneratedPost
-// (textRegensUsed / imageRegensUsed).
 export const MAX_TEXT_REGENS_PER_POST = 3;
 export const MAX_IMAGE_REGENS_PER_POST = 3;

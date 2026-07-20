@@ -7,6 +7,7 @@ import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { isQuietHour, parseCommunityManagerConfig } from './config';
 import { communityManagerExecutor } from './managedBot';
 import { personalityPrompt } from './personality';
+import { getEffectiveSubscription, reserveSubscriptionQuota, refundSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
 import { activityNeedsResearch, isRewardActivity, type CommunityActivityType } from './activityDirector';
 
 type ActivityMeta={automatic?:boolean;reason?:string;postId?:string;phase?:string;ignoredStreak?:number};
@@ -46,6 +47,7 @@ function instruction(type:CommunityActivityType){
 export async function runActivity(managerId:string,type:CommunityActivityType,topic?:string,meta:ActivityMeta={}){
   const manager=await prisma.communityManager.findUnique({where:{id:managerId},include:{community:{include:{moderatorChat:true,channel:{include:{brandKit:true}}}}}});
   if(!manager?.enabled||!manager.publishedVersion||!manager.community.moderatorChat)throw new Error('CM is not active');
+  const subscription=await getEffectiveSubscription(manager.community.channel.userId);if(!TIER_LIMITS[subscription.tier].canUseCommunityManager)throw new Error('CM requires Starter or higher');
   const row=await prisma.communityManagerConfig.findUnique({where:{communityManagerId_version:{communityManagerId:manager.id,version:manager.publishedVersion}}});if(!row)throw new Error('Config not applied');
   const config=parseCommunityManagerConfig(row.config);if(isQuietHour(config))throw new Error('Quiet hours');
   const enabled=({DISCUSSION:config.activities.discussionEnabled,POLL:config.activities.pollEnabled,QUIZ:config.activities.quizEnabled,LIGHT:config.activities.lightEnabled,HOT_NEWS:config.activities.hotNewsEnabled,DIGEST:config.activities.digestEnabled,PREDICTION:config.activities.predictionEnabled,CHALLENGE:config.activities.challengeEnabled,CONTEST:config.activities.contestEnabled,CONTENT_TEASER:config.activities.contentSupportEnabled,CONTENT_RELEASE:config.activities.contentSupportEnabled,CONTENT_FOLLOWUP:config.activities.contentSupportEnabled} as Record<CommunityActivityType,boolean>)[type];
@@ -57,6 +59,7 @@ export async function runActivity(managerId:string,type:CommunityActivityType,to
     if(activityUsed+answerUsed>=config.research.dailyLimit)throw new Error('Internet research daily limit reached');
   }
   const activity=await prisma.communityManagerActivity.create({data:{communityManagerId:manager.id,type,topic,scheduledAt:new Date(),status:'RUNNING',result:{automatic:Boolean(meta.automatic),evaluated:!meta.automatic,reason:meta.reason??'manual',postId:meta.postId,phase:meta.phase,ignoredStreak:meta.ignoredStreak??0,rewardMode:config.activities.rewardMode}}});
+  let actionReserved=false;let actionSent=false;
   try{
     const [docs,roleDocs,messages,recent,post]=await Promise.all([
       config.support.useProjectDocs?prisma.projectDoc.findMany({where:{channelId:manager.community.channelId},select:{text:true},take:4}):Promise.resolve([]),
@@ -80,6 +83,7 @@ export async function runActivity(managerId:string,type:CommunityActivityType,to
     const humanSilenceContext=meta.ignoredStreak===1?'\nThe previous initiative got no response. Make this a low-pressure human check-in: you may briefly notice that the chat is quiet, then offer one genuinely different, easy hook. Do not guilt anyone, demand replies, or repeat this move.':'';
     const output=await complete(system+humanSilenceContext,JSON.stringify({type,topic:topic||config.activities.topics[0]||null,ignoredInitiatives:meta.ignoredStreak??0,brandKit:config.support.useBrandKit?manager.community.channel.brandKit:null,reward:config.activities.rewardDescription||null,project,post:postText.slice(0,7000),postLink,research:researchText,recentChat,recentActivities:recent.map(x=>({type:x.type,topic:x.topic}))}));
     if(output.trim()==='SKIP')throw new Error('Not enough meaningful material');
+    const actionQuota=await reserveSubscriptionQuota(manager.community.channel.userId,'communityManagerActions');if(!actionQuota.ok)throw new Error('Community Manager monthly action limit reached');actionReserved=true;
     const executor=await communityManagerExecutor(manager.community.id),chatId=manager.community.moderatorChat.tgChatId;let telegramMessageId:number|undefined;
     if(type==='POLL'||type==='QUIZ'){
       const parsed=jsonObject(output),options=Array.isArray(parsed?.options)?parsed.options.map(String).map(x=>x.trim()).filter(Boolean).slice(0,4):[];
@@ -88,11 +92,12 @@ export async function runActivity(managerId:string,type:CommunityActivityType,to
     }else{
       const message=plain(output).slice(0,1200);if(!message)throw new Error('Empty activity');telegramMessageId=(await sendBotMessage(chatId,message,executor.token))?.messageId;
     }
+    actionSent=true;
     const sentAt=new Date(),longRunning=isRewardActivity(type),endsAt=longRunning?new Date(sentAt.getTime()+(type==='CONTEST'?7:3)*86400_000):undefined;await prisma.$transaction([
       prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:longRunning?'ACTIVE':'COMPLETED',sentAt,telegramMessageId,scheduledAt:longRunning?new Date(sentAt.getTime()+(type==='CONTEST'?84:36)*3600_000):sentAt,result:{automatic:Boolean(meta.automatic),evaluated:!meta.automatic,reason:meta.reason??'manual',postId:meta.postId,phase:meta.phase,ignoredStreak:meta.ignoredStreak??0,rewardMode:config.activities.rewardMode,rewardDescription:config.activities.rewardDescription,endsAt:endsAt?.toISOString(),reminderSent:false,sources:researchSources as any}}}),
       prisma.communityManager.update({where:{id:manager.id},data:{lastActionAt:sentAt,lastHealthyAt:sentAt,lastError:null}}),
       prisma.communityManagerAction.create({data:{communityManagerId:manager.id,decision:'ACTIVITY',intent:type.toLowerCase(),response:output.slice(0,5000),sources:researchSources as any,model:env.CM_TEXT_MODEL,promptVersion:'community-activity-v2',telegramMessageId}}),
     ]);
     return{activityId:activity.id,telegramMessageId,status:longRunning?'ACTIVE':'COMPLETED'};
-  }catch(error){await prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'FAILED',lastError:error instanceof Error?error.message.slice(0,500):'failed'}});throw error}
+  }catch(error){if(actionReserved&&!actionSent)await refundSubscriptionQuota(manager.community.channel.userId,'communityManagerActions');await prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'FAILED',lastError:error instanceof Error?error.message.slice(0,500):'failed'}});throw error}
 }

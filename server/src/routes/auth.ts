@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { TIER_LIMITS, applyMonthlyQuotaReset, applyTierExpiry } from '../lib/subscriptionLimits';
+import { getEffectiveSubscription, serializeSubscription } from '../lib/subscriptionLimits';
 import { issueModeratorSession } from '../lib/moderatorSession';
 
 const router = Router();
@@ -109,59 +109,14 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
   }
 
   // ── Upsert Subscription (create on first login, keep existing if present) ──
-  let dbSubscription: {
-    tier: string; modelTier: string; aiPostsLimit: number; aiPostsUsed: number;
-    aiCreatesLimit: number | null; aiCreatesUsed: number; expiresAt: Date | null;
-  } | null = null;
+  let dbSubscription;
   try {
-    const existingSub = await prisma.subscription.findUnique({
-      where:  { userId: dbUser.id },
-      select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, quotaResetAt: true, expiresAt: true },
-    });
-    if (existingSub) {
-      // 1) Lazily downgrade to STARTER if a promo/paid grant has expired.
-      const tierState = await applyTierExpiry({
-        userId:         dbUser.id,
-        tier:           existingSub.tier,
-        aiPostsLimit:   existingSub.aiPostsLimit,
-        aiCreatesLimit: existingSub.aiCreatesLimit,
-        expiresAt:      existingSub.expiresAt,
-      });
-      // If a downgrade happened, the counters were just zeroed in the DB.
-      const downgraded = tierState.tier !== existingSub.tier;
-      // 2) Roll over monthly counters if the billing period elapsed (use post-expiry limits).
-      const fresh = await applyMonthlyQuotaReset({
-        userId:         dbUser.id,
-        aiPostsLimit:   tierState.aiPostsLimit,
-        aiPostsUsed:    downgraded ? 0 : existingSub.aiPostsUsed,
-        aiCreatesLimit: tierState.aiCreatesLimit,
-        aiCreatesUsed:  downgraded ? 0 : existingSub.aiCreatesUsed,
-        quotaResetAt:   existingSub.quotaResetAt,
-      });
-      // Downgrade to FREE drops any premium grant back to LOW.
-      dbSubscription = { tier: tierState.tier, modelTier: downgraded ? 'LOW' : existingSub.modelTier, expiresAt: tierState.expiresAt, ...fresh };
-    } else {
-      const limits = TIER_LIMITS['FREE'];
-      const nextReset = new Date();
-      nextReset.setMonth(nextReset.getMonth() + 1);
-      dbSubscription = await prisma.subscription.create({
-        data: {
-          userId:         dbUser.id,
-          tier:           'FREE',
-          aiPostsLimit:   limits.aiPostsLimit,
-          aiPostsUsed:    0,
-          aiCreatesLimit: limits.aiCreatesLimit,
-          aiCreatesUsed:  0,
-          quotaResetAt:   nextReset,
-        },
-        select: { tier: true, modelTier: true, aiPostsLimit: true, aiPostsUsed: true, aiCreatesLimit: true, aiCreatesUsed: true, expiresAt: true },
-      });
-    }
+    dbSubscription = await getEffectiveSubscription(dbUser.id);
   } catch (err) {
-    console.error('[auth/telegram] Subscription upsert failed (non-fatal):', err);
+    console.error('[auth/telegram] Subscription resolve failed:', err);
+    res.status(500).json({ error: 'Could not load subscription' });
+    return;
   }
-
-  // ── Response ──────────────────────────────────────────────────────────────
   res.json({
     user: {
       id:              dbUser.id,
@@ -180,15 +135,7 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       isConnected:      true,
     })),
     brandKits: dbBrandKits,
-    subscription: dbSubscription ? {
-      tier:           dbSubscription.tier,
-      modelTier:      dbSubscription.modelTier,
-      aiPostsLimit:   dbSubscription.aiPostsLimit,
-      aiPostsUsed:    dbSubscription.aiPostsUsed,
-      aiCreatesLimit: dbSubscription.aiCreatesLimit,
-      aiCreatesUsed:  dbSubscription.aiCreatesUsed,
-      expiresAt:      dbSubscription.expiresAt?.toISOString() ?? null,
-    } : null,
+    subscription: serializeSubscription(dbSubscription),
   });
 });
 

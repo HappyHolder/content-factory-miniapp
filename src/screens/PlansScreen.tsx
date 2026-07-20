@@ -1,129 +1,81 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { BrainCircuit, Check, Ticket, Loader2, Star, Sparkles } from 'lucide-react'
-import { GramMark } from '@/components/icons/GramMark'
+import { Check, Image, Loader2, MessageCircle, ShieldCheck, Sparkles, Ticket, Users, WandSparkles } from 'lucide-react'
 import { useTonConnectUI } from '@tonconnect/ui-react'
 import { beginCell } from '@ton/core'
 import { useApp } from '@/context/AppContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
-import { getTelegramInitData, getTelegramUserId, moderatorFetch, openTelegramInvoice } from '@/lib/telegram'
+import { GramMark } from '@/components/icons/GramMark'
+import { getTelegramInitData, getTelegramUserId, openTelegramInvoice } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
-import { PLAN_PRICING, PLAN_PRICING_HIGH, TON_RECEIVING_WALLET, tierToServer, tonToNano } from '@/lib/payments'
-import type { PlanTier } from '@/types'
-import type { TranslationKey } from '@/i18n'
+import { PLAN_PRICING, TON_RECEIVING_WALLET, tierToServer, tonToNano } from '@/lib/payments'
+import { PLAN_NAMES, SUBSCRIPTION_LIMITS } from '@/lib/subscriptionCatalog'
+import type { PlanTier, Subscription } from '@/types'
 
+interface PlansScreenProps { onBack: () => void }
 type PaidTier = Exclude<PlanTier, 'free'>
+type ServerSubscription = { tier: string; expiresAt: string | null; quotaResetAt: string | null; usage: Subscription['usage']; limits: Subscription['limits'] }
 
-interface PlansScreenProps {
-  onBack: () => void
+const TIERS: PlanTier[] = ['free', 'starter', 'creator', 'studio_pro']
+const TIER_COPY: Record<PlanTier, { eyebrow: string; description: string }> = {
+  free: { eyebrow: 'Начать бесплатно', description: 'Редактор, отложка и базовый AI для одного проекта.' },
+  starter: { eyebrow: 'Для автора', description: 'Полный визуальный контент и управление двумя сообществами.' },
+  creator: { eyebrow: 'Для бизнеса', description: 'Пять проектов, больше генераций и сильное ядро сообщества.' },
+  studio_pro: { eyebrow: 'Для команды', description: 'Максимальные лимиты для студии, агентства или сети каналов.' },
 }
 
-// Tier order for upgrade/downgrade detection
-const TIER_RANK: Record<PlanTier, number> = { free: 0, starter: 1, creator: 2, studio_pro: 3 }
+const format = (value: number) => new Intl.NumberFormat('ru-RU').format(value)
 
-// Static per-plan config — keys resolved via t() inside the component
-interface PlanConfig {
-  tier: PlanTier
-  price: string
-  nameKey: TranslationKey
-  featureKeys: TranslationKey[]
-  upgradeKey: TranslationKey | null   // null = lowest tier, can never upgrade to it
-  downgradeKey: TranslationKey | null // null = highest tier, can never downgrade to it
+function featureRows(tier: PlanTier) {
+  const l = SUBSCRIPTION_LIMITS[tier]
+  return [
+    { icon: WandSparkles, text: `${format(l.textGenerationsLimit)} AI-генераций текста в месяц` },
+    { icon: Image, text: l.visualGenerationsLimit ? `${format(l.visualGenerationsLimit)} AI-визуалов в месяц` : 'AI-визуалы не включены' },
+    { icon: Sparkles, text: 'Ручной редактор и отложенные посты без ограничений' },
+    { icon: MessageCircle, text: `${l.channelLimit} ${l.channelLimit === 1 ? 'канал' : 'каналов'} · ${l.communityChatLimit} ${l.communityChatLimit === 1 ? 'чат' : 'чатов'}` },
+    { icon: Users, text: `AI-ассистент: ${format(l.assistantMessagesLimit)} сообщений · Content Manager: ${format(l.contentManagerPostsLimit)} постов` },
+    { icon: ShieldCheck, text: l.canUseAiModerator ? `AI-модератор: ${format(l.aiModeratorChecksLimit)} проверок` : 'Обычный модератор без AI' },
+    { icon: Users, text: l.canUseCommunityManager ? `Community Manager: ${format(l.communityManagerActionsLimit)} действий` : 'Community Manager не включён' },
+    { icon: Users, text: l.communityCorePersonaLimit ? `Community Core: ${l.communityCorePersonaLimit} личностей` : 'Community Core не включён' },
+    { icon: ShieldCheck, text: l.customBotChatLimit ? `Персональные боты: ${l.customBotChatLimit} чатов` : 'Персональные боты не включены' },
+  ]
 }
-
-const PLAN_CONFIG: PlanConfig[] = [
-  {
-    tier: 'free',
-    price: '$0',
-    nameKey: 'plans.free',
-    featureKeys: ['plans.posts5', 'plans.creates5', 'plans.channel1'],
-    upgradeKey: null,
-    downgradeKey: 'plans.switchToFree',
-  },
-  {
-    tier: 'starter',
-    price: '5 Gram',
-    nameKey: 'plans.starter',
-    featureKeys: ['plans.posts30', 'plans.creates20', 'plans.channel1', 'plans.aiAssistant'],
-    upgradeKey: 'plans.upgradeToStarter',
-    downgradeKey: 'plans.switchToStarter',
-  },
-  {
-    tier: 'creator',
-    price: '15 Gram',
-    nameKey: 'plans.creator',
-    featureKeys: ['plans.posts150', 'plans.creates60', 'plans.channels3', 'plans.scheduledPosts', 'plans.aiAssistant', 'plans.storiesPostingSoon'],
-    upgradeKey: 'plans.upgradeToCreator',
-    downgradeKey: 'plans.switchToCreator',
-  },
-  {
-    tier: 'studio_pro',
-    price: '80 Gram',
-    nameKey: 'plans.studioPro',
-    featureKeys: ['plans.posts700', 'plans.createsUnlimited', 'plans.channels10', 'plans.scheduledPosts', 'plans.aiAssistant', 'plans.storiesPostingSoon', 'plans.postPromotionSoon', 'plans.videoGenerationSoon', 'plans.chatActivityBot'],
-    upgradeKey: 'plans.upgradeToPro',
-    downgradeKey: null,
-  },
-]
 
 export function PlansScreen({ onBack }: PlansScreenProps) {
-  const { state, showToast, t, applyServerSubscription } = useApp()
+  const { state, showToast, applyServerSubscription } = useApp()
   const currentTier = state.user.subscription.planTier
-  const currentModelTier = state.user.subscription.modelTier
   const [tonConnectUI] = useTonConnectUI()
-
   const [promo, setPromo] = useState('')
   const [redeeming, setRedeeming] = useState(false)
   const [payTier, setPayTier] = useState<PaidTier | null>(null)
   const [paying, setPaying] = useState(false)
-  const [aiModerator, setAiModerator] = useState<{status:string;monthlyChecksLimit:number;checksUsed:number;inputTokensUsed:number;outputTokensUsed:number;estimatedCostMicros:number}|null>(null)
-  useEffect(() => { const initData=getTelegramInitData(); if(!initData)return; moderatorFetch(`${API_BASE}/api/moderator/ai-entitlement`).then(async r=>{const d=await r.json() as {entitlement?:typeof aiModerator};if(r.ok&&d.entitlement)setAiModerator(d.entitlement)}).catch(()=>undefined) }, [])
 
-  // LOW (base models) / HIGH (premium models). HIGH is preview-only for now —
-  // the purchase path is wired in a later phase (see docs/low-high-plan.md).
-  const [variant, setVariant] = useState<'low' | 'high'>(currentModelTier === 'high' ? 'high' : 'low')
-
-  // Refresh subscription from the server (after a payment) and update the UI.
   const refreshSubscription = async () => {
     const initData = getTelegramInitData()
     if (!initData) return
-    try {
-      const res = await fetch(`${API_BASE}/api/payments/subscription`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData }),
-      })
-      const data = await res.json().catch(() => ({})) as { subscription?: { tier: string; aiPostsLimit: number; aiPostsUsed: number; aiCreatesLimit: number | null; aiCreatesUsed: number } }
-      if (data.subscription) applyServerSubscription(data.subscription)
-    } catch { /* non-fatal */ }
+    const response = await fetch(`${API_BASE}/api/payments/subscription`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData }) })
+    const data = await response.json().catch(() => ({})) as { subscription?: ServerSubscription }
+    if (data.subscription) applyServerSubscription(data.subscription)
   }
 
   const payWithStars = async (tier: PaidTier) => {
     if (paying) return
     const initData = getTelegramInitData()
-    if (!initData) { showToast(t('plans.payStarsOnly'), 'error'); return }
+    if (!initData) { showToast('Оплата доступна внутри Telegram.', 'error'); return }
     setPaying(true)
     try {
-      const res = await fetch(`${API_BASE}/api/payments/stars/create-invoice`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData, tier: tierToServer(tier), modelTier: variant === 'high' ? 'HIGH' : 'LOW' }),
-      })
-      const data = await res.json().catch(() => ({})) as { invoiceUrl?: string; error?: string }
-      if (!res.ok || !data.invoiceUrl) { showToast(data.error ?? t('plans.payFailed'), 'error'); setPaying(false); return }
+      const response = await fetch(`${API_BASE}/api/payments/stars/create-invoice`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData, tier: tierToServer(tier) }) })
+      const data = await response.json().catch(() => ({})) as { invoiceUrl?: string; error?: string }
+      if (!response.ok || !data.invoiceUrl) throw new Error(data.error ?? 'Не удалось создать счёт')
       const opened = openTelegramInvoice(data.invoiceUrl, async (status: string) => {
         setPaying(false)
-        if (status === 'paid') {
-          await refreshSubscription()
-          setPayTier(null)
-          showToast(t('plans.paySuccess'))
-        }
+        if (status === 'paid') { await refreshSubscription(); setPayTier(null); showToast('Подписка активирована') }
       })
-      if (!opened) { showToast(t('plans.payStarsOnly'), 'error'); setPaying(false) }
-    } catch {
-      showToast(t('plans.payFailed'), 'error')
+      if (!opened) throw new Error('Не удалось открыть счёт Telegram')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Ошибка оплаты', 'error')
       setPaying(false)
     }
   }
@@ -131,325 +83,95 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
   const payWithTon = async (tier: PaidTier) => {
     if (paying) return
     const initData = getTelegramInitData()
-    if (!initData) { showToast(t('plans.payStarsOnly'), 'error'); return }
-
-    // A wallet must be connected before we can send. If not, open the connect
-    // modal and ask the user to tap Pay again (auto-connect-on-send is unreliable).
-    if (!tonConnectUI.account) {
-      try { await tonConnectUI.openModal() } catch { /* ignore */ }
-      showToast(t('plans.connectWalletFirst'))
-      return
-    }
-
-    // The deposit must be tagged with the user's Telegram id so the backend can
-    // bind it to this account (otherwise a stranger could claim the payment).
+    if (!initData) { showToast('Оплата доступна внутри Telegram.', 'error'); return }
+    if (!tonConnectUI.account) { await tonConnectUI.openModal().catch(() => undefined); showToast('Подключите кошелёк и нажмите оплатить ещё раз'); return }
     const uid = getTelegramUserId()
-    if (!uid) { showToast(t('plans.payStarsOnly'), 'error'); return }
-
+    if (!uid) return
     setPaying(true)
     try {
-      const amount = (variant === 'high' ? PLAN_PRICING_HIGH : PLAN_PRICING)[tier].ton
-      // Text comment payload: 32 zero bits + the Telegram id, per TON's comment format.
-      const commentPayload = beginCell().storeUint(0, 32).storeStringTail(uid).endCell().toBoc().toString('base64')
-      await tonConnectUI.sendTransaction({
-        validUntil: Math.floor(Date.now() / 1000) + 600,
-        messages: [{ address: TON_RECEIVING_WALLET, amount: tonToNano(amount), payload: commentPayload }],
-      })
-      // Wallet that just paid (raw "0:…" — backend matches friendly/raw)
-      const sender = tonConnectUI.account?.address
-      if (!sender) { showToast(t('plans.payFailed'), 'error'); setPaying(false); return }
-      showToast(t('plans.payTonChecking'))
-      const res = await fetch(`${API_BASE}/api/payments/ton/verify`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData, tier: tierToServer(tier), senderWallet: sender, modelTier: variant === 'high' ? 'HIGH' : 'LOW' }),
-      })
-      const data = await res.json().catch(() => ({})) as { subscription?: { tier: string; aiPostsLimit: number; aiPostsUsed: number; aiCreatesLimit: number | null; aiCreatesUsed: number }; error?: string }
-      if (!res.ok || !data.subscription) { showToast(data.error ?? t('plans.payFailed'), 'error'); setPaying(false); return }
+      const payload = beginCell().storeUint(0, 32).storeStringTail(uid).endCell().toBoc().toString('base64')
+      await tonConnectUI.sendTransaction({ validUntil: Math.floor(Date.now() / 1000) + 600, messages: [{ address: TON_RECEIVING_WALLET, amount: tonToNano(PLAN_PRICING[tier].ton), payload }] })
+      const senderWallet = tonConnectUI.account?.address
+      if (!senderWallet) throw new Error('Кошелёк не подключён')
+      const response = await fetch(`${API_BASE}/api/payments/ton/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData, tier: tierToServer(tier), senderWallet }) })
+      const data = await response.json().catch(() => ({})) as { subscription?: ServerSubscription; error?: string }
+      if (!response.ok || !data.subscription) throw new Error(data.error ?? 'Платёж пока не найден')
       applyServerSubscription(data.subscription)
       setPayTier(null)
-      showToast(t('plans.paySuccess'))
-    } catch (err) {
-      // User rejected the transaction, or a real error. Surface the message.
-      const msg = (err as Error)?.message || ''
-      if (/reject|cancel|abort|declin|user.*close/i.test(msg)) {
-        showToast(t('plans.payCancelled'))
-      } else {
-        showToast(msg ? `Gram: ${msg}` : t('plans.payFailed'), 'error')
-      }
-    } finally {
-      setPaying(false)
-    }
+      showToast('Подписка активирована')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Ошибка оплаты'
+      if (!/reject|cancel|abort|declin/i.test(message)) showToast(message, 'error')
+    } finally { setPaying(false) }
   }
 
-  const handleRedeem = async () => {
-    const code = promo.trim()
-    if (!code || redeeming) return
+  const redeemPromo = async () => {
     const initData = getTelegramInitData()
-    if (!initData) { showToast(t('plans.promoOnlyTelegram'), 'error'); return }
-
+    if (!initData || !promo.trim() || redeeming) return
     setRedeeming(true)
     try {
-      const res = await fetch(`${API_BASE}/api/promo/redeem`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData, code }),
-      })
-      const data = await res.json().catch(() => ({})) as {
-        subscription?: { tier: string; aiPostsLimit: number; aiPostsUsed: number; aiCreatesLimit: number | null; aiCreatesUsed: number }
-        error?: string
-      }
-      if (!res.ok || !data.subscription) {
-        showToast(data.error ?? t('plans.promoFailed'), 'error')
-        return
-      }
+      const response = await fetch(`${API_BASE}/api/promo/redeem`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData, code: promo.trim() }) })
+      const data = await response.json().catch(() => ({})) as { subscription?: ServerSubscription; error?: string }
+      if (!response.ok || !data.subscription) throw new Error(data.error ?? 'Промокод не принят')
       applyServerSubscription(data.subscription)
       setPromo('')
-      showToast(t('plans.promoApplied'))
-    } catch {
-      showToast(t('plans.promoConnError'), 'error')
-    } finally {
-      setRedeeming(false)
-    }
+      showToast('Промокод применён')
+    } catch (error) { showToast(error instanceof Error ? error.message : 'Ошибка промокода', 'error') }
+    finally { setRedeeming(false) }
   }
 
-  return (
-    <div>
-      <PageHeader
-        title={t('plans.title')}
-        subtitle={t('plans.subtitle')}
-        onBack={onBack}
-      />
+  const usage = state.user.subscription.usage
 
-      <div className="px-4 mt-2 space-y-3">
-        {/* Promo code */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.22 }}
-          className="rounded-[18px] border border-white/[0.07] bg-[rgba(255,255,255,0.03)] p-3"
-        >
-          <div className="flex items-center gap-1.5 mb-2">
-            <Ticket size={13} className="text-[#FF6A00]" />
-            <span className="text-[12px] font-semibold text-white">{t('plans.havePromo')}</span>
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={promo}
-              onChange={e => setPromo(e.target.value.toUpperCase())}
-              onKeyDown={e => { if (e.key === 'Enter') handleRedeem() }}
-              placeholder="CF-XXXX-XXXX"
-              className="glass-input flex-1 px-3 py-2.5 text-sm tracking-wider"
-              style={{ background: 'rgba(255,255,255,0.03)' }}
-            />
-            <Button variant="primary" size="md" onClick={handleRedeem} disabled={redeeming || !promo.trim()}>
-              {redeeming ? <Loader2 size={15} className="animate-spin" /> : t('plans.applyPromo')}
-            </Button>
-          </div>
-        </motion.div>
-
-        {/* LOW / HIGH model toggle */}
-        <div>
-          <div className="flex rounded-[14px] border border-white/[0.07] bg-[rgba(255,255,255,0.03)] p-1">
-            {(['low', 'high'] as const).map(v => (
-              <button
-                key={v}
-                onClick={() => setVariant(v)}
-                className={`flex-1 py-2 rounded-[11px] text-[13px] font-semibold transition-colors ${
-                  variant === v
-                    ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00] border border-[rgba(255,106,0,0.25)]'
-                    : 'text-[#A1A1AA] border border-transparent'
-                }`}
-              >
-                {t(v === 'low' ? 'plans.modelLow' : 'plans.modelHigh')}
-              </button>
-            ))}
-          </div>
-          {variant === 'high' && (
-            <p className="mt-2 text-[11px] text-[#55555D] text-center">{t('plans.highHint')}</p>
-          )}
+  return <div className="pb-8">
+    <PageHeader title="Подписки" subtitle="Один набор сильных AI-моделей. Тариф определяет только объём и доступные инструменты." onBack={onBack} />
+    <div className="px-4 space-y-3">
+      <section className="rounded-[22px] border border-[#FF6A00]/20 bg-gradient-to-br from-[#FF6A00]/[0.12] via-white/[0.035] to-transparent p-4" aria-label="Использование текущего тарифа">
+        <div className="flex items-start justify-between gap-3">
+          <div><p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#FF8A38]">Текущий тариф</p><h2 className="mt-1 text-xl font-bold text-white">{PLAN_NAMES[currentTier]}</h2></div>
+          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">Активен</span>
         </div>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Usage label="AI-тексты" used={usage.text.used} limit={usage.text.limit} />
+          <Usage label="AI-визуалы" used={usage.visuals.used} limit={usage.visuals.limit} />
+          <Usage label="Ассистент" used={usage.assistant.used} limit={usage.assistant.limit} />
+          <Usage label="Content Manager" used={usage.contentManagerPosts.used} limit={usage.contentManagerPosts.limit} />
+        </div>
+      </section>
 
-        <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} className="relative overflow-hidden rounded-[18px] border border-[rgba(255,106,0,0.24)] bg-[#111114] p-4 shadow-[0_0_30px_rgba(255,106,0,0.06)]"><div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[rgba(255,106,0,0.09)] blur-3xl"/><div className="relative"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] bg-[rgba(255,106,0,0.12)] text-[#FF6A00]"><BrainCircuit size={19}/></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-[16px] font-bold text-white">AI Moderator</h2><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-semibold uppercase text-emerald-300">Тестовый период</span></div><p className="mt-1 text-[11px] leading-relaxed text-[#777780]">Персональный бот с вашим именем и аватаром плюс контекстная модерация Terra.</p></div></div><div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-[11px] bg-white/[0.035] p-2.5"><p className="text-[9px] uppercase text-[#55555D]">Цена</p><p className="mt-1 text-[13px] font-semibold text-white">Бесплатно</p></div><div className="rounded-[11px] bg-white/[0.035] p-2.5"><p className="text-[9px] uppercase text-[#55555D]">Проверки</p><p className="mt-1 text-[13px] font-semibold text-white">{aiModerator?`${aiModerator.checksUsed} / ${aiModerator.monthlyChecksLimit}`:'—'}</p></div><div className="rounded-[11px] bg-white/[0.035] p-2.5"><p className="text-[9px] uppercase text-[#55555D]">Себестоимость</p><p className="mt-1 text-[13px] font-semibold text-white">{aiModerator?`${(aiModerator.estimatedCostMicros/1_000_000).toFixed(2)}`:'—'}</p></div></div><ul className="mt-4 space-y-2">{['Персональный бот: имя, аватар и username','Контекстные AI-вмешательства Terra','Антиспам, смысловые нарушения и журнал','До 5 000 Terra-проверок в месяц на тесте'].map(item=><li key={item} className="flex items-center gap-2 text-[12px] text-[#A1A1AA]"><span className="flex h-4 w-4 items-center justify-center rounded-full bg-[rgba(255,106,0,0.12)] text-[#FF6A00]"><Check size={9}/></span>{item}</li>)}</ul><div className="mt-4 rounded-[11px] border border-white/[0.06] bg-white/[0.025] px-3 py-2.5 text-center text-[11px] font-medium text-[#A1A1AA]">Активно бесплатно, пока мы калибруем качество и экономику</div></div></motion.div>
+      <section className="rounded-[18px] border border-white/[0.08] bg-white/[0.035] p-3">
+        <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-white"><Ticket size={15} className="text-[#FF6A00]" /> Есть промокод?</div>
+        <div className="flex gap-2"><input value={promo} onChange={event => setPromo(event.target.value.toUpperCase())} onKeyDown={event => { if (event.key === 'Enter') void redeemPromo() }} placeholder="PUBLIUM-XXXX" aria-label="Промокод" className="min-h-11 min-w-0 flex-1 rounded-xl border border-white/[0.09] bg-black/20 px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#FF6A00]/60 focus:ring-2 focus:ring-[#FF6A00]/20" /><Button onClick={() => void redeemPromo()} disabled={!promo.trim() || redeeming}>{redeeming ? <Loader2 size={16} className="animate-spin" /> : 'Применить'}</Button></div>
+      </section>
 
-        {PLAN_CONFIG.map((plan, i) => {
-          const isHigh     = variant === 'high' && plan.tier !== 'free'
-          // Current plan respects the model variant: a HIGH subscriber is "current"
-          // only in the Premium view, a LOW one only in the Base view (free has no variant).
-          const isCurrent  = plan.tier === currentTier && (plan.tier === 'free' || variant === currentModelTier)
-          const isUpgrade  = !isCurrent && TIER_RANK[plan.tier] > TIER_RANK[currentTier]
-
-          const planName = t(plan.nameKey)
-          const priceDetail = t('plans.month')
-          const displayPrice = plan.tier === 'free'
-            ? plan.price
-            : `${(variant === 'high' ? PLAN_PRICING_HIGH : PLAN_PRICING)[plan.tier as PaidTier].ton} Gram`
-
-          // Resolve CTA label
-          const ctaKey = isUpgrade ? plan.upgradeKey : plan.downgradeKey
-          const ctaLabel = ctaKey ? t(ctaKey) : ''
-
-          return (
-            <motion.div
-              key={plan.tier}
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.07, duration: 0.25 }}
-            >
-              <div
-                className={`rounded-[18px] border p-4 ${
-                  isCurrent
-                    ? 'bg-[#111114] border-[rgba(255,106,0,0.30)] shadow-[0_0_28px_rgba(255,106,0,0.07)]'
-                    : 'bg-[rgba(255,255,255,0.03)] border-white/[0.07]'
-                }`}
-              >
-                {/* Plan header */}
-                <div className="mb-3">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <h2 className="text-[17px] font-bold text-white">{planName}</h2>
-                    {plan.tier === 'studio_pro' && !isCurrent && (
-                      <span className="text-[10px] font-semibold text-[#A1A1AA] bg-white/[0.07] border border-white/[0.10] px-2 py-px rounded-full">
-                        Soon
-                      </span>
-                    )}
-                    {isCurrent && (
-                      <span className="text-[10px] font-semibold text-[#FF6A00] bg-[rgba(255,106,0,0.12)] border border-[rgba(255,106,0,0.25)] px-2 py-px rounded-full">
-                        {t('plans.active')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className={`text-[22px] font-bold leading-none ${isCurrent ? 'text-[#FF6A00]' : 'text-white'}`}>
-                      {displayPrice}
-                    </span>
-                    <span className="text-[12px] text-[#55555D]">{priceDetail}</span>
-                  </div>
-                </div>
-
-                {/* Divider */}
-                <div className={`h-px mb-3 ${isCurrent ? 'bg-[rgba(255,106,0,0.12)]' : 'bg-white/[0.06]'}`} />
-
-                {/* Feature list */}
-                <ul className="space-y-2 mb-4">
-                  {plan.featureKeys.map(key => (
-                    <li key={key} className="flex items-center gap-2">
-                      <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
-                        isCurrent
-                          ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00]'
-                          : 'bg-white/[0.06] text-[#55555D]'
-                      }`}>
-                        <Check size={9} strokeWidth={2.5} />
-                      </div>
-                      <span className="text-[13px] text-[#A1A1AA]">{t(key)}</span>
-                    </li>
-                  ))}
-                  {plan.tier !== 'free' && (
-                    <>
-                      <li className="pt-1.5">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#55555D]">
-                          {t('plans.underHood')}
-                        </span>
-                      </li>
-                      {((variant === 'high'
-                        ? ['plans.engineTextHigh', 'plans.engineCoverHigh', 'plans.engineAssistantHigh']
-                        : ['plans.engineTextLow', 'plans.engineCoverLow', 'plans.engineAssistantLow']) as TranslationKey[]
-                      ).map(key => (
-                        <li key={key} className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
-                            isHigh ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00]' : 'bg-white/[0.06] text-[#55555D]'
-                          }`}>
-                            <Sparkles size={9} strokeWidth={2.5} />
-                          </div>
-                          <span className={`text-[13px] ${isHigh ? 'text-white' : 'text-[#A1A1AA]'}`}>{t(key)}</span>
-                        </li>
-                      ))}
-                    </>
-                  )}
-                </ul>
-
-                {/* CTA */}
-                {isCurrent ? (
-                  <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-[12px] bg-[rgba(255,106,0,0.08)] border border-[rgba(255,106,0,0.20)] text-[13px] font-semibold text-[#FF6A00]">
-                    <Check size={13} strokeWidth={2.5} />
-                    {t('plans.currentPlan')}
-                  </div>
-                ) : isHigh ? (
-                  <Button
-                    variant="primary"
-                    size="md"
-                    fullWidth
-                    onClick={() => setPayTier(plan.tier as PaidTier)}
-                  >
-                    {t('plans.upgradeToPremium')}
-                  </Button>
-                ) : plan.tier === 'free' ? (
-                  // Downgrading to Free happens automatically when a paid plan expires.
-                  <Button variant="ghost" size="md" fullWidth disabled>
-                    {ctaLabel}
-                  </Button>
-                ) : isUpgrade ? (
-                  <Button
-                    variant="primary"
-                    size="md"
-                    fullWidth
-                    onClick={() => setPayTier(plan.tier as PaidTier)}
-                  >
-                    {ctaLabel}
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="md"
-                    fullWidth
-                    onClick={() => setPayTier(plan.tier as PaidTier)}
-                  >
-                    {ctaLabel}
-                  </Button>
-                )}
-              </div>
-            </motion.div>
-          )
+      <div className="space-y-3">
+        {TIERS.map((tier, index) => {
+          const current = tier === currentTier
+          const paid = tier !== 'free'
+          const price = paid ? PLAN_PRICING[tier] : null
+          return <motion.article key={tier} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }} className={`relative overflow-hidden rounded-[24px] border p-4 ${current ? 'border-[#FF6A00]/50 bg-[#FF6A00]/[0.09] shadow-[0_0_34px_rgba(255,106,0,0.08)]' : 'border-white/[0.08] bg-white/[0.032]'}`}>
+            {tier === 'creator' && !current && <span className="absolute right-4 top-4 rounded-full bg-[#FF6A00] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">Оптимальный</span>}
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8C8C96]">{TIER_COPY[tier].eyebrow}</p>
+            <div className="mt-1 flex items-end gap-2"><h3 className="text-[24px] font-bold text-white">{PLAN_NAMES[tier]}</h3>{price && <p className="pb-1 text-[13px] text-[#8C8C96]">от {price.ton} Gram / 30 дней</p>}</div>
+            <p className="mt-1 max-w-[34rem] text-[13px] leading-5 text-[#92929C]">{TIER_COPY[tier].description}</p>
+            <div className="mt-4 space-y-2.5">{featureRows(tier).map(({ icon: Icon, text }) => <div key={text} className="flex items-start gap-2.5"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.055]"><Icon size={12} className={text.includes('не включ') ? 'text-[#55555D]' : 'text-[#FF7A1A]'} /></span><span className={`text-[12px] leading-[18px] ${text.includes('не включ') ? 'text-[#5E5E67]' : 'text-[#C5C5CC]'}`}>{text}</span></div>)}</div>
+            <div className="mt-5">{current ? <div className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#FF6A00]/25 bg-[#FF6A00]/10 text-[13px] font-semibold text-[#FF8A38]"><Check size={16} /> Ваш тариф</div> : paid ? <Button variant="primary" size="lg" fullWidth onClick={() => setPayTier(tier)}>Выбрать {PLAN_NAMES[tier]}</Button> : <div className="min-h-11 text-center text-[12px] leading-5 text-[#66666E]">Free включается автоматически после окончания платной подписки.</div>}</div>
+          </motion.article>
         })}
-
-        <div className="pb-2 text-center">
-          <p className="text-[11px] text-[#44444C]">{t('plans.footer')}</p>
-        </div>
       </div>
-
-      {/* Payment method sheet */}
-      <Sheet open={payTier !== null} onClose={() => { if (!paying) setPayTier(null) }} title={t('plans.choosePayment')}>
-        {payTier && (
-          <div className="space-y-2 pt-1">
-            <button
-              onClick={() => payWithStars(payTier)}
-              disabled={paying}
-              className="w-full flex items-center justify-between px-4 py-3.5 rounded-[14px] bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.07] transition-colors disabled:opacity-50"
-            >
-              <span className="flex items-center gap-2.5">
-                <Star size={18} className="text-[#FF6A00]" fill="#FF6A00" />
-                <span className="text-[14px] font-medium text-white">Telegram Stars</span>
-              </span>
-              <span className="text-[14px] font-bold text-white">{(variant === 'high' ? PLAN_PRICING_HIGH : PLAN_PRICING)[payTier].stars} ⭐</span>
-            </button>
-
-            <button
-              onClick={() => payWithTon(payTier)}
-              disabled={paying}
-              className="w-full flex items-center justify-between px-4 py-3.5 rounded-[14px] bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.07] transition-colors disabled:opacity-50"
-            >
-              <span className="flex items-center gap-2.5">
-                <GramMark size={18} />
-                <span className="text-[14px] font-medium text-white">Gram</span>
-              </span>
-              <span className="text-[14px] font-bold text-white">{(variant === 'high' ? PLAN_PRICING_HIGH : PLAN_PRICING)[payTier].ton} Gram</span>
-            </button>
-
-            <p className="text-center text-[11px] text-[#55555D] pt-1">
-              {paying ? t('plans.payProcessing') : t('plans.payForDays')}
-            </p>
-          </div>
-        )}
-      </Sheet>
     </div>
-  )
+
+    <Sheet open={payTier !== null} onClose={() => !paying && setPayTier(null)} title={payTier ? `Оплата ${PLAN_NAMES[payTier]}` : 'Оплата'}>
+      {payTier && <div className="space-y-3">
+        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4"><p className="text-sm font-semibold text-white">30 дней доступа</p><p className="mt-1 text-xs leading-5 text-[#777780]">Лимиты обновляются ежемесячно. При продлении оставшиеся оплаченные дни сохраняются.</p></div>
+        <button disabled={paying} onClick={() => void payWithStars(payTier)} className="flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-white/[0.09] bg-white/[0.045] px-4 text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00] disabled:opacity-50"><span className="font-semibold">Telegram Stars</span><span className="font-bold">{PLAN_PRICING[payTier].stars} ⭐</span></button>
+        <button disabled={paying} onClick={() => void payWithTon(payTier)} className="flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-[#0098EA]/20 bg-[#0098EA]/[0.08] px-4 text-white transition-colors hover:bg-[#0098EA]/[0.13] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0098EA] disabled:opacity-50"><span className="flex items-center gap-2 font-semibold"><GramMark size={18} /> Gram</span><span className="font-bold">{PLAN_PRICING[payTier].ton} Gram</span></button>
+        {paying && <div className="flex items-center justify-center gap-2 py-2 text-xs text-[#8C8C96]"><Loader2 size={15} className="animate-spin" /> Проверяем оплату…</div>}
+      </div>}
+    </Sheet>
+  </div>
+}
+
+function Usage({ label, used, limit }: { label: string; used: number; limit: number }) {
+  const progress = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
+  return <div className="rounded-xl border border-white/[0.06] bg-black/15 p-2.5"><div className="flex items-center justify-between gap-2"><span className="text-[11px] text-[#8A8A93]">{label}</span><span className="text-[11px] font-semibold text-white">{format(used)} / {format(limit)}</span></div><div className="mt-2 h-1 overflow-hidden rounded-full bg-white/[0.07]"><div className="h-full rounded-full bg-[#FF6A00]" style={{ width: `${progress}%` }} /></div></div>
 }

@@ -39,11 +39,13 @@ const isUrl = (s: string) => /^https?:\/\/\S+$/i.test(s.trim())
 const consumedHandoffNonces = new Set<number>()
 
 export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: CreateScreenProps) {
-  const { state, activeChannel, addPost, showToast, t, language, authStatus, canGenerate: hasQuota, createsRemaining } = useApp()
+  const { state, activeChannel, addPost, showToast, t, language, authStatus, canGenerate: hasQuota, createsRemaining, applyServerSubscription } = useApp()
   const isRu = language === 'ru'
   const { step: wtStep } = useWalkthrough()
   const [input, setInput] = useState('')
   const [useBrandKit, setUseBrandKit] = useState(true)
+  const visualAvailable = state.user.subscription.limits.canUseAiVisuals && state.user.subscription.usage.visuals.used < state.user.subscription.usage.visuals.limit
+  const [generateVisual, setGenerateVisual] = useState(visualAvailable)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [uploadingShot, setUploadingShot] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -97,11 +99,13 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
             input:     text,
             sourceType,
             useBrandKit,
+            generateVisual: generateVisual && visualAvailable,
             ...(imageUrl ? { imageUrl } : {}),
           }),
         })
         if (!res.ok) throw new Error(`generate failed: ${res.status}`)
-        const data = await res.json() as { post: GenerateApiPost }
+        const data = await res.json() as { post: GenerateApiPost; subscription?: Parameters<typeof applyServerSubscription>[0] }
+        if (data.subscription) applyServerSubscription(data.subscription)
         post = {
           ...data.post,
           createdAt:   new Date(data.post.createdAt),
@@ -262,12 +266,24 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
                 <Coachmark stepLabel={t('onboarding.step3')} title={t('onboarding.createTitle')} text={t('onboarding.createText')} />
               )}
 
+              {mode === 'ai' && (
+                <div className="rounded-[12px] border border-white/[0.07] bg-white/[0.025] px-3 py-3">
+                  <Switch
+                    label={isRu ? 'Создать AI-обложку' : 'Generate AI cover'}
+                    description={visualAvailable
+                      ? (isRu ? `Спишется 1 визуал · осталось ${Math.max(0, state.user.subscription.usage.visuals.limit - state.user.subscription.usage.visuals.used)}` : 'Uses 1 visual credit')
+                      : (isRu ? 'Недоступно на тарифе или лимит исчерпан' : 'Unavailable on your plan or limit reached')}
+                    value={generateVisual && visualAvailable}
+                    onChange={value => setGenerateVisual(value && visualAvailable)}
+                  />
+                </div>
+              )}
               {mode === 'ai' && createsRemaining !== null && (
                 <div className={cn('flex items-center justify-between px-3 py-2 rounded-[10px] text-[12px]',
                   createsRemaining === 0 ? 'bg-red-500/10 border border-red-500/20 text-red-400'
                   : createsRemaining <= 5 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
                   : 'bg-white/[0.03] border border-white/[0.07] text-[#55555D]')}>
-                  <span>{t('create.creditsLeft')}</span>
+                  <span>{isRu ? 'AI-текстов осталось' : 'AI texts left'}</span>
                   <span className="font-semibold">{createsRemaining}</span>
                 </div>
               )}

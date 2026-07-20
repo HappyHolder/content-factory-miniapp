@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { TIER_LIMITS } from '../lib/subscriptionLimits';
+import { TIER_LIMITS, getEffectiveSubscription, reserveSubscriptionQuota, refundSubscriptionQuota } from '../lib/subscriptionLimits';
 import type { PlanTier } from '@prisma/client';
 import { webSearch } from '../lib/webSearch';
 import { terraText, terraTextStream, terraJson, type TerraEffort } from '../lib/assistantModel';
@@ -12,9 +12,6 @@ const router = Router();
 
 const HISTORY_LIMIT = 100; // messages fed to the model as context
 const STORE_LIMIT   = 300; // messages kept per session in DB
-
-// Daily assistant message caps per plan — cost protection, generous for normal use.
-const CHAT_DAILY_LIMIT: Record<PlanTier, number> = { FREE: 0, STARTER: 50, CREATOR: 200, STUDIO_PRO: 500 };
 
 /** Validates initData and resolves the DB user. Throws with a message on failure. */
 async function authChatUser(initData: unknown): Promise<{ id: string; name: string | null }> {
@@ -209,7 +206,7 @@ router.get('/history', async (req: Request, res: Response): Promise<void> => {
 });
 
 // ─── POST /api/chat ───────────────────────────────────────────────────────────
-// Sends the latest user message to DeepSeek using full DB history as context.
+// Sends the latest user message to the unified primary AI model using full DB history as context.
 // Saves both the user message and the AI reply to DB.
 // Request body: { initData, channelId, message: string }
 // Response 200: { reply: string }
@@ -260,34 +257,20 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     });
   }
 
-  // Gate the AI assistant by plan tier — FREE has no access.
-  const sub = await prisma.subscription.findUnique({
-    where:  { userId: dbUser.id },
-    select: { tier: true, modelTier: true },
-  }).catch(() => null);
-  const tier = sub?.tier ?? 'FREE';
-  const modelTier: 'LOW' | 'HIGH' = sub?.modelTier ?? 'LOW';
-  const canPlan = TIER_LIMITS[tier].canUseContentManager; // AI content-series manager (CREATOR+)
-  if (!TIER_LIMITS[tier].canUseAiAssistant) {
-    res.status(403).json({ error: 'AI ассистент доступен на тарифе Starter и выше.', code: 'UPGRADE_REQUIRED' });
+  const subscription = await getEffectiveSubscription(dbUser.id);
+  const tier = subscription.tier;
+  const plan = TIER_LIMITS[tier];
+  const canPlan = plan.canUseContentManager;
+  if (!env.REPLICATE_API_TOKEN) { res.status(503).json({ error: 'AI not configured' }); return; }
+
+  const assistantQuota = await reserveSubscriptionQuota(dbUser.id, 'assistant');
+  if (!assistantQuota.ok) {
+    res.status(429).json({ error: `Месячный лимит AI Assistant исчерпан (${assistantQuota.limit}).`, code: 'CHAT_LIMIT', used: assistantQuota.used, limit: assistantQuota.limit });
     return;
   }
+  let assistantReserved = true;
 
-  if (!env.REPLICATE_API_TOKEN && !env.DEEPSEEK_API_KEY) { res.status(503).json({ error: 'AI not configured' }); return; }
-
-  // Daily message quota (cost protection). Day boundary = midnight MSK.
-  const dailyLimit = CHAT_DAILY_LIMIT[tier] ?? 0;
-  const mskTodayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
-  const mskMidnight = new Date(`${mskTodayISO}T00:00:00+03:00`);
-  const usedToday = await prisma.chatMessage.count({ where: { userId: dbUser.id, role: 'user', createdAt: { gte: mskMidnight } } }).catch(() => 0);
-  if (usedToday >= dailyLimit) {
-    res.status(429).json({ error: `Дневной лимит сообщений ассистента (${dailyLimit}) исчерпан — обнулится в полночь по МСК.`, code: 'CHAT_LIMIT' });
-    return;
-  }
-
-  // One model (GPT-5.6 Terra), tiered by thinking depth.
-  const effort: TerraEffort = tier === 'STUDIO_PRO' || modelTier === 'HIGH' ? 'high' : tier === 'CREATOR' ? 'medium' : 'low';
-
+  const effort: TerraEffort = tier === 'STUDIO_PRO' ? 'high' : tier === 'CREATOR' ? 'medium' : 'low';
   const [activeChannel, allChannels] = await Promise.all([
     prisma.channel.findUnique({
       where:  { id: channelId },
@@ -429,6 +412,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         `Your only job is to collect the missing details — ask brief CLARIFYING questions in one message: from which day to start the schedule (so they have time to review before posts go out), **at what time of day to publish** (e.g. 10:00, or 10:00 and 18:00 for two a day), how many posts per day and over how many days (max ${MAX_POSTS_PER_DAY}/day, ${MAX_DAYS} days), the sources (web research / uploaded project docs / both), and a preferred rubric if any. Do NOT invent a posting time — ask the user. ` +
         `Once every detail is known, the system builds the plan AUTOMATICALLY and shows the user a plan card with a «Приступить» button — you never list the posts yourself.\n`
       : '') +
+    `\nPOST MATERIAL MARKER: If and ONLY if the main body of your reply is ready-to-publish post material for the channel (a complete draft post, a rewritten/edited post text, a caption) — something the user could publish after light editing — begin the reply with the exact token [[POST]] and then the content. NEVER use the token for advice, analysis, idea lists, strategies, questions, plans, greetings, or conversation. The token is machine-read and hidden from the user.\n` +
     `Be concise, practical, and creative. Give actionable advice.`;
 
   try {
@@ -464,19 +448,46 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     // ── Terra reply ───────────────────────────────────────────────────────────
     // Search is decided (not forced), results are injected into the flattened
     // conversation, and one Terra call produces the answer. terraText falls
-    // back to a single DeepSeek completion only if Replicate is down.
+    // returns a provider error if the primary model is unavailable.
+    // maxTokens is generous because GPT-5.6-style models spend part of the
+    // completion budget on hidden reasoning.
+    const POST_MARKER = '[[POST]]';
     let streamedAny = false;
+    let createWorthy = false;
     if (!reply) {
       const searchBlock = canSearch ? await decideSearchBlock(message, history, currentYear).catch(() => '') : '';
       const convo = history.map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`).join('\n\n');
       const prompt = `${convo ? convo + '\n\n' : ''}${searchBlock}User: ${message}\n\nAssistant:`;
+
+      // Streaming wrapper that withholds a possible leading [[POST]] marker
+      // until confirmed or ruled out — the client never sees the token.
+      let prefixBuf = '';
+      let prefixDone = false;
+      const forward = (delta: string) => { if (!delta) return; streamedAny = true; sseSend({ type: 'chunk', text: delta }); };
+      const onDelta = (delta: string) => {
+        if (prefixDone) { forward(delta); return; }
+        prefixBuf += delta;
+        const lead = prefixBuf.replace(/^\s+/, '');
+        if (lead.startsWith(POST_MARKER)) {
+          createWorthy = true; prefixDone = true;
+          forward(lead.slice(POST_MARKER.length).replace(/^\s+/, ''));
+        } else if (lead.length >= POST_MARKER.length || !POST_MARKER.startsWith(lead)) {
+          prefixDone = true; forward(prefixBuf);
+        } // else: could still be a partial marker — keep buffering
+      };
+
       const out = wantStream
-        ? await terraTextStream({ system: systemPrompt, prompt, maxTokens: 1024, effort, timeoutMs: 120_000 }, delta => { streamedAny = true; sseSend({ type: 'chunk', text: delta }); })
-        : await terraText({ system: systemPrompt, prompt, maxTokens: 1024, effort, timeoutMs: 90_000 });
-      if (out) reply = out;
+        ? await terraTextStream({ system: systemPrompt, prompt, maxTokens: 2048, effort, timeoutMs: 150_000 }, onDelta)
+        : await terraText({ system: systemPrompt, prompt, maxTokens: 2048, effort, timeoutMs: 120_000 });
+      if (wantStream && !prefixDone && prefixBuf && !prefixBuf.replace(/^\s+/, '').startsWith(POST_MARKER)) forward(prefixBuf);
+      if (out) {
+        createWorthy = createWorthy || /^\s*\[\[POST\]\]/.test(out);
+        reply = out.replace(/^\s*\[\[POST\]\]\s*/, '');
+      }
     }
 
     if (!reply) reply = 'Не удалось получить ответ. Попробуй переформулировать.';
+    console.log(`[chat] mode=${wantStream ? 'sse' : 'json'} streamed=${streamedAny} post=${createWorthy} len=${reply.length} effort=${effort}`);
 
     // Save user + final assistant reply to DB (non-fatal). Intermediate tool
     // turns are not persisted — history stays a clean {role, content} log.
@@ -505,13 +516,14 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     if (wantStream) {
       // Plan replies and fallback texts were never streamed — emit them whole.
       if (!streamedAny) sseSend({ type: 'chunk', text: reply });
-      sseSend({ type: 'done', sessionId: sessionRef.id, ...(pendingPlan ? { plan: pendingPlan } : {}) });
+      sseSend({ type: 'done', sessionId: sessionRef.id, createWorthy, ...(pendingPlan ? { plan: pendingPlan } : {}) });
       res.end();
     } else {
-      res.json({ reply, sessionId: sessionRef.id, ...(pendingPlan ? { plan: pendingPlan } : {}) });
+      res.json({ reply, sessionId: sessionRef.id, createWorthy, ...(pendingPlan ? { plan: pendingPlan } : {}) });
     }
 
   } catch (err) {
+    if (assistantReserved) { await refundSubscriptionQuota(dbUser.id, 'assistant'); assistantReserved = false; }
     console.error('[chat] Error:', (err as Error).message);
     if (sseStarted) {
       try { sseSend({ type: 'error', error: 'AI request failed' }); res.end(); } catch { /* connection gone */ }
