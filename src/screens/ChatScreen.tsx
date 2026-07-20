@@ -48,7 +48,14 @@ export interface ChatMessage {
   plan?: ContentPlan
   /** Server-set: the reply is publishable post material → show «Отправить в Create». */
   createWorthy?: boolean
+  /** Attached image (user turn) — shown inside the bubble. */
+  imageUrl?: string
 }
+
+/** An app action the assistant returned for the client to execute (Stage 3 agent). */
+export type AssistantAction =
+  | { action: 'create_post'; input?: string; generateVisual?: boolean }
+  | { action: 'switch_channel'; channelId?: string }
 
 const SUGGESTIONS = [
   'Придумай 5 идей для постов',
@@ -438,8 +445,13 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
                   )}
                 </div>
               ) : (
-                <div className="max-w-[82%] px-3 py-2 rounded-2xl rounded-br-sm text-[13px] leading-relaxed whitespace-pre-wrap bg-[#FF6A00] text-white">
-                  {msg.content}
+                <div className="max-w-[82%] rounded-2xl rounded-br-sm overflow-hidden bg-[#FF6A00] text-white">
+                  {msg.imageUrl && (
+                    <img src={msg.imageUrl} alt="" className="w-full max-h-64 object-cover" />
+                  )}
+                  {msg.content && (
+                    <div className="px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                  )}
                 </div>
               )}
             </motion.div>

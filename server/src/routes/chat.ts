@@ -4,11 +4,22 @@ import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { TIER_LIMITS, getEffectiveSubscription, reserveSubscriptionQuota, refundSubscriptionQuota } from '../lib/subscriptionLimits';
 import type { PlanTier } from '@prisma/client';
+import multer from 'multer';
 import { webSearch } from '../lib/webSearch';
 import { terraText, terraTextStream, terraJson, type TerraEffort } from '../lib/assistantModel';
 import { generateContentPlan, type ContentPlanDTO, MAX_POSTS_PER_DAY, MAX_DAYS } from '../lib/contentPlanner';
+import { extractImageContentFromUrl } from '../lib/visionExtractor';
+import { transcribeAudio } from '../lib/voiceTranscriber';
+import { putObject } from '../lib/storage';
+import {
+  routeAssistantAction, matchChannel,
+  toolListScheduled, toolChannelStats, toolModerationSummary, toolSchedulePost,
+  type AssistantRoute,
+} from '../lib/assistantTools';
 
 const router = Router();
+
+const uploadMedia = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 const HISTORY_LIMIT = 100; // messages fed to the model as context
 const STORE_LIMIT   = 300; // messages kept per session in DB
@@ -212,13 +223,15 @@ router.get('/history', async (req: Request, res: Response): Promise<void> => {
 // Response 200: { reply: string }
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
-  const { initData, channelId, message, sessionId, stream } = req.body as {
+  const { initData, channelId, message, sessionId, stream, imageUrl } = req.body as {
     initData?:  unknown;
     channelId?: unknown;
     message?:   unknown;
     sessionId?: unknown;
     stream?:    unknown;
+    imageUrl?:  unknown;
   };
+  const hasImage = typeof imageUrl === 'string' && /^https?:\/\//i.test(imageUrl);
 
   // SSE mode: `stream: true` switches the response to text/event-stream with
   // {type:'chunk'|'done'|'error'} events. Pre-generation errors (auth, quota)
@@ -239,7 +252,9 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   };
 
   if (typeof channelId !== 'string' || !channelId.trim()) { res.status(400).json({ error: 'channelId required' }); return; }
-  if (typeof message   !== 'string' || !message.trim())   { res.status(400).json({ error: 'message required' });   return; }
+  if (typeof message !== 'string' || (!message.trim() && !hasImage)) { res.status(400).json({ error: 'message required' }); return; }
+  // With an image and no text, give the model a default instruction.
+  const userMessage = message.trim() || (hasImage ? 'Разбери это изображение.' : '');
 
   let dbUser;
   try { dbUser = await authChatUser(initData); }
@@ -252,7 +267,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     : null;
   if (!session) {
     session = await prisma.chatSession.create({
-      data: { userId: dbUser.id, channelId, title: message.trim().replace(/\s+/g, ' ').slice(0, 60) },
+      data: { userId: dbUser.id, channelId, title: (userMessage || 'Изображение').replace(/\s+/g, ' ').slice(0, 60) },
       select: { id: true, title: true },
     });
   }
@@ -418,13 +433,31 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     let reply = '';
     let pendingPlan: ContentPlanDTO | null = null; // set when a content-series plan is built
+    let actionEnvelope: Record<string, unknown> | null = null; // create_post / switch_channel → client executes
+    let toolContext = ''; // read-tool DATA block Terra phrases instead of a free answer
+    const todayMskISO = now.toLocaleDateString('en-CA', { timeZone: MSK_TZ }); // YYYY-MM-DD (MSK)
+
+    // ── Vision: fold an attached image's content into the model message ────────
+    let modelMessage = userMessage;
+    if (hasImage) {
+      const visionText = await extractImageContentFromUrl(imageUrl as string).catch(() => null);
+      if (visionText) modelMessage = `${userMessage}\n\n[Содержимое прикреплённого изображения]:\n${visionText}`;
+    }
+
+    // Plan-intent and the agent router are independent classifiers over the
+    // same message — run them concurrently so we add one wave of latency, not
+    // two, before the streamed answer begins.
+    const routerChannels = allChannels.map(c => ({ id: c.id, label: c.handle ? `@${c.handle}` : c.name }));
+    const [planIntent, agentRoute] = await Promise.all([
+      canPlan ? detectPlanIntent(history, modelMessage, todayMskISO).catch(() => null) : Promise.resolve(null),
+      routeAssistantAction(history, modelMessage, routerChannels, todayMskISO, canPlan).catch(() => null),
+    ]);
 
     // ── Deterministic content-plan path (CREATOR+) ────────────────────────────
     // Decided server-side with a cheap Terra classifier — models narrate
     // "building the plan" instead of acting, so the server acts itself.
     if (canPlan) {
-      const todayISO = now.toLocaleDateString('en-CA', { timeZone: MSK_TZ }); // YYYY-MM-DD (MSK)
-      const intent = await detectPlanIntent(history, message, todayISO).catch(() => null);
+      const intent = planIntent;
       if (intent) {
         try {
           pendingPlan = await generateContentPlan({
@@ -445,6 +478,43 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // ── Agent router (Stage 3) ────────────────────────────────────────────────
+    // A cheap Terra classifier decides whether this message is an app action.
+    // Read tools run here → toolContext (Terra phrases it). Write/UI actions →
+    // actionEnvelope (client executes its tested flow). Skipped once a plan or
+    // reply already exists. Never fatal: a routing miss falls through to answer.
+    if (!reply && !pendingPlan) {
+      const route: AssistantRoute | null = agentRoute;
+      const activeLabelText = activeChannel.handle ? `@${activeChannel.handle}` : activeChannel.name;
+      if (route && route.action !== 'answer') {
+        console.log(`[chat] action=${route.action}`);
+        if (route.action === 'create_post') {
+          const topic = (route.input ?? modelMessage).slice(0, 2000);
+          actionEnvelope = { action: 'create_post', input: topic, generateVisual: route.generateVisual !== false };
+          reply = 'Готовлю пост — открываю Create с этой темой. Пробегись по черновику и правь, если нужно.';
+        } else if (route.action === 'switch_channel') {
+          const targetId = matchChannel(route.channelQuery, allChannels);
+          if (targetId && targetId !== activeChannel.id) {
+            const target = allChannels.find(c => c.id === targetId)!;
+            actionEnvelope = { action: 'switch_channel', channelId: targetId };
+            reply = `Переключаюсь на ${target.handle ? '@' + target.handle : target.name}.`;
+          } else if (targetId) {
+            reply = `Ты уже в ${activeLabelText}.`;
+          } else {
+            reply = `Не нашёл такой канал среди твоих. Доступны: ${allChannels.map(c => c.handle ? '@' + c.handle : c.name).join(', ')}.`;
+          }
+        } else if (route.action === 'schedule_post') {
+          toolContext = await toolSchedulePost(dbUser.id, channelId, route.when).catch(() => 'SCHEDULE_RESULT: failed, ask the user to try from the Отложка.');
+        } else if (route.action === 'list_scheduled') {
+          toolContext = await toolListScheduled(dbUser.id, channelId).catch(() => 'SCHEDULED_POSTS: could not load.');
+        } else if (route.action === 'channel_stats') {
+          toolContext = await toolChannelStats(dbUser.id, channelId, activeLabelText).catch(() => 'CHANNEL_STATS: could not load.');
+        } else if (route.action === 'moderation_summary') {
+          toolContext = await toolModerationSummary(dbUser.id, channelId, route.sinceHours ?? 24).catch(() => 'MODERATION: could not load.');
+        }
+      }
+    }
+
     // ── Terra reply ───────────────────────────────────────────────────────────
     // Search is decided (not forced), results are injected into the flattened
     // conversation, and one Terra call produces the answer. terraText falls
@@ -455,9 +525,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     let streamedAny = false;
     let createWorthy = false;
     if (!reply) {
-      const searchBlock = canSearch ? await decideSearchBlock(message, history, currentYear).catch(() => '') : '';
+      // Read-tool results are phrased (never searched); normal turns may search.
+      const searchBlock = (!toolContext && canSearch) ? await decideSearchBlock(modelMessage, history, currentYear).catch(() => '') : '';
       const convo = history.map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`).join('\n\n');
-      const prompt = `${convo ? convo + '\n\n' : ''}${searchBlock}User: ${message}\n\nAssistant:`;
+      const dataBlock = toolContext
+        ? `\n\nAPP DATA (fetched from the user's Publium account — answer ONLY from this, in the user's language, concise and friendly; format times/dates naturally; do not invent anything beyond it):\n${toolContext}\n`
+        : '';
+      const prompt = `${convo ? convo + '\n\n' : ''}${searchBlock}${dataBlock}User: ${modelMessage}\n\nAssistant:`;
 
       // Streaming wrapper that withholds a possible leading [[POST]] marker
       // until confirmed or ruled out — the client never sees the token.
@@ -492,9 +566,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     // Save user + final assistant reply to DB (non-fatal). Intermediate tool
     // turns are not persisted — history stays a clean {role, content} log.
     const sessionRef = session;
+    const storedUserContent = hasImage ? `${userMessage}\n[изображение]` : userMessage;
     prisma.chatMessage.createMany({
       data: [
-        { userId: dbUser.id, sessionId: sessionRef.id, role: 'user',      content: message },
+        { userId: dbUser.id, sessionId: sessionRef.id, role: 'user',      content: storedUserContent },
         { userId: dbUser.id, sessionId: sessionRef.id, role: 'assistant', content: reply   },
       ],
     }).then(() =>
@@ -516,10 +591,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     if (wantStream) {
       // Plan replies and fallback texts were never streamed — emit them whole.
       if (!streamedAny) sseSend({ type: 'chunk', text: reply });
-      sseSend({ type: 'done', sessionId: sessionRef.id, createWorthy, ...(pendingPlan ? { plan: pendingPlan } : {}) });
+      sseSend({ type: 'done', sessionId: sessionRef.id, createWorthy, ...(pendingPlan ? { plan: pendingPlan } : {}), ...(actionEnvelope ? { action: actionEnvelope } : {}) });
       res.end();
     } else {
-      res.json({ reply, sessionId: sessionRef.id, createWorthy, ...(pendingPlan ? { plan: pendingPlan } : {}) });
+      res.json({ reply, sessionId: sessionRef.id, createWorthy, ...(pendingPlan ? { plan: pendingPlan } : {}), ...(actionEnvelope ? { action: actionEnvelope } : {}) });
     }
 
   } catch (err) {
@@ -530,6 +605,52 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     } else {
       res.status(502).json({ error: 'AI request failed' });
     }
+  }
+});
+
+// ─── POST /api/chat/upload-image ──────────────────────────────────────────────
+// Uploads an image the user attached in the assistant composer; returns its URL
+// to send back with the chat message (server extracts its content via vision).
+router.post('/upload-image', uploadMedia.single('image'), async (req: Request, res: Response): Promise<void> => {
+  const initData = req.body['initData'] as unknown;
+  const file = req.file;
+  if (!file) { res.status(400).json({ error: 'image is required' }); return; }
+  let user;
+  try { user = await authChatUser(initData); }
+  catch (err) { res.status(401).json({ error: (err as Error).message }); return; }
+  if (!/^image\//.test(file.mimetype)) { res.status(400).json({ error: 'file must be an image' }); return; }
+  try {
+    const ext = (file.originalname.split('.').pop() || 'jpg').replace(/[^a-z0-9]/gi, '').slice(0, 5) || 'jpg';
+    const obj = await putObject(`chat/${user.id}-${Date.now()}.${ext}`, file.buffer, { contentType: file.mimetype });
+    res.json({ url: obj.url });
+  } catch (err) {
+    console.error('[chat/upload-image] failed:', (err as Error).message);
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+// ─── POST /api/chat/transcribe ────────────────────────────────────────────────
+// Transcribes a recorded voice note (Whisper on Replicate). Returns { text } for
+// the client to place in the input field — the user reviews before sending.
+router.post('/transcribe', uploadMedia.single('audio'), async (req: Request, res: Response): Promise<void> => {
+  const initData = req.body['initData'] as unknown;
+  const file = req.file;
+  if (!file) { res.status(400).json({ error: 'audio is required' }); return; }
+  let user;
+  try { user = await authChatUser(initData); }
+  catch (err) { res.status(401).json({ error: (err as Error).message }); return; }
+  // Cheap guard against transcription-quota abuse: charge one assistant unit.
+  const quota = await reserveSubscriptionQuota(user.id, 'assistant');
+  if (!quota.ok) { res.status(429).json({ error: `Месячный лимит AI Assistant исчерпан (${quota.limit}).`, code: 'CHAT_LIMIT' }); return; }
+  try {
+    const dataUri = `data:${file.mimetype || 'audio/webm'};base64,${file.buffer.toString('base64')}`;
+    const text = await transcribeAudio(dataUri);
+    if (!text) { await refundSubscriptionQuota(user.id, 'assistant'); res.status(502).json({ error: 'Не удалось распознать речь' }); return; }
+    res.json({ text });
+  } catch (err) {
+    await refundSubscriptionQuota(user.id, 'assistant').catch(() => undefined);
+    console.error('[chat/transcribe] failed:', (err as Error).message);
+    res.status(500).json({ error: 'Transcription failed' });
   }
 });
 

@@ -16,7 +16,7 @@ import { BrandKitScreen } from '@/screens/BrandKitScreen'
 import { PlansScreen } from '@/screens/PlansScreen'
 import { AdminPanelScreen } from '@/screens/AdminPanelScreen'
 import { OnboardingSlides } from '@/screens/OnboardingSlides'
-import { ChatScreen, type ChatMessage, type ContentPlan } from '@/screens/ChatScreen'
+import { ChatScreen, type ChatMessage, type ContentPlan, type AssistantAction } from '@/screens/ChatScreen'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 
@@ -31,7 +31,7 @@ type ModalScreen =
   | { type: 'admin' }
 
 function AppContent() {
-  const { toasts, authStatus, activeChannel, canUseAiAssistant, t } = useApp()
+  const { toasts, authStatus, activeChannel, canUseAiAssistant, setActiveChannel, t } = useApp()
   const { step: wtStep, start: startWalkthrough, notifyStyleOpened } = useWalkthrough()
   const [activeTab, setActiveTab]             = useState<MainTab>('posts')
   const [modal, setModal]                     = useState<ModalScreen>({ type: 'none' })
@@ -52,11 +52,22 @@ function AppContent() {
   const [showChatScrollBtn, setShowChatScrollBtn] = useState(false)
   const chatScrollFn = useRef<(() => void) | null>(null)
 
-  const sendChatMessage = useCallback(async (text: string) => {
-    const trimmed = text.trim()
-    if (!trimmed || chatLoading) return
+  // Executes an app action the assistant returned (agent tools, Stage 3).
+  const runAssistantAction = useCallback((action: AssistantAction) => {
+    if (action.action === 'create_post' && action.input) {
+      setCreatePrefill({ text: action.input, nonce: Date.now() })
+      setModal({ type: 'none' })
+      setActiveTab('create')
+    } else if (action.action === 'switch_channel' && action.channelId) {
+      setActiveChannel(action.channelId)
+    }
+  }, [setActiveChannel])
 
-    setChatMessages(prev => [...prev, { role: 'user', content: trimmed }])
+  const sendChatMessage = useCallback(async (text: string, imageUrl?: string) => {
+    const trimmed = text.trim()
+    if ((!trimmed && !imageUrl) || chatLoading) return
+
+    setChatMessages(prev => [...prev, { role: 'user', content: trimmed, ...(imageUrl ? { imageUrl } : {}) }])
     setChatLoading(true)
 
     try {
@@ -68,6 +79,7 @@ function AppContent() {
           initData,
           channelId: activeChannel?.id ?? '',
           message:   trimmed,
+          ...(imageUrl ? { imageUrl } : {}),
           stream:    true,
           ...(chatSessionId ? { sessionId: chatSessionId } : {}),
         }),
@@ -90,6 +102,7 @@ function AppContent() {
         let acc = ''
         let donePlan: ContentPlan | undefined
         let doneWorthy = false
+        let doneAction: AssistantAction | undefined
         let failed = false
         for (;;) {
           const { done, value } = await reader.read()
@@ -102,28 +115,30 @@ function AppContent() {
             const dataStr = rawEvent.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('')
             if (!dataStr) continue
             try {
-              const evt = JSON.parse(dataStr) as { type?: string; text?: string; sessionId?: string; plan?: ContentPlan; createWorthy?: boolean }
+              const evt = JSON.parse(dataStr) as { type?: string; text?: string; sessionId?: string; plan?: ContentPlan; createWorthy?: boolean; action?: AssistantAction }
               if (evt.type === 'chunk' && typeof evt.text === 'string') { acc += evt.text; updateLast(acc) }
-              else if (evt.type === 'done') { if (evt.sessionId) setChatSessionId(evt.sessionId); donePlan = evt.plan; doneWorthy = evt.createWorthy === true }
+              else if (evt.type === 'done') { if (evt.sessionId) setChatSessionId(evt.sessionId); donePlan = evt.plan; doneWorthy = evt.createWorthy === true; doneAction = evt.action }
               else if (evt.type === 'error') failed = true
             } catch { /* skip malformed event */ }
           }
         }
         if (failed && !acc) updateLast('Не удалось получить ответ. Попробуй ещё раз.')
         else updateLast(acc, donePlan, doneWorthy)
+        if (doneAction) runAssistantAction(doneAction)
       } else {
         // JSON path: errors (quota, auth) or a non-streaming server.
-        const data = await res.json() as { reply?: string; error?: string; plan?: ContentPlan; sessionId?: string; createWorthy?: boolean }
+        const data = await res.json() as { reply?: string; error?: string; plan?: ContentPlan; sessionId?: string; createWorthy?: boolean; action?: AssistantAction }
         if (data.sessionId) setChatSessionId(data.sessionId)
         const reply = data.reply ?? data.error ?? 'Ошибка'
         setChatMessages(prev => [...prev, { role: 'assistant', content: reply, plan: data.plan, createWorthy: data.createWorthy === true }])
+        if (data.action) runAssistantAction(data.action)
       }
     } catch {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Ошибка соединения' }])
     } finally {
       setChatLoading(false)
     }
-  }, [activeChannel, chatLoading, chatSessionId])
+  }, [activeChannel, chatLoading, chatSessionId, runAssistantAction])
 
   // Live progress poller for a generating plan. Updates the card's status +
   // n/N until the plan reaches a terminal state (SCHEDULED/FAILED/CANCELLED).

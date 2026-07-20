@@ -76,6 +76,9 @@ export const env = {
   // Vision model (on Replicate) used to read incoming photos in the bot.
   // Reuses REPLICATE_API_TOKEN — no separate provider/key needed.
   VISION_MODEL:                      process.env['VISION_MODEL']                      ?? 'openai/gpt-4o-mini',
+  // Speech-to-text model (on Replicate) for the assistant's voice input.
+  // Reuses REPLICATE_API_TOKEN. Default = fast Whisper large-v3.
+  WHISPER_MODEL:                     process.env['WHISPER_MODEL']                     ?? 'openai/whisper',
   REPLICATE_API_TOKEN:               process.env['REPLICATE_API_TOKEN']               ?? '',
   // How long to wait for a Replicate prediction to finish (ms).
   // Imagen 4 typically takes 30–90 s on Replicate.

@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileText, Sparkles, User, Bot, Send, Loader2, ChevronDown, LayoutTemplate } from 'lucide-react'
+import { FileText, Sparkles, User, Bot, Send, Loader2, ChevronDown, LayoutTemplate, Paperclip, Mic, X, Square } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/context/AppContext'
+import { API_BASE } from '@/lib/api'
+import { getTelegramInitData } from '@/lib/telegram'
 
 type Tab = 'posts' | 'create' | 'ai' | 'styles' | 'profile'
 
@@ -15,7 +17,7 @@ interface NavItem {
 interface BottomNavProps {
   active: Tab
   onChange: (tab: Tab) => void
-  onAISend: (text: string) => void
+  onAISend: (text: string, imageUrl?: string) => void
   aiLoading: boolean
   aiEnabled?: boolean
   showScrollBtn?: boolean
@@ -60,12 +62,78 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
     prevIsAI.current = isAI
   }, [isAI])
 
+  // Composer attachments (Stage 3): image + voice.
+  const [attachedImage, setAttachedImage] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const micSupported = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined'
+
   const handleSend = () => {
-    if (!input.trim() || aiLoading) return
-    onAISend(input.trim())
+    const text = input.trim()
+    if ((!text && !attachedImage) || aiLoading || uploading) return
+    onAISend(text, attachedImage ?? undefined)
     setInput('')
+    setAttachedImage(null)
     if (inputRef.current) inputRef.current.style.height = 'auto'
   }
+
+  const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file
+    if (!file) return
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('initData', getTelegramInitData() ?? 'mock')
+      fd.append('image', file)
+      const r = await fetch(`${API_BASE}/api/chat/upload-image`, { method: 'POST', body: fd })
+      const d = await r.json() as { url?: string }
+      if (r.ok && d.url) setAttachedImage(d.url)
+    } catch { /* silently ignore — user can retry */ } finally { setUploading(false) }
+  }
+
+  const startRecording = async () => {
+    if (!micSupported || recording || transcribing) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const rec = new MediaRecorder(stream)
+      chunksRef.current = []
+      rec.ondataavailable = ev => { if (ev.data.size > 0) chunksRef.current.push(ev.data) }
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' })
+        if (blob.size < 1200) return // too short to be speech
+        setTranscribing(true)
+        try {
+          const fd = new FormData()
+          fd.append('initData', getTelegramInitData() ?? 'mock')
+          fd.append('audio', blob, 'voice.webm')
+          const res = await fetch(`${API_BASE}/api/chat/transcribe`, { method: 'POST', body: fd })
+          const d = await res.json() as { text?: string }
+          if (res.ok && d.text) {
+            setInput(prev => (prev ? prev + ' ' : '') + d.text!.trim())
+            setTimeout(() => { autoGrow(); inputRef.current?.focus() }, 0)
+          }
+        } catch { /* ignore */ } finally { setTranscribing(false) }
+      }
+      recorderRef.current = rec
+      rec.start()
+      setRecording(true)
+    } catch { /* mic denied — button stays, no-op */ }
+  }
+  const stopRecording = (send = true) => {
+    const rec = recorderRef.current
+    if (!rec) return
+    if (!send) chunksRef.current = []
+    if (rec.state !== 'inactive') rec.stop()
+    setRecording(false)
+  }
+
+  const hasContent = !!input.trim() || !!attachedImage
 
   return (
     <nav
@@ -108,53 +176,124 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
           /* ── AI input mode ── */
           <motion.div
             key="ai-input"
-            className="flex items-end gap-2 w-full"
+            className="flex flex-col gap-1.5 w-full"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
           >
-            <motion.div
-              initial={{ scale: 0.7, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ type: 'spring', bounce: 0.35, duration: 0.35 }}
-              className="w-9 h-9 rounded-full bg-[rgba(255,106,0,0.15)] flex items-center justify-center flex-shrink-0"
-            >
-              <Bot size={16} className="text-[#FF6A00]" />
-            </motion.div>
-
-            {/* Telegram-style pill field: fully rounded, grows upward with text */}
-            <div className="flex-1 min-w-0 flex items-center bg-white/[0.06] border border-white/[0.09] rounded-[19px] px-4 min-h-[38px]">
-              <textarea
-                ref={inputRef}
-                value={input}
-                rows={1}
-                onChange={e => { setInput(e.target.value); autoGrow() }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-                }}
-                placeholder="Напиши сообщение…"
-                className="flex-1 bg-transparent text-[13px] leading-[1.4] text-white placeholder:text-[#55555D] outline-none min-w-0 resize-none overflow-y-auto no-scrollbar py-[9px] max-h-[120px]"
-              />
-            </div>
-
-            <motion.button
-              onClick={handleSend}
-              whileTap={{ scale: 0.88 }}
-              disabled={!input.trim() || aiLoading}
-              aria-label="Отправить"
-              className={cn(
-                'w-9 h-9 min-w-9 aspect-square rounded-full flex items-center justify-center flex-shrink-0 transition-colors duration-200',
-                input.trim() && !aiLoading
-                  ? 'bg-[#FF6A00] text-white'
-                  : 'bg-white/[0.08] text-[#55555D]'
+            {/* Attached-image preview strip */}
+            <AnimatePresence>
+              {(attachedImage || uploading) && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="flex items-center gap-2 pl-1"
+                >
+                  <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-white/[0.06] flex items-center justify-center">
+                    {uploading
+                      ? <Loader2 size={16} className="text-[#FF6A00] animate-spin" />
+                      : <img src={attachedImage!} alt="" className="w-full h-full object-cover" />}
+                    {attachedImage && !uploading && (
+                      <button
+                        onClick={() => setAttachedImage(null)}
+                        aria-label="Убрать изображение"
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/80 flex items-center justify-center text-white"
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-[#8A8A92]">{uploading ? 'Загружаю…' : 'Изображение прикреплено'}</span>
+                </motion.div>
               )}
-            >
-              {aiLoading
-                ? <Loader2 size={15} className="animate-spin" />
-                : <Send size={15} className="-ml-0.5" />
-              }
-            </motion.button>
+            </AnimatePresence>
+
+            <div className="flex items-end gap-2 w-full">
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
+
+              {recording ? (
+                /* ── Recording bar ── */
+                <>
+                  <motion.button
+                    onClick={() => stopRecording(false)}
+                    whileTap={{ scale: 0.88 }}
+                    aria-label="Отменить запись"
+                    className="w-9 h-9 min-w-9 rounded-full bg-white/[0.08] text-[#ABABAB] flex items-center justify-center flex-shrink-0"
+                  >
+                    <X size={16} />
+                  </motion.button>
+                  <div className="flex-1 min-w-0 flex items-center gap-2 bg-white/[0.06] border border-white/[0.09] rounded-[19px] px-4 min-h-[38px]">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+                    <span className="text-[13px] text-[#C7C7CE]">Идёт запись…</span>
+                  </div>
+                  <motion.button
+                    onClick={() => stopRecording(true)}
+                    whileTap={{ scale: 0.88 }}
+                    aria-label="Остановить и распознать"
+                    className="w-9 h-9 min-w-9 aspect-square rounded-full bg-[#FF6A00] text-white flex items-center justify-center flex-shrink-0"
+                  >
+                    <Square size={13} fill="currentColor" />
+                  </motion.button>
+                </>
+              ) : (
+                <>
+                  {/* Paperclip (attach image) */}
+                  <motion.button
+                    onClick={() => fileInputRef.current?.click()}
+                    whileTap={{ scale: 0.88 }}
+                    disabled={uploading || aiLoading}
+                    aria-label="Прикрепить изображение"
+                    className="w-9 h-9 min-w-9 rounded-full bg-white/[0.06] text-[#ABABAB] hover:text-white flex items-center justify-center flex-shrink-0 transition-colors disabled:opacity-50"
+                  >
+                    <Paperclip size={16} />
+                  </motion.button>
+
+                  {/* Telegram-style pill field */}
+                  <div className="flex-1 min-w-0 flex items-center bg-white/[0.06] border border-white/[0.09] rounded-[19px] px-4 min-h-[38px]">
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      rows={1}
+                      onChange={e => { setInput(e.target.value); autoGrow() }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+                      }}
+                      placeholder={transcribing ? 'Распознаю речь…' : 'Напиши сообщение…'}
+                      disabled={transcribing}
+                      className="flex-1 bg-transparent text-[13px] leading-[1.4] text-white placeholder:text-[#55555D] outline-none min-w-0 resize-none overflow-y-auto no-scrollbar py-[9px] max-h-[120px]"
+                    />
+                  </div>
+
+                  {/* Mic when empty, Send when there's content */}
+                  {hasContent || !micSupported ? (
+                    <motion.button
+                      onClick={handleSend}
+                      whileTap={{ scale: 0.88 }}
+                      disabled={!hasContent || aiLoading || uploading}
+                      aria-label="Отправить"
+                      className={cn(
+                        'w-9 h-9 min-w-9 aspect-square rounded-full flex items-center justify-center flex-shrink-0 transition-colors duration-200',
+                        hasContent && !aiLoading && !uploading ? 'bg-[#FF6A00] text-white' : 'bg-white/[0.08] text-[#55555D]',
+                      )}
+                    >
+                      {aiLoading ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} className="-ml-0.5" />}
+                    </motion.button>
+                  ) : (
+                    <motion.button
+                      onClick={startRecording}
+                      whileTap={{ scale: 0.88 }}
+                      disabled={transcribing || aiLoading}
+                      aria-label="Записать голосовое"
+                      className="w-9 h-9 min-w-9 aspect-square rounded-full bg-white/[0.08] text-[#ABABAB] hover:text-white flex items-center justify-center flex-shrink-0 transition-colors disabled:opacity-50"
+                    >
+                      {transcribing ? <Loader2 size={15} className="animate-spin" /> : <Mic size={16} />}
+                    </motion.button>
+                  )}
+                </>
+              )}
+            </div>
           </motion.div>
         ) : (
           /* ── Normal tabs mode ── */
