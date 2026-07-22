@@ -27,6 +27,11 @@ const TIER_COPY: Record<PlanTier, { eyebrow: string; description: string }> = {
 }
 
 const format = (value: number) => new Intl.NumberFormat('ru-RU').format(value)
+const formatUsd = (value: number) => new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+}).format(value)
 
 function featureRows(tier: PlanTier) {
   const l = SUBSCRIPTION_LIMITS[tier]
@@ -151,7 +156,10 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
           return <motion.article key={tier} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }} className={`relative overflow-hidden rounded-[24px] border p-4 ${current ? 'border-[#FF6A00]/50 bg-[#FF6A00]/[0.09] shadow-[0_0_34px_rgba(255,106,0,0.08)]' : 'border-white/[0.08] bg-white/[0.032]'}`}>
             {tier === 'creator' && !current && <span className="absolute right-4 top-4 rounded-full bg-[#FF6A00] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">Оптимальный</span>}
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8C8C96]">{TIER_COPY[tier].eyebrow}</p>
-            <div className="mt-1 flex items-end gap-2"><h3 className="text-[24px] font-bold text-white">{PLAN_NAMES[tier]}</h3>{price && <p className="pb-1 text-[13px] text-[#8C8C96]">от {price.ton} Gram / 30 дней</p>}</div>
+            <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
+              <h3 className="text-[24px] font-bold text-white">{PLAN_NAMES[tier]}</h3>
+              <p className="pb-1 text-[13px] font-semibold text-[#D6D6DC]">{formatUsd(price?.usd ?? 0)} <span className="font-normal text-[#777780]">/ 30 дней</span></p>
+            </div>
             <p className="mt-1 max-w-[34rem] text-[13px] leading-5 text-[#92929C]">{TIER_COPY[tier].description}</p>
             <div className="mt-4 space-y-2.5">{featureRows(tier).map(({ icon: Icon, text }) => <div key={text} className="flex items-start gap-2.5"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.055]"><Icon size={12} className={text.includes('не включ') ? 'text-[#55555D]' : 'text-[#FF7A1A]'} /></span><span className={`text-[12px] leading-[18px] ${text.includes('не включ') ? 'text-[#5E5E67]' : 'text-[#C5C5CC]'}`}>{text}</span></div>)}</div>
             <div className="mt-5">{current ? <div className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#FF6A00]/25 bg-[#FF6A00]/10 text-[13px] font-semibold text-[#FF8A38]"><Check size={16} /> Ваш тариф</div> : paid ? <Button variant="primary" size="lg" fullWidth onClick={() => setPayTier(tier)}>Выбрать {PLAN_NAMES[tier]}</Button> : <div className="min-h-11 text-center text-[12px] leading-5 text-[#66666E]">Free включается автоматически после окончания платной подписки.</div>}</div>
@@ -162,8 +170,14 @@ export function PlansScreen({ onBack }: PlansScreenProps) {
 
     <Sheet open={payTier !== null} onClose={() => !paying && setPayTier(null)} title={payTier ? `Оплата ${PLAN_NAMES[payTier]}` : 'Оплата'}>
       {payTier && <div className="space-y-3">
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4"><p className="text-sm font-semibold text-white">30 дней доступа</p><p className="mt-1 text-xs leading-5 text-[#777780]">Лимиты обновляются ежемесячно. При продлении оставшиеся оплаченные дни сохраняются.</p></div>
-        <button disabled={paying} onClick={() => void payWithStars(payTier)} className="flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-white/[0.09] bg-white/[0.045] px-4 text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00] disabled:opacity-50"><span className="font-semibold">Telegram Stars</span><span className="font-bold">{PLAN_PRICING[payTier].stars} ⭐</span></button>
+        <div className="rounded-2xl border border-[#FF6A00]/20 bg-gradient-to-br from-[#FF6A00]/[0.11] to-white/[0.025] p-4">
+          <div className="flex items-end justify-between gap-3">
+            <div><p className="text-xs font-medium text-[#A1A1AA]">Стоимость тарифа</p><p className="mt-1 text-[26px] font-bold leading-none text-white">{formatUsd(PLAN_PRICING[payTier].usd)}</p></div>
+            <span className="rounded-full border border-white/[0.09] bg-black/20 px-2.5 py-1 text-[11px] font-medium text-[#B8B8C0]">30 дней</span>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-[#777780]">Оплата производится в Telegram Stars или Gram. Лимиты обновляются ежемесячно, а оставшиеся оплаченные дни сохраняются при продлении.</p>
+        </div>
+        <button disabled={paying} onClick={() => void payWithStars(payTier)} className="flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-white/[0.09] bg-white/[0.045] px-4 text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00] disabled:opacity-50"><span className="font-semibold">Telegram Stars</span><span className="font-bold">{format(PLAN_PRICING[payTier].stars)} ⭐</span></button>
         <button disabled={paying} onClick={() => void payWithTon(payTier)} className="flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-[#0098EA]/20 bg-[#0098EA]/[0.08] px-4 text-white transition-colors hover:bg-[#0098EA]/[0.13] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0098EA] disabled:opacity-50"><span className="flex items-center gap-2 font-semibold"><GramMark size={18} /> Gram</span><span className="font-bold">{PLAN_PRICING[payTier].ton} Gram</span></button>
         {paying && <div className="flex items-center justify-center gap-2 py-2 text-xs text-[#8C8C96]"><Loader2 size={15} className="animate-spin" /> Проверяем оплату…</div>}
       </div>}
