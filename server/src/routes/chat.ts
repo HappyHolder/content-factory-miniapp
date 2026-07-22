@@ -92,38 +92,45 @@ router.delete('/sessions/:sessionId', async (req: Request, res: Response): Promi
   res.json({ ok: true });
 });
 
+// Explicit search / fresh-info intent — when the user literally asks to look
+// something up or wants current events, we ALWAYS search and never leave it to
+// the (occasionally too-conservative) classifier. Broad on purpose:
+// over-searching is safer than answering "I have no web access" to "найди …".
+const SEARCH_INTENT_RE = /\b(найд|поищ|поиск|ищ[уи]|погугл|загугл|search|google|актуальн|свеж|последн|новост|news|latest|тренд|сейчас|сегодня|вчера|за неделю|за сегодня|прямо сейчас|что нового|что происход|происходит|обнов|курс|цен[аы]|price|stat|статистик)/i;
+
 /**
- * Search decision: a cheap low-effort Terra call decides whether answering
- * needs a fresh web search, and with what query. Replaces the old behavior of
- * force-searching EVERY message (cost + latency on "спасибо"-grade replies).
- * On classifier failure falls back to searching the user's literal words —
- * over-searching is safer than hallucinating.
+ * Search decision: forces a web search on explicit search/current-events intent;
+ * otherwise a cheap low-effort Terra call decides. Replaces force-searching EVERY
+ * message (cost + latency on "спасибо"-grade replies). On classifier failure
+ * falls back to the literal message — over-searching is safer than hallucinating.
  */
 async function decideSearchBlock(message: string, history: { role: string; content: string }[], currentYear: number): Promise<string> {
   const trimmed = message.trim();
   if (trimmed.length < 6) return '';
+  const forced = SEARCH_INTENT_RE.test(trimmed);
   const recent = history.slice(-4).map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content.slice(0, 300)}`).join('\n');
   const decision = await terraJson({
     system:
-      `Decide if answering the user's LATEST message needs a fresh web search (recent events, news, prices, stats, "latest", current facts, anything after the model's training cutoff). ` +
-      `Chit-chat, editing requests, rewrites of earlier text, brainstorming on evergreen topics need NO search. ` +
-      `If search is needed, build ONE focused query preserving the user's specifics (names, places), using the year ${currentYear} when time-relevant. ` +
-      `Return ONLY JSON: {"query":"<query, or empty string when no search needed>"}`,
+      `Build a focused web-search query for the user's LATEST message. ` +
+      `Search is needed for recent events, news, prices, stats, "latest", or any current/real-world fact after the training cutoff; NOT for pure chit-chat, editing or rewriting earlier text, or evergreen brainstorming. ` +
+      `Preserve the user's specifics (names, places, tickers), and use the year ${currentYear} when time-relevant. ` +
+      `Return ONLY JSON: {"query":"<query, or empty string only when clearly no search is needed>"}`,
     prompt: (recent ? `Conversation so far:\n${recent}\n\n` : '') + `LATEST user message: ${trimmed.slice(0, 600)}`,
     maxTokens: 120,
     effort: 'low',
     noFallback: true,
     timeoutMs: 30_000,
   });
-  let query: string | null = null;
-  if (decision) {
-    query = typeof decision['query'] === 'string' && decision['query'].trim() ? decision['query'].trim().slice(0, 400) : '';
-  } else {
-    query = trimmed.slice(0, 400); // classifier down → literal search, as before
-  }
-  if (!query) return '';
+  const classifierQuery = decision && typeof decision['query'] === 'string' ? decision['query'].trim().slice(0, 400) : null;
+  // Forced intent → always search (classifier query if it built one, else literal).
+  // Otherwise → search only when the classifier produced a query.
+  const query = forced
+    ? (classifierQuery || trimmed.slice(0, 400))
+    : (classifierQuery ?? trimmed.slice(0, 400)); // classifier down (null) → literal, as before
+  if (!query) { console.log(`[chat] search skipped (forced=${forced})`); return ''; }
   const results = await webSearch(query);
-  if (results) return `\n\nWEB SEARCH RESULTS (current facts fetched for you — base any recent/real-world answer ONLY on these, cite briefly):\n${results}\n`;
+  console.log(`[chat] search forced=${forced} q="${query.slice(0, 80)}" hit=${!!results}`);
+  if (results) return `\n\nWEB SEARCH RESULTS (current facts fetched for you — base any recent/real-world answer ONLY on these, cite the outlet briefly):\n${results}\n`;
   return '';
 }
 
