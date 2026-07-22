@@ -550,8 +550,11 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         allChannels: allChannels.map(c => ({ id: c.id, handle: c.handle, name: c.name })),
         canSearch, canPlan, todayISO: todayMskISO,
       });
+      const toolDirective =
+        `\n\nTOOLS: You can call these tools yourself, repeatedly, in one turn. ` +
+        `If web_search returns weak, off-topic or aggregator-only results, DO NOT stop and ask the user to search or list queries for them — refine the query yourself and call web_search AGAIN (try English, add the current date, and site: filters for reputable outlets like reuters.com, bloomberg.com, apnews.com, ft.com, coindesk.com, theblock.co), up to ~4 attempts, until you have solid material or have genuinely exhausted reasonable options. Only then answer, citing the outlets. NEVER tell the user to run a search — you run it. Same for the other tools: act, don't ask the user to do it.`;
       const oa = await runOpenAiChat({
-        system: systemPrompt, history, userMessage: modelMessage, tools, execute,
+        system: systemPrompt + toolDirective, history, userMessage: modelMessage, tools, execute,
         effort: tier === 'STUDIO_PRO' ? 'medium' : 'low',
         onDelta: (t) => { if (wantStream && t) { streamedAny = true; sseSend({ type: 'chunk', text: t }); } },
         maxTokens: 3000, timeoutMs: 150_000,

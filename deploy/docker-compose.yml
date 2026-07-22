@@ -59,6 +59,10 @@ services:
       # AI text
       AI_PROVIDER: ${AI_PROVIDER}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      # Assistant chat: direct OpenAI (native tool calling). 'openai' → OpenAI path.
+      ASSISTANT_PROVIDER: ${ASSISTANT_PROVIDER:-replicate}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-5.6-terra}
       # AI images
       IMAGE_PROVIDER: ${IMAGE_PROVIDER}
       REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN}
