@@ -53,6 +53,9 @@ services:
       COMMUNITY_MANAGER_WEBHOOK_SECRET: ${COMMUNITY_MANAGER_WEBHOOK_SECRET:-}
       COMMUNITY_MANAGER_BOT_USERNAME: ${COMMUNITY_MANAGER_BOT_USERNAME:-publium_community_bot}
       MANAGED_BOT_ENCRYPTION_KEY: ${MANAGED_BOT_ENCRYPTION_KEY:-}
+      # gramJS userbot (community manager) — was a server-local edit; committed here.
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-0}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
       WEBHOOK_URL: https://${DOMAIN}/api/bot/webhook
       MINI_APP_URL: https://${DOMAIN}
       ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS}
