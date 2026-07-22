@@ -16,6 +16,7 @@ import {
   toolListScheduled, toolChannelStats, toolModerationSummary, toolSchedulePost,
   type AssistantRoute,
 } from '../lib/assistantTools';
+import { runOpenAiChat, type OaiTool, type ToolOutcome } from '../lib/openaiChat';
 
 const router = Router();
 
@@ -179,6 +180,93 @@ async function detectPlanIntent(
   } catch {
     return null;
   }
+}
+
+// ─── OpenAI agent: tool definitions + executor (native function calling) ──────
+interface AgentCtx {
+  userId: string;
+  channelId: string;
+  activeChannel: { id: string; handle: string | null; name: string };
+  allChannels: { id: string; handle: string | null; name: string }[];
+  canSearch: boolean;
+  canPlan: boolean;
+  todayISO: string;
+}
+
+/** Builds the tool schemas + executor the OpenAI model drives itself. */
+function buildAssistantAgent(ctx: AgentCtx): { tools: OaiTool[]; execute: (name: string, args: Record<string, unknown>) => Promise<ToolOutcome> } {
+  const activeLabel = ctx.activeChannel.handle ? `@${ctx.activeChannel.handle}` : ctx.activeChannel.name;
+  const tools: OaiTool[] = [];
+  const str = (o: Record<string, unknown>, k: string) => typeof o[k] === 'string' ? (o[k] as string) : '';
+
+  if (ctx.canSearch) tools.push({ name: 'web_search', description: 'Search the web for current or factual information (news, prices, recent events, stats). Returns a summary and top results with source, date, url.', parameters: { type: 'object', properties: { query: { type: 'string', description: "Focused query in the user's language; include the current year for time-sensitive topics" } }, required: ['query'] } });
+  tools.push({ name: 'list_scheduled', description: "List the channel's upcoming scheduled posts (Отложка).", parameters: { type: 'object', properties: {}, required: [] } });
+  tools.push({ name: 'channel_stats', description: "The channel's Publium stats: drafts, scheduled, published counts, next scheduled post.", parameters: { type: 'object', properties: {}, required: [] } });
+  tools.push({ name: 'moderation_summary', description: "Summary of the connected group chat's moderation events (deletions, warns, joins, raids).", parameters: { type: 'object', properties: { sinceHours: { type: 'integer', description: 'Look-back window in hours (default 24)' } }, required: [] } });
+  tools.push({ name: 'switch_channel', description: "Switch the app's active channel to another of the user's channels.", parameters: { type: 'object', properties: { channelQuery: { type: 'string', description: 'Name or @handle of the channel to switch to' } }, required: ['channelQuery'] } });
+  tools.push({ name: 'create_post', description: 'Open the Create screen prefilled to generate ONE post on a topic. Use when the user asks to make/generate/draft a single post.', parameters: { type: 'object', properties: { input: { type: 'string', description: 'What the post should be about, in the channel language' }, generateVisual: { type: 'boolean', description: 'Whether to also generate a cover image (default true)' } }, required: ['input'] } });
+  if (ctx.canPlan) {
+    tools.push({ name: 'schedule_post', description: "Put the channel's most recent draft into the schedule (Отложка) at a given time.", parameters: { type: 'object', properties: { when: { type: 'string', description: 'Absolute local time "YYYY-MM-DDTHH:MM" (Moscow)' } }, required: ['when'] } });
+    tools.push({ name: 'create_content_plan', description: 'Build a DRAFT multi-day SERIES of posts (mini-course / content plan). Only call once topic, postsPerDay, days, startDate and times are all known — ask the user first otherwise.', parameters: { type: 'object', properties: { topic: { type: 'string' }, postsPerDay: { type: 'integer' }, days: { type: 'integer' }, startDate: { type: 'string', description: 'YYYY-MM-DD' }, times: { type: 'array', items: { type: 'string' }, description: '["HH:MM"] per post/day' }, source: { type: 'string', enum: ['web', 'uploads', 'both'] }, rubricHint: { type: 'string' } }, required: ['topic', 'postsPerDay', 'days', 'startDate', 'times'] } });
+  }
+
+  const execute = async (name: string, args: Record<string, unknown>): Promise<ToolOutcome> => {
+    switch (name) {
+      case 'web_search': {
+        const q = str(args, 'query').slice(0, 400);
+        const r = q ? await webSearch(q) : null;
+        return { result: r || 'No results found.' };
+      }
+      case 'list_scheduled':
+        return { result: await toolListScheduled(ctx.userId, ctx.channelId).catch(() => 'SCHEDULED_POSTS: could not load.') };
+      case 'channel_stats':
+        return { result: await toolChannelStats(ctx.userId, ctx.channelId, activeLabel).catch(() => 'CHANNEL_STATS: could not load.') };
+      case 'moderation_summary': {
+        const h = Number.isFinite(Number(args['sinceHours'])) ? Math.max(1, Math.min(168, Number(args['sinceHours']))) : 24;
+        return { result: await toolModerationSummary(ctx.userId, ctx.channelId, h).catch(() => 'MODERATION: could not load.') };
+      }
+      case 'switch_channel': {
+        const targetId = matchChannel(str(args, 'channelQuery'), ctx.allChannels);
+        if (targetId && targetId !== ctx.activeChannel.id) {
+          const target = ctx.allChannels.find(c => c.id === targetId)!;
+          const label = target.handle ? '@' + target.handle : target.name;
+          return { result: `Switched to ${label}.`, action: { action: 'switch_channel', channelId: targetId } };
+        }
+        if (targetId) return { result: `Already on ${activeLabel}.` };
+        return { result: `No such channel. Available: ${ctx.allChannels.map(c => c.handle ? '@' + c.handle : c.name).join(', ')}.` };
+      }
+      case 'create_post': {
+        const input = str(args, 'input').slice(0, 2000);
+        if (!input) return { result: 'Missing topic — ask the user what the post is about.' };
+        return { result: 'Create is opening prefilled with this topic; the user reviews the draft there.', action: { action: 'create_post', input, generateVisual: args['generateVisual'] !== false } };
+      }
+      case 'schedule_post':
+        return { result: await toolSchedulePost(ctx.userId, ctx.channelId, str(args, 'when')).catch(() => 'SCHEDULE_RESULT: failed, ask the user to try from the Отложка.') };
+      case 'create_content_plan': {
+        if (!ctx.canPlan) return { result: 'Content plans require the Creator plan or higher.' };
+        try {
+          const times = Array.isArray(args['times']) ? (args['times'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
+          const plan = await generateContentPlan({
+            channelId: ctx.channelId,
+            topic: str(args, 'topic'),
+            postsPerDay: Number(args['postsPerDay']) || 1,
+            days: Number(args['days']) || 1,
+            startDate: new Date(str(args, 'startDate') || ctx.todayISO),
+            source: args['source'] === 'uploads' || args['source'] === 'both' ? args['source'] as 'uploads' | 'both' : 'web',
+            rubricHint: str(args, 'rubricHint') || undefined,
+            times,
+          });
+          return { result: `Plan draft created: ${plan.totalPosts} posts on "${plan.topic}". A card with a «Приступить» button is now shown — confirm in one short sentence, do not list the posts.`, plan };
+        } catch (err) {
+          return { result: `Failed to build the plan: ${(err as Error).message}. Apologize and suggest retrying.` };
+        }
+      }
+      default:
+        return { result: `Unknown tool ${name}.` };
+    }
+  };
+
+  return { tools, execute };
 }
 
 // ─── GET /api/chat/history ────────────────────────────────────────────────────
@@ -448,11 +536,40 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       if ((imageUrl as string).includes('/chat/')) deleteObject(imageUrl as string).catch(() => undefined);
     }
 
+    let streamedAny = false;
+    let createWorthy = false;
+    let usedOpenAi = false;
+
+    // ── OpenAI path: native tool calling (flag-gated) ─────────────────────────
+    // When ASSISTANT_PROVIDER='openai', the model itself reasons and calls tools
+    // (search / create_post / schedule / stats / …) in one loop — no separate
+    // classifiers. On any failure we fall through to the Replicate path below.
+    if (env.ASSISTANT_PROVIDER === 'openai' && env.OPENAI_API_KEY) {
+      const { tools, execute } = buildAssistantAgent({
+        userId: dbUser.id, channelId, activeChannel: { id: activeChannel.id, handle: activeChannel.handle, name: activeChannel.name },
+        allChannels: allChannels.map(c => ({ id: c.id, handle: c.handle, name: c.name })),
+        canSearch, canPlan, todayISO: todayMskISO,
+      });
+      const oa = await runOpenAiChat({
+        system: systemPrompt, history, userMessage: modelMessage, tools, execute,
+        effort: tier === 'STUDIO_PRO' ? 'medium' : 'low',
+        onDelta: (t) => { if (wantStream && t) { streamedAny = true; sseSend({ type: 'chunk', text: t }); } },
+        maxTokens: 3000, timeoutMs: 150_000,
+      }).catch(() => null);
+      if (oa?.ok) {
+        usedOpenAi = true;
+        reply = oa.text || (oa.action || oa.plan ? 'Готово.' : '');
+        createWorthy = oa.createWorthy;
+        if (oa.action) actionEnvelope = oa.action;
+        if (oa.plan) pendingPlan = oa.plan as ContentPlanDTO;
+      }
+    }
+
     // Plan-intent and the agent router are independent classifiers over the
     // same message — run them concurrently so we add one wave of latency, not
     // two, before the streamed answer begins.
-    const routerChannels = allChannels.map(c => ({ id: c.id, label: c.handle ? `@${c.handle}` : c.name }));
-    const [planIntent, agentRoute] = await Promise.all([
+    const routerChannels = usedOpenAi ? [] : allChannels.map(c => ({ id: c.id, label: c.handle ? `@${c.handle}` : c.name }));
+    const [planIntent, agentRoute] = usedOpenAi ? [null, null] : await Promise.all([
       canPlan ? detectPlanIntent(history, modelMessage, todayMskISO).catch(() => null) : Promise.resolve(null),
       routeAssistantAction(history, modelMessage, routerChannels, todayMskISO, canPlan).catch(() => null),
     ]);
@@ -460,7 +577,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     // ── Deterministic content-plan path (CREATOR+) ────────────────────────────
     // Decided server-side with a cheap Terra classifier — models narrate
     // "building the plan" instead of acting, so the server acts itself.
-    if (canPlan) {
+    if (!usedOpenAi && canPlan) {
       const intent = planIntent;
       if (intent) {
         try {
@@ -487,7 +604,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     // Read tools run here → toolContext (Terra phrases it). Write/UI actions →
     // actionEnvelope (client executes its tested flow). Skipped once a plan or
     // reply already exists. Never fatal: a routing miss falls through to answer.
-    if (!reply && !pendingPlan) {
+    if (!usedOpenAi && !reply && !pendingPlan) {
       const route: AssistantRoute | null = agentRoute;
       const activeLabelText = activeChannel.handle ? `@${activeChannel.handle}` : activeChannel.name;
       if (route && route.action !== 'answer') {
@@ -526,9 +643,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     // maxTokens is generous because GPT-5.6-style models spend part of the
     // completion budget on hidden reasoning.
     const POST_MARKER = '[[POST]]';
-    let streamedAny = false;
-    let createWorthy = false;
-    if (!reply) {
+    if (!usedOpenAi && !reply) {
       // Read-tool results are phrased (never searched); normal turns may search.
       const searchBlock = (!toolContext && canSearch) ? await decideSearchBlock(modelMessage, history, currentYear).catch(() => '') : '';
       const convo = history.map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`).join('\n\n');

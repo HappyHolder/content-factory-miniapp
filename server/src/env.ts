@@ -80,6 +80,13 @@ export const env = {
   // Reuses REPLICATE_API_TOKEN. Default = fast Whisper large-v3.
   WHISPER_MODEL:                     process.env['WHISPER_MODEL']                     ?? 'openai/whisper',
   REPLICATE_API_TOKEN:               process.env['REPLICATE_API_TOKEN']               ?? '',
+  // ─── Direct OpenAI API (assistant chat only — native tool calling) ──────────
+  // When ASSISTANT_PROVIDER='openai' AND OPENAI_API_KEY is set, the assistant
+  // chat runs the OpenAI agentic loop (real function calling). Anything else
+  // keeps the Replicate/Terra path. Covers, moderation, research stay on Replicate.
+  OPENAI_API_KEY:                    process.env['OPENAI_API_KEY']                    ?? '',
+  OPENAI_CHAT_MODEL:                 process.env['OPENAI_CHAT_MODEL']                 ?? 'gpt-5.6-terra',
+  ASSISTANT_PROVIDER:                process.env['ASSISTANT_PROVIDER']                ?? 'replicate',
   // How long to wait for a Replicate prediction to finish (ms).
   // Imagen 4 typically takes 30–90 s on Replicate.
   // Set higher than your HTTP gateway timeout if you want to see the result;
