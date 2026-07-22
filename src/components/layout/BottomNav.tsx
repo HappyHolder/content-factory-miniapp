@@ -37,7 +37,7 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
     const el = inputRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`
   }
   // Track if we've mounted — skip animation on first render
   const mounted = useRef(false)
@@ -159,9 +159,11 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
       )}
       style={{
         transition: 'padding 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
-        // In AI mode let the bar grow upward with the textarea (pill → rounded box).
+        // AI mode: radius = half the resting height (58px → 29px) so a single
+        // line is a perfect pill (round ends, like Telegram) and multi-line text
+        // becomes a soft rounded rectangle instead of a giant stadium.
         ...(isAI
-          ? { height: 'auto', minHeight: '58px', borderRadius: '26px', paddingTop: '8px', paddingBottom: '8px' }
+          ? { height: 'auto', minHeight: '58px', borderRadius: '29px', paddingTop: '8px', paddingBottom: '8px' }
           : {}),
       }}
     >
@@ -295,7 +297,7 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
                       }}
                       placeholder={transcribing ? 'Распознаю речь…' : 'Напиши сообщение…'}
                       disabled={transcribing}
-                      className="flex-1 bg-transparent text-[13px] leading-[1.4] text-white placeholder:text-[#55555D] outline-none min-w-0 resize-none overflow-y-auto no-scrollbar py-[9px] max-h-[120px]"
+                      className="flex-1 bg-transparent text-[13px] leading-[1.5] text-white placeholder:text-[#55555D] outline-none min-w-0 resize-none overflow-y-auto no-scrollbar py-[9px] max-h-[220px]"
                     />
                   </div>
 

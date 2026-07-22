@@ -420,7 +420,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     `For any question about real-world or recent events, rely ONLY on a "WEB SEARCH RESULTS" block. ` +
     `If there is no such block, or it does not actually contain the answer, say plainly that you can't confirm it (and offer to look it up) — do NOT fabricate a plausible-sounding answer.\n` +
     (canSearch
-      ? `If a "WEB SEARCH RESULTS" block appears in the conversation, it holds current information fetched for you — base any time-sensitive or factual answer ONLY on it and briefly mention the sources, building reasoning around the year ${currentYear}. If no such block is present and the question depends on very recent events, say you can't confirm and offer to look it up — never guess.\n`
+      ? `If a "WEB SEARCH RESULTS" block appears in the conversation, it holds current information fetched for you — base any time-sensitive or factual answer ONLY on it and briefly mention the sources, building reasoning around the year ${currentYear}. If no such block is present and the question depends on very recent events, say you can't confirm and offer to look it up — never guess.\n` +
+        `SOURCE QUALITY: prefer and lead with reputable primary and international outlets (Reuters, AP, Bloomberg, BBC, The Guardian, Financial Times, and established agencies like ТАСС, Интерфакс, РБК, Коммерсантъ). Do NOT lead with or lean on content aggregators, SEO farms or portals (mail.ru, dzen, rambler, msn) — mention them only if nothing better is available, and say so. Always name the outlet you're citing, not just "источник".\n`
       : '') +
     (canPlan
       ? `\nCONTENT MANAGER: The system can build a whole SERIES of posts (a mini-course, a themed multi-day plan) and drop them into the user's Отложка (scheduler). When the user asks for a series/mini-course/content-plan of MULTIPLE posts, do NOT write the posts yourself in chat. ` +

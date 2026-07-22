@@ -20,6 +20,17 @@ const cleanDomains=(v:string[]|undefined)=>[...new Set((v??[]).map(x=>x.toLowerC
 const domainAllowed=(url:string,opts:WebSearchOptions)=>{try{const h=new URL(url).hostname.toLowerCase().replace(/^www\./,'');const allowed=cleanDomains(opts.allowedDomains),blocked=cleanDomains(opts.blockedDomains);if(blocked.some(d=>h===d||h.endsWith('.'+d)))return false;return allowed.length===0||allowed.some(d=>h===d||h.endsWith('.'+d))}catch{return false}};
 const scopedQuery=(query:string,opts:WebSearchOptions)=>{const allowed=cleanDomains(opts.allowedDomains),blocked=cleanDomains(opts.blockedDomains);const scope=allowed.length?' ('+allowed.map(d=>'site:'+d).join(' OR ')+')':blocked.map(d=>' -site:'+d).join('');return(query.trim()+' '+scope).trim().slice(0,1200)};
 
+// Low-quality content aggregators / SEO farms: kept (they may hold the only
+// copy of a story) but sunk below primary outlets so the model cites those
+// first. NOT a blocklist — legit RU/EN outlets (tass, interfax, rbc, reuters…)
+// are untouched.
+const JUNK_DOMAINS = ['mail.ru', 'dzen.ru', 'zen.yandex.ru', 'rambler.ru', 'pikabu.ru', 'yandex.ru', 'msn.com', 'news.google.com'];
+const junkPenalty = (url?: string): number => {
+  if (!url) return 1;
+  try { const h = new URL(url).hostname.toLowerCase().replace(/^www\./, ''); return JUNK_DOMAINS.some(d => h === d || h.endsWith('.' + d)) ? 1 : 0; }
+  catch { return 1; }
+};
+
 // ─── Serper (Google) ────────────────────────────────────────────────────────────
 
 const SERPER_URL = 'https://google.serper.dev/search';
@@ -54,14 +65,14 @@ async function serperSearch(query: string, opts: WebSearchOptions): Promise<stri
     const summary = data.answerBox?.answer || data.answerBox?.snippet || data.knowledgeGraph?.description;
     if (summary && summary.trim() && !cleanDomains(opts.allowedDomains).length && !cleanDomains(opts.blockedDomains).length) lines.push(`Summary: ${summary.trim()}`);
 
-    const news = [...(data.topStories ?? []), ...(data.news ?? [])].filter(n=>n.link&&domainAllowed(n.link,opts)).slice(0, 5);
+    const news = [...(data.topStories ?? []), ...(data.news ?? [])].filter(n=>n.link&&domainAllowed(n.link,opts)).sort((a,b)=>junkPenalty(a.link)-junkPenalty(b.link)).slice(0, 5);
     news.forEach((n, i) => {
       const t = (n.title ?? '').trim(), u = (n.link ?? '').trim();
       const meta = [n.source, n.date].filter(Boolean).join(', ');
       if (t || u) lines.push(`[news ${i + 1}] ${t}${meta ? ` (${meta})` : ''}\n${u}\n${(n.snippet ?? '').trim().slice(0, 280)}`);
     });
 
-    (data.organic ?? []).filter(r=>r.link&&domainAllowed(r.link,opts)).slice(0, MAX_RESULTS).forEach((r, i) => {
+    (data.organic ?? []).filter(r=>r.link&&domainAllowed(r.link,opts)).sort((a,b)=>junkPenalty(a.link)-junkPenalty(b.link)).slice(0, MAX_RESULTS).forEach((r, i) => {
       const t = (r.title ?? '').trim(), u = (r.link ?? '').trim();
       const snippet = (r.snippet ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
       if (t || u) lines.push(`[${i + 1}] ${t}${r.date ? ` (${r.date})` : ''}\n${u}\n${snippet}`);
