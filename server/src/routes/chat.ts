@@ -10,7 +10,7 @@ import { terraText, terraTextStream, terraJson, type TerraEffort } from '../lib/
 import { generateContentPlan, type ContentPlanDTO, MAX_POSTS_PER_DAY, MAX_DAYS } from '../lib/contentPlanner';
 import { extractImageContentFromUrl } from '../lib/visionExtractor';
 import { transcribeAudio } from '../lib/voiceTranscriber';
-import { putObject } from '../lib/storage';
+import { putObject, deleteObject } from '../lib/storage';
 import {
   routeAssistantAction, matchChannel,
   toolListScheduled, toolChannelStats, toolModerationSummary, toolSchedulePost,
@@ -437,11 +437,14 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     let toolContext = ''; // read-tool DATA block Terra phrases instead of a free answer
     const todayMskISO = now.toLocaleDateString('en-CA', { timeZone: MSK_TZ }); // YYYY-MM-DD (MSK)
 
-    // ── Vision: fold an attached image's content into the model message ────────
+    // ── Vision: fold an attached image's content into the model message ───────
+    // The screenshot is only needed for this extraction — it is never stored in
+    // chat history, so delete it from disk right after (it would be pure garbage).
     let modelMessage = userMessage;
     if (hasImage) {
       const visionText = await extractImageContentFromUrl(imageUrl as string).catch(() => null);
       if (visionText) modelMessage = `${userMessage}\n\n[Содержимое прикреплённого изображения]:\n${visionText}`;
+      if ((imageUrl as string).includes('/chat/')) deleteObject(imageUrl as string).catch(() => undefined);
     }
 
     // Plan-intent and the agent router are independent classifiers over the

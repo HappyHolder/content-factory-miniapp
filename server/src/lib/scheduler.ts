@@ -21,7 +21,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { moderatorTokenForCommunity } from '../moderator/managedBotCrypto';
 import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard, deleteBotMessage, kickChatUser, restrictChatUser } from './telegramBot';
-import { deleteObject } from './storage';
+import { deleteObject, purgeOldFiles } from './storage';
 import { POST_EDIT_WINDOW_MS } from './postRetention';
 import { normalizePostBlocks, type PostBlock } from './richPost';
 
@@ -254,6 +254,9 @@ export function startScheduler(): void {
       console.error('[scheduler] Purge sweep failed:', (err as Error).message)
     );
     await purgeModerationSamples().catch(err => console.error('[scheduler] Moderation sample purge failed:', (err as Error).message));
+    // Assistant chat screenshots are deleted right after vision extraction;
+    // this sweeps any orphaned by a failed request (upload with no send, etc.).
+    await purgeOldFiles('chat', 6 * 60 * 60 * 1000).then(n => { if (n) console.log(`[scheduler] purged ${n} orphan chat image(s)`); }).catch(() => undefined);
     await processScheduledModerationActions().catch(err =>
       console.error('[scheduler] Moderation action sweep failed:', (err as Error).message)
     );

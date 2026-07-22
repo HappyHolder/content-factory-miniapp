@@ -17,7 +17,7 @@ interface NavItem {
 interface BottomNavProps {
   active: Tab
   onChange: (tab: Tab) => void
-  onAISend: (text: string, imageUrl?: string) => void
+  onAISend: (text: string, imageUrl?: string, previewUrl?: string) => void
   aiLoading: boolean
   aiEnabled?: boolean
   showScrollBtn?: boolean
@@ -63,7 +63,8 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
   }, [isAI])
 
   // Composer attachments (Stage 3): image + voice.
-  const [attachedImage, setAttachedImage] = useState<string | null>(null)
+  const [attachedImage, setAttachedImage] = useState<string | null>(null)     // server URL (extraction only)
+  const [attachedPreview, setAttachedPreview] = useState<string | null>(null) // local blob URL (bubble display)
   const [uploading, setUploading] = useState(false)
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
@@ -72,12 +73,20 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
   const chunksRef = useRef<Blob[]>([])
   const micSupported = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined'
 
+  const clearAttachment = () => {
+    setAttachedImage(null)
+    setAttachedPreview(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+  }
+
   const handleSend = () => {
     const text = input.trim()
     if ((!text && !attachedImage) || aiLoading || uploading) return
-    onAISend(text, attachedImage ?? undefined)
+    // Bubble shows the local blob (survives the server file being deleted after
+    // extraction); the server URL is sent only so the backend can read the image.
+    onAISend(text, attachedImage ?? undefined, attachedPreview ?? undefined)
     setInput('')
     setAttachedImage(null)
+    setAttachedPreview(null) // ownership of the blob URL passes to the chat bubble
     if (inputRef.current) inputRef.current.style.height = 'auto'
   }
 
@@ -85,6 +94,7 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-picking the same file
     if (!file) return
+    setAttachedPreview(prev => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(file) })
     setUploading(true)
     try {
       const fd = new FormData()
@@ -92,8 +102,8 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
       fd.append('image', file)
       const r = await fetch(`${API_BASE}/api/chat/upload-image`, { method: 'POST', body: fd })
       const d = await r.json() as { url?: string }
-      if (r.ok && d.url) setAttachedImage(d.url)
-    } catch { /* silently ignore — user can retry */ } finally { setUploading(false) }
+      if (r.ok && d.url) setAttachedImage(d.url); else clearAttachment()
+    } catch { clearAttachment() } finally { setUploading(false) }
   }
 
   const startRecording = async () => {
@@ -133,7 +143,7 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
     setRecording(false)
   }
 
-  const hasContent = !!input.trim() || !!attachedImage
+  const hasContent = !!input.trim() || !!attachedImage || !!attachedPreview
 
   return (
     <nav
@@ -184,7 +194,7 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
           >
             {/* Attached-image preview strip */}
             <AnimatePresence>
-              {(attachedImage || uploading) && (
+              {attachedPreview && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
@@ -192,12 +202,15 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
                   className="flex items-center gap-2 pl-1"
                 >
                   <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-white/[0.06] flex items-center justify-center">
-                    {uploading
-                      ? <Loader2 size={16} className="text-[#FF6A00] animate-spin" />
-                      : <img src={attachedImage!} alt="" className="w-full h-full object-cover" />}
-                    {attachedImage && !uploading && (
+                    <img src={attachedPreview} alt="" className="w-full h-full object-cover" />
+                    {uploading && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <Loader2 size={16} className="text-[#FF6A00] animate-spin" />
+                      </div>
+                    )}
+                    {!uploading && (
                       <button
-                        onClick={() => setAttachedImage(null)}
+                        onClick={clearAttachment}
                         aria-label="Убрать изображение"
                         className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/80 flex items-center justify-center text-white"
                       >

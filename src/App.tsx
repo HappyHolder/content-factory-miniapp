@@ -63,11 +63,13 @@ function AppContent() {
     }
   }, [setActiveChannel])
 
-  const sendChatMessage = useCallback(async (text: string, imageUrl?: string) => {
+  const sendChatMessage = useCallback(async (text: string, imageUrl?: string, previewUrl?: string) => {
     const trimmed = text.trim()
     if ((!trimmed && !imageUrl) || chatLoading) return
 
-    setChatMessages(prev => [...prev, { role: 'user', content: trimmed, ...(imageUrl ? { imageUrl } : {}) }])
+    // Bubble shows the local preview (server file is deleted after extraction).
+    const bubbleImage = previewUrl ?? imageUrl
+    setChatMessages(prev => [...prev, { role: 'user', content: trimmed, ...(bubbleImage ? { imageUrl: bubbleImage } : {}) }])
     setChatLoading(true)
 
     try {

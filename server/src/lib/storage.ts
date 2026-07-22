@@ -102,3 +102,31 @@ export async function deleteObject(urlOrPath: string): Promise<void> {
     /* best-effort: never throw from cleanup */
   }
 }
+
+/**
+ * Deletes files directly inside `<STORAGE_DIR>/<subdir>` older than `maxAgeMs`.
+ * Used to sweep short-lived scratch uploads (e.g. assistant chat screenshots,
+ * which are deleted right after vision extraction but can be orphaned if a
+ * request fails). Best-effort; returns the count removed.
+ */
+export async function purgeOldFiles(subdir: string, maxAgeMs: number): Promise<number> {
+  const safe = subdir.replace(/^\/+|\/+$/g, '');
+  if (!safe || safe.includes('..')) return 0;
+  const dir = path.resolve(env.STORAGE_DIR, safe);
+  const root = path.resolve(env.STORAGE_DIR);
+  if (dir !== root && !dir.startsWith(root + path.sep)) return 0;
+  let removed = 0;
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const cutoff = Date.now() - maxAgeMs;
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const full = path.join(dir, entry.name);
+      try {
+        const stat = await fs.stat(full);
+        if (stat.mtimeMs < cutoff) { await fs.unlink(full).catch(() => undefined); removed++; }
+      } catch { /* skip */ }
+    }
+  } catch { /* dir missing — nothing to do */ }
+  return removed;
+}
