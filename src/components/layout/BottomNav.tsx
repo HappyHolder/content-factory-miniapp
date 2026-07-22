@@ -68,9 +68,11 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
   const [uploading, setUploading] = useState(false)
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
+  const [voiceHint, setVoiceHint] = useState('')   // transient failure note
   const fileInputRef = useRef<HTMLInputElement>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  const flashVoiceHint = (msg: string) => { setVoiceHint(msg); setTimeout(() => setVoiceHint(''), 3500) }
   const micSupported = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined'
 
   const clearAttachment = () => {
@@ -116,24 +118,28 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
       rec.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' })
-        if (blob.size < 1200) return // too short to be speech
+        if (blob.size < 800) { flashVoiceHint('Слишком короткая запись'); return }
         setTranscribing(true)
         try {
           const fd = new FormData()
           fd.append('initData', getTelegramInitData() ?? 'mock')
           fd.append('audio', blob, 'voice.webm')
           const res = await fetch(`${API_BASE}/api/chat/transcribe`, { method: 'POST', body: fd })
-          const d = await res.json() as { text?: string }
+          const d = await res.json() as { text?: string; error?: string }
           if (res.ok && d.text) {
             setInput(prev => (prev ? prev + ' ' : '') + d.text!.trim())
             setTimeout(() => { autoGrow(); inputRef.current?.focus() }, 0)
+          } else {
+            flashVoiceHint(d.error || 'Не удалось распознать речь')
           }
-        } catch { /* ignore */ } finally { setTranscribing(false) }
+        } catch { flashVoiceHint('Не удалось распознать речь') } finally { setTranscribing(false) }
       }
       recorderRef.current = rec
-      rec.start()
+      // Timeslice → dataavailable fires periodically (some webviews emit an empty
+      // blob otherwise), so the recording is reliably captured.
+      rec.start(250)
       setRecording(true)
-    } catch { /* mic denied — button stays, no-op */ }
+    } catch { flashVoiceHint('Нет доступа к микрофону') }
   }
   const stopRecording = (send = true) => {
     const rec = recorderRef.current
@@ -192,6 +198,20 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
           >
+            {/* Transient voice hint (mic denied / short / failed) */}
+            <AnimatePresence>
+              {voiceHint && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="px-2 text-[11px] text-[#E0A030]"
+                >
+                  {voiceHint}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Attached-image preview strip */}
             <AnimatePresence>
               {attachedPreview && (

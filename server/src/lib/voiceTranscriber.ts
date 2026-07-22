@@ -23,16 +23,50 @@ interface ReplicatePrediction {
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-/** Whisper output can be a string, {text}, or {transcription}. Normalise it. */
+/**
+ * Whisper output shapes vary by model:
+ *  - openai/whisper → { transcription, segments, detected_language }
+ *  - incredibly-fast-whisper → { text, chunks:[{text}] }
+ *  - some models → a plain string or string[] of chunks.
+ */
 function outputToText(output: unknown): string {
   if (typeof output === 'string') return output;
   if (Array.isArray(output)) return output.filter(x => typeof x === 'string').join(' ');
   if (output && typeof output === 'object') {
     const o = output as Record<string, unknown>;
-    if (typeof o['text'] === 'string') return o['text'];
     if (typeof o['transcription'] === 'string') return o['transcription'];
+    if (typeof o['text'] === 'string') return o['text'];
+    if (Array.isArray(o['chunks'])) {
+      return (o['chunks'] as unknown[])
+        .map(c => (c && typeof c === 'object' && typeof (c as Record<string, unknown>)['text'] === 'string') ? (c as Record<string, string>)['text'] : '')
+        .join('').trim();
+    }
+    if (Array.isArray(o['segments'])) {
+      return (o['segments'] as unknown[])
+        .map(s => (s && typeof s === 'object' && typeof (s as Record<string, unknown>)['text'] === 'string') ? (s as Record<string, string>)['text'] : '')
+        .join(' ').trim();
+    }
   }
   return '';
+}
+
+// The Whisper models we use are COMMUNITY models — they have no
+// /models/{owner}/{name}/predictions endpoint (that 404s), so we must call
+// /v1/predictions with a resolved version id. Cache the version per model.
+const versionCache = new Map<string, string>();
+async function resolveVersion(model: string): Promise<string | null> {
+  // Allow WHISPER_MODEL = "owner/name:version" to pin explicitly.
+  const [name, pinned] = model.split(':');
+  if (pinned) return pinned;
+  if (versionCache.has(name!)) return versionCache.get(name!)!;
+  try {
+    const res = await fetch(`${REPLICATE_API}/models/${name}`, { headers: { 'Authorization': `Token ${env.REPLICATE_API_TOKEN}` } });
+    if (!res.ok) return null;
+    const data = await res.json() as { latest_version?: { id?: string } };
+    const id = data.latest_version?.id;
+    if (id) { versionCache.set(name!, id); return id; }
+    return null;
+  } catch { return null; }
 }
 
 /**
@@ -42,11 +76,13 @@ function outputToText(output: unknown): string {
 export async function transcribeAudio(dataUri: string): Promise<string | null> {
   if (!env.REPLICATE_API_TOKEN || !env.WHISPER_MODEL) return null;
   try {
-    const createRes = await fetch(`${REPLICATE_API}/models/${env.WHISPER_MODEL}/predictions`, {
+    const version = await resolveVersion(env.WHISPER_MODEL);
+    if (!version) { console.warn(`[voiceTranscriber] could not resolve version for ${env.WHISPER_MODEL}`); return null; }
+    const createRes = await fetch(`${REPLICATE_API}/predictions`, {
       method:  'POST',
       headers: { 'Authorization': `Token ${env.REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' },
       // `audio` is the input field both openai/whisper and fast-whisper accept.
-      body: JSON.stringify({ input: { audio: dataUri } }),
+      body: JSON.stringify({ version, input: { audio: dataUri } }),
     });
     if (!createRes.ok) {
       const t = await createRes.text().catch(() => '');
