@@ -6,7 +6,8 @@ import { buildGrid4ReferenceImage, generateGrid4BaseImage, generateGrid4FromRefe
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
-import { sendChannelPost, sendRichChannelPost, editChannelPost, TelegramApiError, buildInlineKeyboard, savePreparedPostMessage } from '../lib/telegramBot';
+import { sendChannelPost, sendRichChannelPost, editChannelPost, TelegramApiError, buildInlineKeyboard, buildPreparedPostInlineResult, getBotIdentity, savePreparedPostMessage } from '../lib/telegramBot';
+import { createInlineShare } from '../lib/inlineShare';
 import { blocksToRichHtml, normalizePostBlocks, type PostBlock } from '../lib/richPost';
 import { generateRichBlocks } from '../lib/richPostGenerator';
 import { isWithinEditWindow } from '../lib/postRetention';
@@ -860,7 +861,7 @@ router.patch('/:postId/buttons', async (req: Request, res: Response): Promise<vo
 // Body: { initData }   Response 200: { preparedMessageId, expirationDate }
 router.post('/:postId/prepare-share', async (req: Request, res: Response): Promise<void> => {
   const { postId } = req.params as { postId: string };
-  const { initData } = req.body as { initData?: unknown };
+  const { initData, shareMode } = req.body as { initData?: unknown; shareMode?: unknown };
 
   if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
 
@@ -891,14 +892,26 @@ router.post('/:postId/prepare-share', async (req: Request, res: Response): Promi
   if (!html?.trim() && !text?.trim()) { res.status(400).json({ error: 'Nothing to share yet — add some content first.' }); return; }
 
   try {
-    const prepared = await savePreparedPostMessage({
+    const params = {
       userId:      parsed.user.id,
       title:       post.title,
       html,
       text,
       replyMarkup: buildInlineKeyboard(post.linkButtons),
       token:       env.TELEGRAM_BOT_TOKEN,
-    });
+    };
+    if (shareMode === 'inline') {
+      const bot = await getBotIdentity(env.TELEGRAM_BOT_TOKEN);
+      if (bot.supports_inline_queries !== true) {
+        res.status(409).json({ error: 'Inline sharing is not enabled for this bot.', code: 'INLINE_SHARE_DISABLED' });
+        return;
+      }
+      const prepared = await buildPreparedPostInlineResult(params);
+      const inlineQuery = createInlineShare(parsed.user.id, prepared.result);
+      res.json({ inlineQuery });
+      return;
+    }
+    const prepared = await savePreparedPostMessage(params);
     res.json({ preparedMessageId: prepared.id, expirationDate: prepared.expirationDate });
   } catch (err) {
     const msg = err instanceof TelegramApiError ? err.message : (err as Error).message;

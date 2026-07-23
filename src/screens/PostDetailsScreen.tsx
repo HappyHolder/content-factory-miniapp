@@ -15,7 +15,7 @@ import { LinkButtonsPreview } from '@/components/posts/LinkButtonsPreview'
 import { ScheduleSheet } from '@/components/posts/ScheduleSheet'
 import { SharePostSheet } from '@/components/posts/SharePostSheet'
 import { brandKitService } from '@/services/brandKitService'
-import { getTelegramInitData, shareTelegramMessage, type TelegramShareResult } from '@/lib/telegram'
+import { getTelegramInitData, isTelegramIOS, shareTelegramMessage, switchTelegramInlineShare, type TelegramShareResult } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { isWithinEditWindow } from '@/lib/postEditWindow'
 import { cn } from '@/lib/utils'
@@ -178,15 +178,50 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     setIsSharing(true)
     let handedToTelegram = false
     try {
-      const res = await fetch(`${API_BASE}/api/posts/${post.id}/prepare-share`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData }),
-        signal:  AbortSignal.timeout(50_000),
-      })
-      const data = await res.json().catch(() => ({})) as { preparedMessageId?: string; error?: string; code?: string }
-      if (!res.ok || !data.preparedMessageId) {
+      const requestShare = async (shareMode: 'inline' | 'prepared') => {
+        const response = await fetch(`${API_BASE}/api/posts/${post.id}/prepare-share`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ initData, shareMode }),
+          signal:  AbortSignal.timeout(50_000),
+        })
+        const data = await response.json().catch(() => ({})) as {
+          preparedMessageId?: string
+          inlineQuery?: string
+          error?: string
+          code?: string
+        }
+        return { response, data }
+      }
+
+      let useInline = isTelegramIOS()
+      let { response, data } = await requestShare(useInline ? 'inline' : 'prepared')
+
+      // Inline mode is enabled separately in BotFather. Until it is active,
+      // retain the existing native share flow instead of breaking iOS sharing.
+      if (useInline && response.status === 409 && data.code === 'INLINE_SHARE_DISABLED') {
+        useInline = false
+        ;({ response, data } = await requestShare('prepared'))
+      }
+
+      if (!response.ok) {
         showToast(data.code === 'PREPARE_SHARE_FAILED' ? t('postDetails.fastShareFailed') : (data.error ?? t('postDetails.fastShareFailed')), 'error')
+        return
+      }
+
+      if (useInline) {
+        if (!data.inlineQuery || !switchTelegramInlineShare(data.inlineQuery)) {
+          showToast(t('postDetails.fastShareUnsupported'), 'error')
+          return
+        }
+        handedToTelegram = true
+        setSendOpen(false)
+        setIsSharing(false)
+        return
+      }
+
+      if (!data.preparedMessageId) {
+        showToast(t('postDetails.fastShareFailed'), 'error')
         return
       }
       handedToTelegram = shareTelegramMessage(data.preparedMessageId, handleShareResult)

@@ -4,7 +4,8 @@ import { prisma } from '../db';
 import { env } from '../env';
 import fs from 'fs';
 import path from 'path';
-import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerPreCheckoutQuery, getBotIdFromToken, TelegramWebAppKeyboard } from '../lib/telegramBot';
+import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerInlinePostQuery, answerPreCheckoutQuery, getBotIdFromToken, TelegramWebAppKeyboard } from '../lib/telegramBot';
+import { resolveInlineShare } from '../lib/inlineShare';
 import { createDraftPostForChannel, type DraftPost } from '../lib/draftGenerator';
 import { getEffectiveSubscription, reserveSubscriptionQuota, refundSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
 import { isPaidTier, grantSubscription, pricingFor } from '../lib/payments';
@@ -112,6 +113,12 @@ interface TgPreCheckoutQuery {
   invoice_payload: string;
 }
 
+interface TgInlineQuery {
+  id: string;
+  from: { id: number };
+  query: string;
+}
+
 /**
  * ChatMemberUpdated (my_chat_member): fired when THIS bot's membership/rights in a
  * chat change — e.g. a channel admin promotes the bot. `from` is the user who made
@@ -131,6 +138,7 @@ interface TelegramUpdate {
   update_id: number;
   message?: TgMessage;
   pre_checkout_query?: TgPreCheckoutQuery;
+  inline_query?: TgInlineQuery;
   my_chat_member?: TgChatMemberUpdated;
   managed_bot?: ManagedBotUpdate;
 }
@@ -352,6 +360,18 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   const update = req.body as TelegramUpdate;
 
   // ── Stars payments: pre-checkout must be answered within 10s ─────────────
+  if (update.inline_query) {
+    const inline = update.inline_query;
+    const result = resolveInlineShare(inline.query, inline.from.id);
+    try {
+      await answerInlinePostQuery(inline.id, result, env.TELEGRAM_BOT_TOKEN);
+    } catch (err) {
+      console.error('[bot/webhook] answerInlineQuery failed:', (err as Error).message);
+    }
+    res.status(200).json({ ok: true });
+    return;
+  }
+
   if (update.managed_bot) {
     try {
       const moderatorBot = await completeManagedBot(update.managed_bot);

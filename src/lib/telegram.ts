@@ -8,9 +8,11 @@ interface TelegramWebApp {
   initData: string
   initDataUnsafe?: { user?: { id?: number } }
   version?: string
+  platform?: string
   ready?: () => void
   openInvoice?: (url: string, callback: (status: string) => void) => void
   shareMessage?: (msgId: string, callback?: (sent: boolean) => void) => void
+  switchInlineQuery?: (query: string, chooseChatTypes?: Array<'users' | 'bots' | 'groups' | 'channels'>) => void
   onEvent?: (eventType: string, eventHandler: (eventData?: unknown) => void) => void
   offEvent?: (eventType: string, eventHandler: (eventData?: unknown) => void) => void
 }
@@ -67,6 +69,26 @@ export function openTelegramInvoice(url: string, callback: (status: string) => v
   if (!wa?.openInvoice) return false
   wa.openInvoice(url, callback)
   return true
+}
+
+export function isTelegramIOS(): boolean {
+  return getWebApp()?.platform?.toLowerCase() === 'ios'
+}
+
+/**
+ * Opens Telegram's regular chat selector and then inline results in the chosen
+ * chat. Used on iOS because its prepared-message preview doesn't scroll for
+ * long Rich Messages.
+ */
+export function switchTelegramInlineShare(query: string): boolean {
+  const wa = getWebApp()
+  if (typeof wa?.switchInlineQuery !== 'function') return false
+  try {
+    wa.switchInlineQuery(query, ['users', 'groups', 'channels'])
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

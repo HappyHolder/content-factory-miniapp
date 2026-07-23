@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildPreparedRichMessage, savePreparedPostMessage } from './telegramBot';
+import { answerInlinePostQuery, buildPreparedRichMessage, savePreparedPostMessage } from './telegramBot';
 
 test('moves external photos into InputRichMessage.media', () => {
   const result = buildPreparedRichMessage(
@@ -135,6 +135,31 @@ test('caches a 4x4 gallery in Telegram and prepares it with file_ids', async () 
     assert.equal(rich.media[0]?.media.media, 'telegram-file-101');
     assert.equal(rich.media[15]?.media.media, 'telegram-file-116');
     assert.ok(rich.html.includes('tg://photo?id=photo_16'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('answers an inline query with the prepared post result', async () => {
+  const originalFetch = globalThis.fetch;
+  let payload: Record<string, unknown> | undefined;
+
+  globalThis.fetch = async (_input, init): Promise<Response> => {
+    payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ ok: true, result: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  try {
+    const result = { type: 'article', id: 'post', title: 'Post' };
+    await answerInlinePostQuery('inline-query-id', result, 'TEST_TOKEN');
+
+    assert.equal(payload?.['inline_query_id'], 'inline-query-id');
+    assert.deepEqual(payload?.['results'], [result]);
+    assert.equal(payload?.['cache_time'], 0);
+    assert.equal(payload?.['is_personal'], true);
   } finally {
     globalThis.fetch = originalFetch;
   }

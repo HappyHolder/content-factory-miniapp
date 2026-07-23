@@ -470,23 +470,27 @@ async function cachePreparedMediaInTelegram(params: {
   return fileIds;
 }
 
-/**
- * Saves a prepared inline message (Bot API `savePreparedInlineMessage`) so the
- * user can send a post via the native Telegram share dialog — no channel
- * connection or bot-admin rights required (the "Fast Share" onboarding flow).
- *
- * Carries the same content as a normal publish: rich HTML (block posts) or plain
- * HTML text (legacy posts), plus the inline keyboard. Returns the prepared-message
- * id (passed to the Mini App's WebApp.shareMessage) and its expiry (unix seconds).
- */
-export async function savePreparedPostMessage(params: {
+export interface PreparedPostInlineResult {
+  result: Record<string, unknown>;
+  mediaCount: number;
+  mediaBytes: number;
+}
+
+export interface PreparedPostParams {
   userId:       number | string;
   title:        string;
   html?:        string;
   text?:        string;
   replyMarkup?: TelegramInlineKeyboard;
   token:        string;
-}): Promise<{ id: string; expirationDate: number }> {
+}
+
+/**
+ * Builds one InlineQueryResultArticle carrying the complete post. Media is
+ * converted to bot-owned file_ids first, so the same result works both in
+ * savePreparedInlineMessage and answerInlineQuery.
+ */
+export async function buildPreparedPostInlineResult(params: PreparedPostParams): Promise<PreparedPostInlineResult> {
   const { userId, title, html, text, replyMarkup, token } = params;
 
   const preparedRich = html && html.trim()
@@ -515,6 +519,21 @@ export async function savePreparedPostMessage(params: {
   };
   if (replyMarkup) result['reply_markup'] = replyMarkup;
 
+  return {
+    result,
+    mediaCount: preparedRich?.uploads.length ?? 0,
+    mediaBytes: preparedRich?.uploads.reduce((sum, upload) => sum + upload.bytes.length, 0) ?? 0,
+  };
+}
+
+/**
+ * Saves a prepared inline message so desktop and Android can use Telegram's
+ * native shareMessage dialog. iOS uses the same result through inline mode
+ * because its native long-message preview is not scrollable.
+ */
+export async function savePreparedPostMessage(params: PreparedPostParams): Promise<{ id: string; expirationDate: number }> {
+  const { userId, token } = params;
+  const prepared = await buildPreparedPostInlineResult(params);
   const url = `${TG_API}/bot${token}/savePreparedInlineMessage`;
   let res: Response;
   try {
@@ -523,7 +542,7 @@ export async function savePreparedPostMessage(params: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         user_id:             userId,
-        result,
+        result:              prepared.result,
         allow_user_chats:    true,
         allow_group_chats:   true,
         allow_channel_chats: true,
@@ -536,12 +555,30 @@ export async function savePreparedPostMessage(params: {
 
   const body = (await res.json()) as TgApiResponse<{ id: string; expiration_date: number }>;
   if (!body.ok || !body.result) {
-    const mediaCount = preparedRich?.uploads.length ?? 0;
-    const mediaBytes = preparedRich?.uploads.reduce((sum, upload) => sum + upload.bytes.length, 0) ?? 0;
-    const diagnostics = mediaCount ? ` [media=${mediaCount}, bytes=${mediaBytes}]` : '';
+    const diagnostics = prepared.mediaCount ? ` [media=${prepared.mediaCount}, bytes=${prepared.mediaBytes}]` : '';
     throw new TelegramApiError(`${body.description ?? 'savePreparedInlineMessage returned not-ok'}${diagnostics}`, body.error_code);
   }
   return { id: body.result.id, expirationDate: body.result.expiration_date };
+}
+
+export async function answerInlinePostQuery(
+  inlineQueryId: string,
+  result: Record<string, unknown> | null,
+  token: string,
+): Promise<void> {
+  const response = await fetch(`${TG_API}/bot${token}/answerInlineQuery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      inline_query_id: inlineQueryId,
+      results: result ? [result] : [],
+      cache_time: 0,
+      is_personal: true,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const body = (await response.json()) as TgApiResponse<boolean>;
+  if (!body.ok) throw new TelegramApiError(body.description ?? 'answerInlineQuery returned not-ok', body.error_code);
 }
 
 /**
@@ -1024,6 +1061,7 @@ export interface TelegramBotIdentity {
   first_name: string;
   username?: string;
   can_manage_bots?: boolean;
+  supports_inline_queries?: boolean;
 }
 
 async function telegramRequest<T>(method: string, payload: Record<string, unknown>, token: string): Promise<T> {
