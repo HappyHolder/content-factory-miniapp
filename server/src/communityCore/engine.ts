@@ -25,6 +25,8 @@ import { getEffectiveSubscription, TIER_LIMITS } from '../lib/subscriptionLimits
 
 type Running = { client: TelegramClient; stop: () => Promise<void> };
 const running = new Map<string, Running>();
+/** Rate-limits the "asleep" journal line to one entry per persona per 30 min. */
+const asleepLoggedAt = new Map<string, number>();
 
 const jsonObject = (s: string) => { const m = s.match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } };
 
@@ -99,7 +101,16 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
   const text = (message?.message ?? '').trim();
   const messageId = message?.id;
   if (!text || typeof messageId !== 'number' || message.out) return; // ignore own/empty
-  if (!isPersonaAwake(config)) return;
+  if (!isPersonaAwake(config)) {
+    // Sleeping used to leave NO trace at all, which reads as "the persona broke".
+    // Log it, but at most once per 30 min so a busy night doesn't flood the journal.
+    const now = Date.now();
+    if (now - (asleepLoggedAt.get(personaId) ?? 0) > 30 * 60_000) {
+      asleepLoggedAt.set(personaId, now);
+      await log(personaId, 'SILENT', 'asleep — вне часов активности (' + config.presence.activeFromHour + ':00–' + config.presence.activeToHour + ':00 ' + config.presence.timezone + ')', text, null, null, messageId, null, { input: 0, output: 0 }, Date.now()).catch(() => undefined);
+    }
+    return;
+  }
 
   const start = Date.now();
   try {
@@ -197,7 +208,9 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
       if (!await claimMessage(communityId, messageId, personaId)) { await log(personaId, 'SILENT', 'claimed-by-other', text, null, null, messageId, null, out, start); return; }
       let firstSent: number | null = null;
       for (const [i, msg] of messages.entries()) {
-        const id = await sendHumanMessage(client, chatId, msg, i === 0 ? messageId : undefined);
+        // Only the first part may carry the "was away" delay — the rest of a
+        // burst follows right after, the way a person sends two quick lines.
+        const id = await sendHumanMessage(client, chatId, msg, i === 0 ? messageId : undefined, { incomingLength: text.length, allowDistraction: i === 0 });
         if (i === 0) firstSent = id;
       }
       if (author) await rememberExchange(personaId, author.id, note ? [note] : [], { conflict: conflictish });
@@ -348,7 +361,8 @@ async function maybeInitiate(personaId: string): Promise<void> {
 
     const msg = sanitizeConversationReply(text.replace(/^["'«]+|["'»]+$/g, '').trim(), true).slice(0, 600);
     if (!msg) return;
-    const sent = await sendHumanMessage(entry.client, chatId, msg);
+    // An opener is a spontaneous act after a quiet spell — no "was away" delay.
+    const sent = await sendHumanMessage(entry.client, chatId, msg, undefined, { allowDistraction: false });
     b.initiatives++;
     await prisma.personaAction.create({ data: { personaId, decision: 'INITIATE', reason: env.OPENAI_API_KEY ? 'quiet chat (openai)' : 'quiet chat', response: msg, model: env.OPENAI_API_KEY ? env.OPENAI_CHAT_MODEL : env.CM_TEXT_MODEL, latencyMs: Date.now() - start } });
     await prisma.persona.update({ where: { id: personaId }, data: { lastActionAt: new Date(), lastHealthyAt: new Date() } });

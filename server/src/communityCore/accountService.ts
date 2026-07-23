@@ -99,22 +99,51 @@ export async function withPersonaClient<T>(session: string, fn: (client: Telegra
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /** Sends one message with a human-scaled "typing" delay, optionally as a reply. */
-export async function sendHumanMessage(client: TelegramClient, chatId: string, text: string, replyTo?: number): Promise<number | null> {
+export interface HumanPacing {
+  /** Length of the message being answered — you read a long text longer than "ок". */
+  incomingLength?: number;
+  /** Allow the occasional "I was away and saw it later" delay. Off for follow-up
+   *  parts of one burst (a person sends those right after the first). */
+  allowDistraction?: boolean;
+}
+
+/**
+ * Sends a message with human pacing: read → think → type. Timing is derived from
+ * how much there was to read and how much is being written, and a real person is
+ * sometimes simply away — so the delay is genuinely variable, not a fixed 2–14s
+ * band (that uniformity is itself a bot tell).
+ */
+export async function sendHumanMessage(client: TelegramClient, chatId: string, text: string, replyTo?: number, pacing?: HumanPacing): Promise<number | null> {
   const entity = await client.getInputEntity(chatId);
-  // First a "read & think" pause with no typing indicator (0.8–5s), then type.
-  await sleep(800 + Math.random() * 4200);
-  // ~14 chars/sec typist with ±40% jitter, clamped to a natural 1.2–9s window.
-  const delay = Math.min(9000, Math.max(1200, (text.length / 14) * 1000 * (0.6 + Math.random() * 0.8)));
-  await client.invoke(new Api.messages.SetTyping({ peer: entity, action: new Api.SendMessageTypingAction() }));
-  await sleep(delay);
+
+  // 1. Read & think — scales with the incoming message, no typing indicator yet.
+  const incoming = Math.max(0, pacing?.incomingLength ?? 0);
+  const readMs = 1500 + Math.min(7000, incoming * 22) + Math.random() * 2500; // ~1.5–11s
+  // 2. Sometimes a person just isn't at the phone and answers noticeably later.
+  const distracted = pacing?.allowDistraction !== false && Math.random() < 0.25
+    ? 25_000 + Math.random() * 155_000 // 25s–3min
+    : 0;
+  await sleep(readMs + distracted);
+
+  // 3. Typing — ~14 chars/sec with jitter; long replies genuinely take longer,
+  //    so no tight cap. Telegram's indicator expires after ~6s, so re-send it.
+  const typingMs = Math.min(26_000, Math.max(900, (text.length / 14) * 1000 * (0.6 + Math.random() * 0.8)));
+  const deadline = Date.now() + typingMs;
+  while (Date.now() < deadline) {
+    await client.invoke(new Api.messages.SetTyping({ peer: entity, action: new Api.SendMessageTypingAction() })).catch(() => undefined);
+    await sleep(Math.min(4500, Math.max(0, deadline - Date.now())));
+  }
+
   const sent = await client.sendMessage(entity, { message: text, ...(replyTo ? { replyTo } : {}) });
   return typeof sent?.id === 'number' ? sent.id : null;
 }
 
-/** Adds a single emoji reaction to a message, after a short "just read it" pause. */
+/** Adds a single emoji reaction after a human "noticed it" pause — usually a few
+ *  seconds, occasionally much later (you scroll back and tap it). */
 export async function reactToMessage(client: TelegramClient, chatId: string, messageId: number, emoji: string): Promise<void> {
   const entity = await client.getInputEntity(chatId);
-  await sleep(800 + Math.random() * 2500);
+  const late = Math.random() < 0.15 ? 20_000 + Math.random() * 70_000 : 0; // 20–90s
+  await sleep(1500 + Math.random() * 8000 + late);
   await client.invoke(new Api.messages.SendReaction({
     peer: entity,
     msgId: messageId,
