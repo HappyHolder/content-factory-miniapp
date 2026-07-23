@@ -1,6 +1,7 @@
 // Thin wrappers over the Telegram Bot API using native fetch (no extra deps).
 // All functions throw TelegramApiError on a non-ok response.
 
+import sharp from 'sharp';
 import { env } from '../env';
 import { blocksToRichHtml, blocksToPlainText, documentBlocks, firstImage, type PostBlock } from './richPost';
 import { deleteObject, readObject } from './storage';
@@ -283,21 +284,31 @@ async function readPreparedMedia(url: string, type: 'photo' | 'video'): Promise<
   fileName: string;
 } | null> {
   const details = mediaFileDetails(url, type);
-  const local = await readObject(url);
-  if (local) return { bytes: local, ...details };
+  let bytes = await readObject(url);
+  let contentType = details.contentType;
 
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) return null;
-    const declaredSize = Number(response.headers.get('content-length') ?? 0);
-    if (declaredSize > MAX_PREPARED_MEDIA_BYTES) return null;
-    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes) {
+      const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) return null;
+      const declaredSize = Number(response.headers.get('content-length') ?? 0);
+      if (declaredSize > MAX_PREPARED_MEDIA_BYTES) return null;
+      bytes = Buffer.from(await response.arrayBuffer());
+      contentType = response.headers.get('content-type')?.split(';')[0] || contentType;
+    }
     if (bytes.length > MAX_PREPARED_MEDIA_BYTES) return null;
-    return {
-      bytes,
-      contentType: response.headers.get('content-type')?.split(';')[0] || details.contentType,
-      fileName: details.fileName,
-    };
+
+    if (type === 'photo') {
+      bytes = await sharp(bytes)
+        .rotate()
+        .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80, progressive: true })
+        .toBuffer();
+      contentType = 'image/jpeg';
+      return { bytes, contentType, fileName: 'rich-media.jpg' };
+    }
+
+    return { bytes, contentType, fileName: details.fileName };
   } catch {
     return null;
   }
@@ -419,7 +430,10 @@ export async function savePreparedPostMessage(params: {
 
   const body = (await res.json()) as TgApiResponse<{ id: string; expiration_date: number }>;
   if (!body.ok || !body.result) {
-    throw new TelegramApiError(body.description ?? 'savePreparedInlineMessage returned not-ok', body.error_code);
+    const mediaCount = preparedRich?.uploads.length ?? 0;
+    const mediaBytes = preparedRich?.uploads.reduce((sum, upload) => sum + upload.bytes.length, 0) ?? 0;
+    const diagnostics = mediaCount ? ` [media=${mediaCount}, bytes=${mediaBytes}]` : '';
+    throw new TelegramApiError(`${body.description ?? 'savePreparedInlineMessage returned not-ok'}${diagnostics}`, body.error_code);
   }
   return { id: body.result.id, expirationDate: body.result.expiration_date };
 }

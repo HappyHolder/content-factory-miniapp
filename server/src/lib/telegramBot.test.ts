@@ -35,11 +35,12 @@ test('uploads a 4x4 gallery as multipart attachments', async () => {
   const originalFetch = globalThis.fetch;
   let telegramRequest: RequestInit | undefined;
   const urls = Array.from({ length: 16 }, (_, index) => `https://media.test/tile-${index}.png`);
+  const tinyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
   globalThis.fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(input);
     if (url.startsWith('https://media.test/')) {
-      return new Response(new Uint8Array([137, 80, 78, 71]), {
+      return new Response(new Uint8Array(tinyPng), {
         status: 200,
         headers: { 'content-type': 'image/png' },
       });
@@ -75,6 +76,7 @@ test('uploads a 4x4 gallery as multipart attachments', async () => {
     assert.equal(rich.media[15]?.media.media, 'attach://rich_media_16');
     assert.match(rich.html, /tg:\/\/photo\?id=photo_16/);
     assert.ok(form.get('rich_media_1') instanceof Blob);
+    assert.equal((form.get('rich_media_1') as Blob).type, 'image/jpeg');
     assert.ok(form.get('rich_media_16') instanceof Blob);
   } finally {
     globalThis.fetch = originalFetch;
