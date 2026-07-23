@@ -44,12 +44,14 @@ export function Sheet({ open, onClose, title, children, className, height = 'aut
               )}
               <button
                 onClick={onClose}
-                className="ml-auto p-1.5 rounded-full bg-white/8 text-[#A1A1AA] hover:text-white hover:bg-white/12 transition-colors mt-1"
+                type="button"
+                aria-label="Close"
+                className="ml-auto mt-1 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/8 text-[#A1A1AA] transition-colors hover:bg-white/12 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"
               >
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
-            <div className="px-4 pb-6">
+            <div className="px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
               {children}
             </div>
           </motion.div>

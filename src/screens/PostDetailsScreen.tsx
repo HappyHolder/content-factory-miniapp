@@ -32,7 +32,7 @@ const MAX_TEXT_REGENS = 3
 const MAX_IMAGE_REGENS = 3
 
 export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
-  const { state, selectVariant, publishPost, schedulePost, showToast, canSchedulePosts, t, language, authStatus, updatePost, deletePost } = useApp()
+  const { state, selectVariant, publishPost, schedulePost, cancelSchedule, showToast, canSchedulePosts, t, language, authStatus, updatePost, deletePost } = useApp()
   const isRu = language === 'ru'
   const [isSettingRubric, setIsSettingRubric] = useState(false)
   const [rubricMenuOpen, setRubricMenuOpen] = useState(false)
@@ -234,33 +234,56 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
       if (!handedToTelegram) setIsSharing(false)
     }
   }
-  const handleSchedulePost = async (date: Date) => {
+  const handleSchedulePost = async (date: Date): Promise<boolean> => {
     if (authStatus !== 'authenticated') {
-      // Dev / mock mode — local-only
       schedulePost(post.id, date)
-      return
+      return true
     }
-
-    // Optimistic local update so the UI responds immediately
-    schedulePost(post.id, date)
-
-    // Persist to DB
     try {
       const initData = getTelegramInitData()!
       const res = await fetch(`${API_BASE}/api/posts/schedule`, {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ initData, postId: post.id, scheduledAt: date.toISOString() }),
+        body: JSON.stringify({ initData, postId: post.id, scheduledAt: date.toISOString() }),
       })
       if (!res.ok) {
         const errData = await res.json() as { error?: string }
         showToast(errData.error ?? t('postDetails.scheduleFailed'), 'error')
+        return false
       }
+      const data = await res.json() as { post: { scheduledAt: string } }
+      schedulePost(post.id, new Date(data.post.scheduledAt))
+      return true
     } catch {
       showToast(t('postDetails.scheduleFailed'), 'error')
+      return false
     }
   }
 
+  const handleCancelSchedule = async (): Promise<boolean> => {
+    if (authStatus !== 'authenticated') {
+      cancelSchedule(post.id)
+      return true
+    }
+    try {
+      const initData = getTelegramInitData()!
+      const res = await fetch(`${API_BASE}/api/posts/cancel-schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, postId: post.id }),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({})) as { error?: string }
+        showToast(errData.error ?? t('schedule.cancelError'), 'error')
+        return false
+      }
+      cancelSchedule(post.id)
+      return true
+    } catch {
+      showToast(t('schedule.cancelError'), 'error')
+      return false
+    }
+  }
   const handleDelete = async () => {
     if (isDeleting) return
     if (!window.confirm(t('postDetails.deletePostConfirm'))) return
@@ -956,6 +979,10 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
         onSchedule={handleSchedulePost}
+        onCancelSchedule={post.status === 'scheduled' ? handleCancelSchedule : undefined}
+        initialDate={post.scheduledAt}
+        channelTitle={channel?.title}
+        isScheduled={post.status === 'scheduled'}
       />
     </motion.div>
   )

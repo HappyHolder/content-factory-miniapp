@@ -448,14 +448,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const schedulePost = useCallback((id: string, at: Date) => {
     postService.schedule(id, at)
     refreshPosts()
-    showToast('Post scheduled')
-  }, [refreshPosts, showToast])
+    showToast(t('schedule.scheduledSuccess'))
+  }, [refreshPosts, showToast, t])
 
   const cancelSchedule = useCallback((id: string) => {
     postService.cancelSchedule(id)
     refreshPosts()
-    showToast('Schedule cancelled')
-  }, [refreshPosts, showToast])
+    showToast(t('schedule.cancelledSuccess'))
+  }, [refreshPosts, showToast, t])
 
   const selectVariant = useCallback((postId: string, variantId: string) => {
     // Immediate local update — UI responds instantly

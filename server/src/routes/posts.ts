@@ -1536,6 +1536,9 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
   if (isNaN(scheduledAt.getTime())) {
     res.status(400).json({ error: 'scheduledAt must be a valid ISO 8601 date string' }); return;
   }
+  if (scheduledAt.getTime() < Date.now() + 60_000) {
+    res.status(400).json({ error: 'Choose a time at least one minute from now.', code: 'INVALID_SCHEDULE_TIME' }); return;
+  }
 
   // ── 2. Validate Telegram initData ────────────────────────────────────────
   let parsed;
@@ -1606,6 +1609,58 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
   });
 });
 
+// Removes a post from the publishing queue and returns it to drafts.
+router.post('/cancel-schedule', async (req: Request, res: Response): Promise<void> => {
+  const { initData, postId } = req.body as { initData?: unknown; postId?: unknown };
+  if (typeof initData !== 'string' || !initData.trim()) {
+    res.status(400).json({ error: 'initData is required' }); return;
+  }
+  if (typeof postId !== 'string' || !postId.trim()) {
+    res.status(400).json({ error: 'postId is required' }); return;
+  }
+
+  let parsed;
+  try {
+    parsed = validateAndParseTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  } catch (err) {
+    res.status(401).json({ error: err instanceof Error ? err.message : 'Invalid initData' }); return;
+  }
+
+  const telegramId = String(parsed.user.id);
+  const dbUser = await prisma.user.findUnique({
+    where: { telegramId },
+    select: { id: true },
+  }).catch(() => null);
+  if (!dbUser) {
+    res.status(401).json({ error: 'User not found. Please re-open the app.' }); return;
+  }
+
+  const post = await prisma.generatedPost.findUnique({
+    where: { id: postId },
+    select: { status: true, channel: { select: { userId: true } } },
+  }).catch(() => null);
+  if (!post) {
+    res.status(404).json({ error: 'Post not found.' }); return;
+  }
+  if (post.channel.userId !== dbUser.id) {
+    res.status(403).json({ error: 'This post does not belong to your account.' }); return;
+  }
+  if (post.status === 'PUBLISHED') {
+    res.status(409).json({ error: 'Cannot change an already published post.' }); return;
+  }
+
+  try {
+    await prisma.generatedPost.update({
+      where: { id: postId },
+      data: { status: 'NEW', scheduledAt: null },
+    });
+  } catch (err) {
+    console.error('[posts/cancel-schedule] DB update failed:', (err as Error).message);
+    res.status(500).json({ error: 'Internal server error' }); return;
+  }
+
+  res.json({ post: { id: postId, status: 'new', scheduledAt: null } });
+});
 // ─── POST /api/posts/delete ──────────────────────────────────────────────────
 //
 // Permanently deletes a GeneratedPost and all its PostVariant rows from the DB.
