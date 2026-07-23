@@ -903,8 +903,6 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
       <SharePostSheet
         open={sendOpen}
         onClose={() => setSendOpen(false)}
-        postTitle={post.title}
-        previewUrl={displayBannerUrl}
         channelTitle={channel?.title}
         channelUsername={channel?.username ?? post.channelUsername}
         channelAvatarUrl={channel?.avatarUrl}
