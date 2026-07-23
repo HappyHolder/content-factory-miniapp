@@ -219,6 +219,15 @@ interface PreparedRichMessage {
   media?: PreparedRichMessageMedia[];
 }
 
+interface PreparedMediaUpload {
+  attachmentName: string;
+  bytes: Buffer;
+  contentType: string;
+  fileName: string;
+}
+
+const MAX_PREPARED_MEDIA_BYTES = 50 * 1024 * 1024;
+
 function decodeHtmlAttribute(value: string): string {
   return value
     .replace(/&quot;/g, '"')
@@ -253,6 +262,87 @@ export function buildPreparedRichMessage(html: string): PreparedRichMessage {
   return media.length > 0 ? { html: preparedHtml, media } : { html: preparedHtml };
 }
 
+function mediaFileDetails(url: string, type: 'photo' | 'video'): { contentType: string; fileName: string } {
+  const pathname = (() => {
+    try { return new URL(url).pathname; }
+    catch { return url.split('?')[0] ?? ''; }
+  })();
+  const ext = pathname.match(/\.([a-z0-9]{2,5})$/i)?.[1]?.toLowerCase();
+  const contentType = type === 'video'
+    ? (ext === 'webm' ? 'video/webm' : 'video/mp4')
+    : ext === 'png' ? 'image/png'
+      : ext === 'webp' ? 'image/webp'
+        : ext === 'gif' ? 'image/gif'
+          : 'image/jpeg';
+  return { contentType, fileName: `rich-media.${ext || (type === 'video' ? 'mp4' : 'jpg')}` };
+}
+
+async function readPreparedMedia(url: string, type: 'photo' | 'video'): Promise<{
+  bytes: Buffer;
+  contentType: string;
+  fileName: string;
+} | null> {
+  const details = mediaFileDetails(url, type);
+  const local = await readObject(url);
+  if (local) return { bytes: local, ...details };
+
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) return null;
+    const declaredSize = Number(response.headers.get('content-length') ?? 0);
+    if (declaredSize > MAX_PREPARED_MEDIA_BYTES) return null;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > MAX_PREPARED_MEDIA_BYTES) return null;
+    return {
+      bytes,
+      contentType: response.headers.get('content-type')?.split(';')[0] || details.contentType,
+      fileName: details.fileName,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function buildPreparedRichMessageUpload(html: string): Promise<{
+  richMessage: PreparedRichMessage;
+  uploads: PreparedMediaUpload[];
+}> {
+  const richMessage = buildPreparedRichMessage(html);
+  if (!richMessage.media?.length) return { richMessage, uploads: [] };
+
+  const loaded = await Promise.all(richMessage.media.map(item =>
+    readPreparedMedia(item.media.media, item.media.type),
+  ));
+  const uploads: PreparedMediaUpload[] = [];
+  const media: PreparedRichMessageMedia[] = [];
+  let preparedHtml = richMessage.html;
+  let totalBytes = 0;
+
+  richMessage.media.forEach((item, index) => {
+    const file = loaded[index];
+    const htmlRef = item.media.type === 'photo'
+      ? `<img src="tg://photo?id=${item.id}">`
+      : `<video src="tg://video?id=${item.id}"></video>`;
+    if (!file || totalBytes + file.bytes.length > MAX_PREPARED_MEDIA_BYTES) {
+      preparedHtml = preparedHtml.split(htmlRef).join('');
+      return;
+    }
+
+    totalBytes += file.bytes.length;
+    const attachmentName = `rich_media_${index + 1}`;
+    uploads.push({ attachmentName, ...file });
+    media.push({
+      ...item,
+      media: { ...item.media, media: `attach://${attachmentName}` },
+    });
+  });
+
+  return {
+    richMessage: media.length ? { html: preparedHtml, media } : { html: preparedHtml },
+    uploads,
+  };
+}
+
 /**
  * Saves a prepared inline message (Bot API `savePreparedInlineMessage`) so the
  * user can send a post via the native Telegram share dialog — no channel
@@ -272,8 +362,11 @@ export async function savePreparedPostMessage(params: {
 }): Promise<{ id: string; expirationDate: number }> {
   const { userId, title, html, text, replyMarkup, token } = params;
 
-  const inputMessageContent = html && html.trim()
-    ? { rich_message: buildPreparedRichMessage(html) }
+  const preparedRich = html && html.trim()
+    ? await buildPreparedRichMessageUpload(html)
+    : null;
+  const inputMessageContent = preparedRich
+    ? { rich_message: preparedRich.richMessage }
     : { message_text: (text && text.trim()) || title || ' ', parse_mode: 'HTML' };
 
   const result: Record<string, unknown> = {
@@ -287,17 +380,39 @@ export async function savePreparedPostMessage(params: {
   const url = `${TG_API}/bot${token}/savePreparedInlineMessage`;
   let res: Response;
   try {
-    res = await fetch(url, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id:             userId,
-        result,
-        allow_user_chats:    true,
-        allow_group_chats:   true,
-        allow_channel_chats: true,
-      }),
-    });
+    if (preparedRich?.uploads.length) {
+      const form = new FormData();
+      form.set('user_id', String(userId));
+      form.set('result', JSON.stringify(result));
+      form.set('allow_user_chats', 'true');
+      form.set('allow_group_chats', 'true');
+      form.set('allow_channel_chats', 'true');
+      for (const upload of preparedRich.uploads) {
+        form.append(
+          upload.attachmentName,
+          new Blob([new Uint8Array(upload.bytes)], { type: upload.contentType }),
+          upload.fileName,
+        );
+      }
+      res = await fetch(url, {
+        method: 'POST',
+        body: form,
+        signal: AbortSignal.timeout(45_000),
+      });
+    } else {
+      res = await fetch(url, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id:             userId,
+          result,
+          allow_user_chats:    true,
+          allow_group_chats:   true,
+          allow_channel_chats: true,
+        }),
+        signal: AbortSignal.timeout(45_000),
+      });
+    }
   } catch (err) {
     throw new TelegramApiError(`Network error calling savePreparedInlineMessage: ${(err as Error).message}`);
   }
