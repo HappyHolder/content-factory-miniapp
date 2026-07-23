@@ -73,7 +73,7 @@ export function PostTextEditor({ postId, variantId, text }: PostTextEditorProps)
         placeholder={t('postDetails.postText')}
       />
       <div className="flex items-center justify-between">
-        <span className={`text-xs ${charCount > 4096 ? 'text-red-400' : 'text-[#66666E]'}`}>
+        <span className="text-xs text-[#66666E]">
           {charCount} {t('postDetails.chars')}
         </span>
         <Button variant="ghost" size="sm" onClick={handleCopy}>

@@ -122,7 +122,7 @@ async function layoutViaReplicate(system: string, user: string): Promise<AiLayou
     systemPrompt: system,
     prompt:       user,
     timeoutMs:    60_000,
-    input:        { max_completion_tokens: 4096, reasoning_effort: 'low' }, // GPT-5.6 params
+    input:        { reasoning_effort: 'low' }, // Let the model use its native output capacity.
   });
   return raw ? parseLayout(raw) : null;
 }
@@ -188,15 +188,17 @@ function mapElement(el: AiElement, images: string[], usedImages: Set<number>): P
   }
 }
 
-/** Minimal deterministic fallback: heading (first line) + paragraph + first image. */
+/** Minimal deterministic fallback that preserves the source's paragraph structure. */
 function fallbackBlocks(input: RichGenInput): PostBlock[] {
   const lines = input.postText.split('\n').map(l => l.trim()).filter(Boolean);
   const heading = lines[0] && lines[0].length <= 90 ? lines[0] : null;
-  const body = heading ? lines.slice(1).join('\n\n') : input.postText;
+  const bodyLines = heading ? lines.slice(1) : lines;
   const blocks: PostBlock[] = [];
   if (input.images[0]) blocks.push({ type: 'image', url: input.images[0] });
   if (heading) blocks.push({ type: 'heading', text: heading });
-  if (body.trim()) blocks.push({ type: 'paragraph', runs: parseInline(body.trim()) });
+  for (const paragraph of bodyLines) {
+    blocks.push({ type: 'paragraph', runs: parseInline(paragraph) });
+  }
   return blocks;
 }
 
@@ -213,7 +215,12 @@ function appendUnusedImages(blocks: PostBlock[], images: string[], used: Set<num
  */
 export async function generateRichBlocks(input: RichGenInput): Promise<PostBlock[]> {
   const { system, user } = buildPrompt(input);
-  const layout = await callLayoutAI(system, user);
+  let layout: AiLayout | null = null;
+  try {
+    layout = await callLayoutAI(system, user);
+  } catch (err) {
+    console.warn('[richPostGenerator] Layout model failed; using deterministic rich fallback:', (err as Error).message);
+  }
 
   let blocks: PostBlock[];
   if (!layout || !Array.isArray(layout.elements)) {

@@ -72,6 +72,7 @@ export interface DraftPost {
   title:            string;
   sourceType:       string;
   sourceUrl:        string | null;
+  editorMode:       'rich';
   sourceSummary:    string;
   channelId:        string;
   channelUsername:  string;
@@ -226,6 +227,7 @@ export async function createDraftPostForChannel(
         title: finalTitle,
         channelId,
         sourceType,
+        editorMode: 'RICH',
         sourceSummary,
         sourceUrl:    sourceUrl ?? null,
         imagePrompt:  imagePrompt?.trim() || null,
@@ -270,7 +272,7 @@ export async function createDraftPostForChannel(
   // DB persistence is in a separate try/catch so a write failure doesn't leave
   // the response inconsistent with what /list will return from DB.
   let firstVariantBannerUrl: string | null = null;
-  let firstVariantBlocks: PostBlock[] | null = null;
+  const variantBlocksById = new Map<string, PostBlock[]>();
 
   const visualKit = (useBrandKit && brandKit && typeof brandKit === 'object')
     ? (brandKit as Record<string, unknown>)['visualKit'] ?? undefined
@@ -411,24 +413,29 @@ export async function createDraftPostForChannel(
   // automatically (plain-ish or full structure, decided by content). Persisted
   // on the selected variant. Non-fatal: a failure leaves blocks null and publish
   // uses the legacy text+banner path as an emergency fallback only.
-  if (!imageOnly) {
-    try {
-      const selected = dbPost.variants.find(v => v.id === dbPost.selectedVariantId) ?? dbPost.variants[0];
-      if (selected) {
-        let blocks = await generateRichBlocks({
-          postText: selected.text,
+  try {
+    const images = cover?.bannerUrl ? [cover.bannerUrl] : [];
+    if (imageOnly) {
+      for (const variant of dbPost.variants) {
+        variantBlocksById.set(variant.id, images[0] ? [{ type: 'image', url: images[0] }] : []);
+      }
+    } else {
+      const generated = await Promise.all(dbPost.variants.map(async variant => ({
+        id: variant.id,
+        blocks: await generateRichBlocks({
+          postText: variant.text,
           level:    'auto',
-          images:   cover?.bannerUrl ? [cover.bannerUrl] : [],
+          images,
           handle:   channel.handle ? `@${channel.handle.replace(/^@/, '')}` : null,
           lang:     coverLanguage,
-        });
+        }),
+      })));
+      for (const item of generated) variantBlocksById.set(item.id, item.blocks);
 
-        // ── Carousel (peer engine, never touches the cover) ──────────────────
-        // Runs AFTER the layout so the slides are spliced in as one gallery block
-        // instead of being scattered as loose images by the layout model. Yields
-        // nothing at all unless the channel's pack ships slide templates AND the
-        // post genuinely holds 3-7 parallel points — see carouselEngine/fallbacks.
-        if (blocks.length > 0) {
+      const selected = dbPost.variants.find(v => v.id === dbPost.selectedVariantId) ?? dbPost.variants[0];
+      if (selected) {
+        const selectedBlocks = variantBlocksById.get(selected.id) ?? [];
+        if (selectedBlocks.length > 0) {
           const carousel = await buildCarousel({
             useBrandKit, visualKit, vkObj,
             postText:      selected.text,
@@ -438,21 +445,20 @@ export async function createDraftPostForChannel(
             coverLanguage,
           });
           console.log(`[draftGenerator] carousel: ${carousel.plan.scenario} (${carousel.plan.slideCount} slides); ${carousel.debug.join(' | ')}`);
-          if (carousel.block) blocks = insertCarouselBlock(blocks, carousel.block, carousel.plan.position);
-        }
-
-        if (blocks.length > 0) {
-          firstVariantBlocks = blocks;
-          await prisma.postVariant.update({
-            where: { id: selected.id },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            data:  { blocks: blocks as any },
-          });
+          if (carousel.block) {
+            variantBlocksById.set(selected.id, insertCarouselBlock(selectedBlocks, carousel.block, carousel.plan.position));
+          }
         }
       }
-    } catch (err) {
-      console.warn('[draftGenerator] block generation failed (non-fatal):', (err as Error).message);
     }
+
+    await prisma.$transaction(dbPost.variants.map(variant => prisma.postVariant.update({
+      where: { id: variant.id },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data:  { blocks: (variantBlocksById.get(variant.id) ?? []) as any },
+    })));
+  } catch (err) {
+    console.warn('[draftGenerator] block generation failed; Rich fallback was not persisted:', (err as Error).message);
   }
 
   // ── Map to frontend shape ─────────────────────────────────────────────────
@@ -465,17 +471,18 @@ export async function createDraftPostForChannel(
     id:               dbPost.id,
     title:            dbPost.title,
     sourceType:       dbPost.sourceType ?? sourceType,
+    editorMode:       'rich',
     sourceUrl:        dbPost.sourceUrl ?? null,
     sourceSummary:    dbPost.sourceSummary ?? '',
     channelId:        dbPost.channelId,
     channelUsername:  channel.handle ?? channel.name,
-    variants: dbPost.variants.map((v, i) => ({
+    variants: dbPost.variants.map(v => ({
       id:         v.id,
       label:      v.label ?? 'Variant',
       text:       v.text,
       isSelected: v.id === dbPost.selectedVariantId,
-      bannerUrl:  i === 0 ? firstVariantBannerUrl : null,
-      blocks:     v.id === dbPost.selectedVariantId ? firstVariantBlocks : null,
+      bannerUrl:  firstVariantBannerUrl,
+      blocks:     variantBlocksById.get(v.id) ?? [],
     })),
     selectedVariantId: dbPost.selectedVariantId,
     linkButtons:       buttonLinks,

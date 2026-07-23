@@ -128,6 +128,7 @@ interface ListApiPost {
   id:                string
   title:             string
   sourceType:        string
+  editorMode:        'rich' | 'legacy'
   sourceUrl:         string | null
   sourceSummary:     string
   channelId:         string
@@ -152,6 +153,7 @@ function mapListPost(p: ListApiPost): GeneratedPost {
     id:                p.id,
     title:             p.title,
     sourceType:        p.sourceType as GeneratedPost['sourceType'],
+    editorMode:        p.editorMode,
     sourceUrl:         p.sourceUrl         ?? undefined,
     sourceSummary:     p.sourceSummary,
     channelId:         p.channelId,
@@ -468,6 +470,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ initData, postId, variantId }),
+        }).then(async res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const data = await res.json() as { blocks?: import('@/types').PostBlock[] | null }
+          const current = postService.getById(postId)
+          if (!current) return
+          postService.update(postId, {
+            variants: current.variants.map(variant => variant.id === variantId
+              ? { ...variant, blocks: normalizePostBlocks(data.blocks) }
+              : variant),
+          })
+          refreshPosts()
         }).catch(err => {
           console.error('[selectVariant] Backend save failed:', (err as Error).message)
         })

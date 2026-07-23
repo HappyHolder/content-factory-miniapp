@@ -371,6 +371,7 @@ export interface GeneratedPost {
   id: string
   title: string
   sourceType: SourceType
+  editorMode?: 'rich' | 'legacy'
   sourceUrl?: string
   sourceSummary?: string
   channelId: string

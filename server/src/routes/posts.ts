@@ -8,6 +8,7 @@ import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { sendChannelPost, sendRichChannelPost, editChannelPost, TelegramApiError, buildInlineKeyboard, savePreparedPostMessage } from '../lib/telegramBot';
 import { blocksToRichHtml, normalizePostBlocks, type PostBlock } from '../lib/richPost';
+import { generateRichBlocks } from '../lib/richPostGenerator';
 import { isWithinEditWindow } from '../lib/postRetention';
 
 /** Returns the variant's structured blocks if present and non-empty, else null. */
@@ -253,6 +254,7 @@ router.post('/create-blank', async (req: Request, res: Response): Promise<void> 
           title:        finalTitle,
           channelId:    channel.id,
           sourceType:   'manual',
+          editorMode:   'RICH',
           sourceSummary: '',
           status:       'NEW',
           coverMode,
@@ -286,6 +288,7 @@ router.post('/create-blank', async (req: Request, res: Response): Promise<void> 
       id:               dbPost.id,
       title:            dbPost.title,
       sourceType:       'manual',
+      editorMode:       'rich',
       sourceUrl:        null,
       sourceSummary:    '',
       channelId:        dbPost.channelId,
@@ -403,6 +406,7 @@ router.post('/list', async (req: Request, res: Response): Promise<void> => {
       id:               post.id,
       title:            post.title,
       sourceType:       post.sourceType ?? 'prompt',
+      editorMode:       post.editorMode === 'LEGACY' ? 'legacy' : 'rich',
       sourceUrl:        post.sourceUrl ?? null,
       sourceSummary:    post.sourceSummary ?? '',
       channelId:        post.channelId,
@@ -1281,7 +1285,10 @@ router.post('/select-variant', async (req: Request, res: Response): Promise<void
   let variant: {
     id:              string;
     generatedPostId: string;
-    generatedPost:   { id: string; channel: { userId: string } };
+    text:            string;
+    bannerUrl:       string | null;
+    blocks:          unknown;
+    generatedPost:   { id: string; editorMode: string; channel: { userId: string; handle: string | null } };
   } | null = null;
   try {
     variant = await prisma.postVariant.findUnique({
@@ -1289,10 +1296,14 @@ router.post('/select-variant', async (req: Request, res: Response): Promise<void
       select: {
         id:              true,
         generatedPostId: true,
+        text:            true,
+        bannerUrl:       true,
+        blocks:          true,
         generatedPost: {
           select: {
-            id:      true,
-            channel: { select: { userId: true } },
+            id:         true,
+            editorMode: true,
+            channel:    { select: { userId: true, handle: true } },
           },
         },
       },
@@ -1311,18 +1322,40 @@ router.post('/select-variant', async (req: Request, res: Response): Promise<void
     res.status(403).json({ error: 'This post does not belong to your account.' }); return;
   }
 
+  let blocks = variantBlocks(variant);
+  const needsRichBlocks = variant.generatedPost.editorMode === 'RICH' && !blocks;
+  if (needsRichBlocks) {
+    blocks = await generateRichBlocks({
+      postText: variant.text,
+      level:    'auto',
+      images:   variant.bannerUrl ? [variant.bannerUrl] : [],
+      handle:   variant.generatedPost.channel.handle
+        ? `@${variant.generatedPost.channel.handle.replace(/^@/, '')}`
+        : null,
+    });
+  }
+
   // ── 5. Persist selectedVariantId ─────────────────────────────────────────
   try {
-    await prisma.generatedPost.update({
+    await prisma.$transaction(async tx => {
+      if (needsRichBlocks) {
+        await tx.postVariant.update({
+          where: { id: variantId },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data:  { blocks: (blocks ?? []) as any },
+        });
+      }
+      await tx.generatedPost.update({
       where: { id: postId },
       data:  { selectedVariantId: variantId },
+    });
     });
   } catch (err) {
     console.error('[posts/select-variant] DB update failed:', (err as Error).message);
     res.status(500).json({ error: 'Internal server error' }); return;
   }
 
-  res.json({ ok: true });
+  res.json({ ok: true, editorMode: variant.generatedPost.editorMode === 'LEGACY' ? 'legacy' : 'rich', blocks });
 });
 
 // ─── POST /api/posts/update-variant ──────────────────────────────────────────
@@ -2029,6 +2062,16 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
 
   // Preserve the existing post-level banner (any variant carries it).
   const preservedBanner = post.variants.find(v => v.bannerUrl)?.bannerUrl ?? null;
+  const richDrafts = await Promise.all(variantDrafts.map(async variant => ({
+    ...variant,
+    blocks: await generateRichBlocks({
+      postText: variant.text,
+      level:    'auto',
+      images:   preservedBanner ? [preservedBanner] : [],
+      handle:   post.channel.handle ? `@${post.channel.handle.replace(/^@/, '')}` : null,
+    }),
+  })));
+
 
   // ── 8. Replace variants + increment counter (transaction) ────────────────
   let result;
@@ -2040,13 +2083,16 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
         data: {
           textRegensUsed: { increment: 1 },
           selectedVariantId: null,
+          editorMode:       'RICH',
           variants: {
-            create: variantDrafts.map((v, i) => ({
+            create: richDrafts.map((v, i) => ({
               label:        v.label,
               variantIndex: i,
               text:         v.text,
               isSelected:   i === 0,
               bannerUrl:    preservedBanner,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              blocks:       v.blocks as any,
             })),
           },
         },
@@ -2054,7 +2100,7 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
       });
       const created = await tx.generatedPost.findUniqueOrThrow({
         where:  { id: postId },
-        select: { textRegensUsed: true, variants: { orderBy: { variantIndex: 'asc' }, select: { id: true, label: true, text: true, bannerUrl: true } } },
+        select: { textRegensUsed: true, variants: { orderBy: { variantIndex: 'asc' }, select: { id: true, label: true, text: true, bannerUrl: true, blocks: true } } },
       });
       const firstVariantId = created.variants[0]!.id;
       await tx.generatedPost.update({ where: { id: postId }, data: { selectedVariantId: firstVariantId } });
@@ -2073,6 +2119,7 @@ router.post('/regenerate-text', async (req: Request, res: Response): Promise<voi
       text:       v.text,
       isSelected: v.id === result.firstVariantId,
       bannerUrl:  v.bannerUrl ?? null,
+      blocks:     variantBlocks(v),
     })),
     selectedVariantId: result.firstVariantId,
     textRegensUsed:    result.created.textRegensUsed,

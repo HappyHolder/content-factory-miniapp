@@ -238,6 +238,7 @@ model GeneratedPost {
   rubricName        String? // denormalized rubric name — shown on the post chip without a join
   linkButtons       Json? // LinkItem[]
   selectedVariantId String?
+  editorMode        String @default("RICH") // RICH = block composer for every variant; LEGACY = old text editor
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

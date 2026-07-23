@@ -456,8 +456,6 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
           { role: 'system', content: systemPrompt },
           { role: 'user',   content: userPrompt   },
         ],
-        // 4096 (not 2048): bilingual variants carry the post in BOTH languages.
-        max_tokens:  4096,
         temperature: 0.7,
         top_p:       0.9,
       }),
@@ -493,7 +491,6 @@ async function generateWithClaude(params: GenerateParams): Promise<VariantDraft[
     model:        env.HIGH_TEXT_MODEL,
     systemPrompt,
     prompt:       userPrompt,
-    maxTokens:    4096,
     temperature:  0.7,
     timeoutMs:    120_000,
   });

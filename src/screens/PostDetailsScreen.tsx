@@ -61,13 +61,12 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   // Formatted post = the selected variant carries structured blocks. Those posts
   // get the new composer (hero preview + block editor); legacy posts keep the
   // old text+banner accordion.
-  const hasBlocks = !!(selectedVariant?.blocks && selectedVariant.blocks.length > 0)
   // A manually built post ("from scratch") is block-based even with zero blocks:
   // the user writes every block by hand. It has a single empty-text variant, so the
   // variant selector / text-regeneration is hidden and the block editor is its only
   // surface. Detected by sourceType so it holds even before any block is added.
   const isManual = post.sourceType === 'manual'
-  const isBlockPost = hasBlocks || isManual
+  const isBlockPost = post.editorMode === 'rich'
   // Published posts stay fully editable and re-publishable (edited in place in the
   // channel) for a 5-hour window, after which they're purged server-side.
   const withinEditWindow = post.status === 'published' && isWithinEditWindow(post.publishedAt)
@@ -268,16 +267,17 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         return
       }
       const data = await res.json() as {
-        variants: { id: string; label: string; text: string; isSelected: boolean; bannerUrl: string | null }[]
+        variants: { id: string; label: string; text: string; isSelected: boolean; bannerUrl: string | null; blocks: import('@/types').PostBlock[] | null }[]
         selectedVariantId: string
         textRegensUsed: number
       }
       updatePost(post.id, {
         variants: data.variants.map(v => ({
-          id: v.id, label: v.label, text: v.text, isSelected: v.isSelected, bannerUrl: v.bannerUrl,
+          id: v.id, label: v.label, text: v.text, isSelected: v.isSelected, bannerUrl: v.bannerUrl, blocks: v.blocks,
         })),
         selectedVariantId: data.selectedVariantId,
         textRegensUsed:    data.textRegensUsed,
+        editorMode:          'rich',
       })
       showToast(t('postDetails.textRegenerated'))
     } catch {
