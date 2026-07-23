@@ -150,7 +150,15 @@ export interface TelegramWebAppKeyboard {
   inline_keyboard: { text: string; web_app: { url: string } }[][];
 }
 
+export interface TelegramReplyKeyboard {
+  keyboard: { text: string; web_app?: { url: string } }[][];
+  resize_keyboard?: boolean;
+  is_persistent?: boolean;
+  input_field_placeholder?: string;
+}
+
 export type AnyInlineKeyboard = TelegramInlineKeyboard | TelegramWebAppKeyboard;
+export type AnyReplyMarkup = AnyInlineKeyboard | TelegramReplyKeyboard;
 
 const VALID_BUTTON_STYLES = new Set(['primary', 'success', 'danger']);
 
@@ -596,7 +604,7 @@ export interface LinkPreviewOptions {
 /**
  * Sends a plain-text message to a Telegram chat via sendMessage.
  * chatId may be a numeric user/chat ID or a public username string ("@channelname").
- * Pass replyMarkup to attach an inline keyboard (link buttons) to the message.
+ * Pass replyMarkup to attach an inline or persistent reply keyboard to the message.
  * Pass linkPreview to render a preview card (e.g. the cover as a large preview).
  * Throws TelegramApiError on a non-ok response or network failure.
  * Never logs the token.
@@ -605,7 +613,7 @@ export async function sendBotMessage(
   chatId: number | string,
   text: string,
   token: string,
-  replyMarkup?: AnyInlineKeyboard,
+  replyMarkup?: AnyReplyMarkup,
   linkPreview?: LinkPreviewOptions,
   replyToMessageId?: number,
 ): Promise<SentMessageRef | null> {
@@ -909,7 +917,7 @@ export async function sendBotDocument(
 }
 /**
  * Sends a photo to a Telegram chat via sendPhoto, with an optional caption
- * (truncated to the 1 024-char Telegram limit) and optional inline keyboard.
+ * (truncated to the 1 024-char Telegram limit) and optional Telegram reply markup.
  * chatId may be a numeric ID or a public username string ("@channelname").
  * Throws TelegramApiError on a non-ok response or network failure.
  * Never logs the token or full caption text.
@@ -919,7 +927,7 @@ export async function sendBotPhoto(
   photoUrl: string,
   caption: string,
   token: string,
-  replyMarkup?: AnyInlineKeyboard,
+  replyMarkup?: AnyReplyMarkup,
 ): Promise<SentMessageRef | null> {
   const url = `${TG_API}/bot${token}/sendPhoto`;
   const safeCaption = buildPhotoCaption(caption);
@@ -961,7 +969,7 @@ export async function sendBotPhotoFile(
   fileName: string,
   caption: string,
   token: string,
-  replyMarkup?: AnyInlineKeyboard,
+  replyMarkup?: AnyReplyMarkup,
 ): Promise<void> {
   const url = `${TG_API}/bot${token}/sendPhoto`;
   const form = new FormData();

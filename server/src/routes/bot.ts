@@ -4,7 +4,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import fs from 'fs';
 import path from 'path';
-import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerInlinePostQuery, answerPreCheckoutQuery, getBotIdFromToken, TelegramWebAppKeyboard } from '../lib/telegramBot';
+import { sendBotMessage, sendBotPhoto, sendBotPhotoFile, answerInlinePostQuery, answerPreCheckoutQuery, getBotIdFromToken, answerBotCallback, telegramAction, TelegramWebAppKeyboard } from '../lib/telegramBot';
 import { resolveInlineShare } from '../lib/inlineShare';
 import { createDraftPostForChannel, type DraftPost } from '../lib/draftGenerator';
 import { getEffectiveSubscription, reserveSubscriptionQuota, refundSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
@@ -14,6 +14,7 @@ import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContent } from '../lib/visionExtractor';
 import { completeManagedBot, type ManagedBotUpdate } from '../moderator/managedBotService';
 import { completeManagedCommunityBot } from '../communityManager/managedBot';
+import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, parseChannelCallback, type BotChannelSummary } from '../lib/botQuickActions';
 
 // ─── /start welcome ─────────────────────────────────────────────────────────
 const WELCOME_TEXT =
@@ -47,12 +48,10 @@ function findWelcomeImage(): string | null {
 
 /**
  * Sends the /start welcome: the bundled image (if present) + caption + an
- * optional Web App button. Falls back to a plain text message if no image file.
+ * persistent channel/app keyboard. Falls back to a plain text message if no image file.
  */
-async function sendWelcome(chatId: number): Promise<void> {
-  const keyboard: TelegramWebAppKeyboard | undefined = env.MINI_APP_URL
-    ? { inline_keyboard: [[{ text: '🚀 Открыть приложение', web_app: { url: env.MINI_APP_URL } }]] }
-    : undefined;
+async function sendWelcome(chatId: number, activeChannel: BotChannelSummary | null): Promise<void> {
+  const keyboard = buildQuickActionsKeyboard(activeChannel, env.MINI_APP_URL);
   try {
     const imagePath = findWelcomeImage();
     if (imagePath) {
@@ -119,6 +118,13 @@ interface TgInlineQuery {
   query: string;
 }
 
+interface TgCallbackQuery {
+  id: string;
+  from: { id: number };
+  data?: string;
+  message?: { message_id: number; chat: { id: number } };
+}
+
 /**
  * ChatMemberUpdated (my_chat_member): fired when THIS bot's membership/rights in a
  * chat change — e.g. a channel admin promotes the bot. `from` is the user who made
@@ -139,6 +145,7 @@ interface TelegramUpdate {
   message?: TgMessage;
   pre_checkout_query?: TgPreCheckoutQuery;
   inline_query?: TgInlineQuery;
+  callback_query?: TgCallbackQuery;
   my_chat_member?: TgChatMemberUpdated;
   managed_bot?: ManagedBotUpdate;
 }
@@ -183,6 +190,91 @@ async function trySendReply(chatId: number, text: string): Promise<void> {
     await sendBotMessage(chatId, text, env.TELEGRAM_BOT_TOKEN);
   } catch (err) {
     console.error('[bot/webhook] sendMessage failed:', (err as Error).message);
+  }
+}
+
+interface BotChannelContext {
+  userId: string;
+  activeChannelId: string | null;
+  channels: BotChannelSummary[];
+  activeChannel: BotChannelSummary | null;
+}
+
+async function loadBotChannelContext(telegramId: string): Promise<BotChannelContext | null> {
+  const user = await prisma.user.findUnique({
+    where: { telegramId },
+    select: { id: true, activeChannelId: true },
+  });
+  if (!user) return null;
+  const channels = await prisma.channel.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, name: true, handle: true },
+  });
+  const activeChannel = channels.find(channel => channel.id === user.activeChannelId) ?? channels.at(-1) ?? null;
+  return { userId: user.id, activeChannelId: user.activeChannelId, channels, activeChannel };
+}
+
+async function sendChannelPicker(chatId: number, telegramId: string): Promise<void> {
+  try {
+    const context = await loadBotChannelContext(telegramId);
+    if (!context) {
+      await sendBotMessage(chatId, 'Сначала открой Publium, чтобы подключить аккаунт.', env.TELEGRAM_BOT_TOKEN, buildQuickActionsKeyboard(null, env.MINI_APP_URL));
+      return;
+    }
+    if (!context.activeChannel) {
+      await sendBotMessage(chatId, 'Сначала подключи Telegram-канал в Publium.', env.TELEGRAM_BOT_TOKEN, buildQuickActionsKeyboard(null, env.MINI_APP_URL));
+      return;
+    }
+    const activeLabel = botChannelLabel(context.activeChannel);
+    if (context.channels.length === 1) {
+      await sendBotMessage(chatId, `Активный канал: ${activeLabel}. Других подключённых каналов пока нет.`, env.TELEGRAM_BOT_TOKEN, buildQuickActionsKeyboard(context.activeChannel, env.MINI_APP_URL));
+      return;
+    }
+    await sendBotMessage(
+      chatId,
+      `Выбери канал для следующих материалов.\n\nСейчас выбран: ${activeLabel}`,
+      env.TELEGRAM_BOT_TOKEN,
+      buildChannelPickerKeyboard(context.channels, context.activeChannel.id),
+    );
+  } catch (error) {
+    console.error('[bot/webhook] channel picker failed:', (error as Error).message);
+    await trySendReply(chatId, 'Не удалось загрузить каналы. Попробуй ещё раз.');
+  }
+}
+
+async function handleChannelCallback(query: TgCallbackQuery): Promise<void> {
+  const channelId = parseChannelCallback(query.data);
+  if (!channelId) {
+    await answerBotCallback(query.id, '', env.TELEGRAM_BOT_TOKEN).catch(() => undefined);
+    return;
+  }
+  const telegramId = String(query.from.id);
+  const chatId = query.message?.chat.id ?? query.from.id;
+  try {
+    const user = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+    const channel = user
+      ? await prisma.channel.findFirst({ where: { id: channelId, userId: user.id }, select: { id: true, name: true, handle: true } })
+      : null;
+    if (!user || !channel) {
+      await telegramAction('answerCallbackQuery', { callback_query_id: query.id, text: 'Канал недоступен.', show_alert: true }, env.TELEGRAM_BOT_TOKEN);
+      return;
+    }
+    await prisma.user.update({ where: { id: user.id }, data: { activeChannelId: channel.id } });
+    const label = botChannelLabel(channel);
+    await answerBotCallback(query.id, `Канал: ${label}`, env.TELEGRAM_BOT_TOKEN);
+    if (query.message) {
+      await telegramAction('deleteMessage', { chat_id: query.message.chat.id, message_id: query.message.message_id }, env.TELEGRAM_BOT_TOKEN).catch(() => undefined);
+    }
+    await sendBotMessage(
+      chatId,
+      `Активный канал: ${label}. Следующий материал будет обработан для него.`,
+      env.TELEGRAM_BOT_TOKEN,
+      buildQuickActionsKeyboard(channel, env.MINI_APP_URL),
+    );
+  } catch (error) {
+    console.error('[bot/webhook] channel switch failed:', (error as Error).message);
+    await telegramAction('answerCallbackQuery', { callback_query_id: query.id, text: 'Не удалось сменить канал. Попробуй ещё раз.', show_alert: true }, env.TELEGRAM_BOT_TOKEN).catch(() => undefined);
   }
 }
 
@@ -452,7 +544,13 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // Ignore non-message updates (channel_post, callback_query, etc.)
+  if (update.callback_query) {
+    await handleChannelCallback(update.callback_query);
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // Ignore non-message updates (channel_post, etc.)
   if (!update.message) {
     res.status(200).json({ ok: true });
     return;
@@ -481,14 +579,21 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── /start → welcome message with Open-app button ────────────────────────
+  const telegramId = String(message.from.id);
+
+  // ── /start → welcome message with persistent quick actions ──────────────
   if (sourceText.trim().toLowerCase().startsWith('/start')) {
-    await sendWelcome(chatId);
+    const context = await loadBotChannelContext(telegramId).catch(() => null);
+    await sendWelcome(chatId, context?.activeChannel ?? null);
     res.status(200).json({ ok: true });
     return;
   }
 
-  const telegramId = String(message.from.id);
+  if (isChannelButtonText(sourceText)) {
+    await sendChannelPicker(chatId, telegramId);
+    res.status(200).json({ ok: true });
+    return;
+  }
 
   // ── 3. Resolve authenticated user ────────────────────────────────────────
   let dbUser: { id: string; activeChannelId: string | null } | null = null;
@@ -609,6 +714,14 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 
   // ── 8. Generate draft and notify user asynchronously ─────────────────────
   (async () => {
+    const targetLabel = botChannelLabel(targetChannel);
+    await sendBotMessage(
+      chatId,
+      `Принял. Готовлю пост для ${targetLabel}.`,
+      env.TELEGRAM_BOT_TOKEN,
+      buildQuickActionsKeyboard(targetChannel, env.MINI_APP_URL),
+    ).catch(error => console.error('[bot/webhook] source acknowledgement failed:', (error as Error).message));
+
     const subscription = await getEffectiveSubscription(dbUser.id);
     const limits = TIER_LIMITS[subscription.tier];
     const textQuota = await reserveSubscriptionQuota(dbUser.id, 'text');

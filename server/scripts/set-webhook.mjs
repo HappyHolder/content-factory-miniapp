@@ -23,7 +23,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 const TG_API = 'https://api.telegram.org';
 const DEFAULT_URL = 'https://publium.ru/api/bot/webhook';
-const ALLOWED_UPDATES = ['message', 'pre_checkout_query', 'inline_query', 'my_chat_member', 'managed_bot'];
+const ALLOWED_UPDATES = ['message', 'callback_query', 'pre_checkout_query', 'inline_query', 'my_chat_member', 'managed_bot'];
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
