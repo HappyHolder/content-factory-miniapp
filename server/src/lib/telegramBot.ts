@@ -228,6 +228,30 @@ interface PreparedMediaUpload {
 }
 
 const MAX_PREPARED_MEDIA_BYTES = 50 * 1024 * 1024;
+const PREPARED_MESSAGE_ATTEMPTS = 3;
+const PREPARED_MESSAGE_RETRY_DELAYS_MS = [300, 900];
+
+async function fetchPreparedMessageWithRetry(
+  request: () => Promise<Response>,
+): Promise<Response> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < PREPARED_MESSAGE_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await request();
+      if (response.status < 500 || attempt === PREPARED_MESSAGE_ATTEMPTS - 1) return response;
+      await response.body?.cancel().catch(() => undefined);
+      lastError = new Error(`Telegram returned HTTP ${response.status}`);
+    } catch (err) {
+      lastError = err;
+      if (attempt === PREPARED_MESSAGE_ATTEMPTS - 1) throw err;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, PREPARED_MESSAGE_RETRY_DELAYS_MS[attempt] ?? 900));
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Telegram request failed');
+}
 
 function decodeHtmlAttribute(value: string): string {
   return value
@@ -405,13 +429,13 @@ export async function savePreparedPostMessage(params: {
           upload.fileName,
         );
       }
-      res = await fetch(url, {
+      res = await fetchPreparedMessageWithRetry(() => fetch(url, {
         method: 'POST',
         body: form,
-        signal: AbortSignal.timeout(45_000),
-      });
+        signal: AbortSignal.timeout(15_000),
+      }));
     } else {
-      res = await fetch(url, {
+      res = await fetchPreparedMessageWithRetry(() => fetch(url, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -421,8 +445,8 @@ export async function savePreparedPostMessage(params: {
           allow_group_chats:   true,
           allow_channel_chats: true,
         }),
-        signal: AbortSignal.timeout(45_000),
-      });
+        signal: AbortSignal.timeout(15_000),
+      }));
     }
   } catch (err) {
     throw new TelegramApiError(`Network error calling savePreparedInlineMessage: ${(err as Error).message}`);

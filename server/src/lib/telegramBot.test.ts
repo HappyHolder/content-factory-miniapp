@@ -31,6 +31,39 @@ test('moves external video into media and removes its external poster', () => {
 test('leaves text-only Rich HTML unchanged', () => {
   assert.deepEqual(buildPreparedRichMessage('<p>Hello</p>'), { html: '<p>Hello</p>' });
 });
+test('retries transient Telegram gateway failures', async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+
+  globalThis.fetch = async (): Promise<Response> => {
+    attempts += 1;
+    if (attempts < 3) {
+      return new Response(JSON.stringify({ ok: false, error_code: 502, description: 'Bad Gateway' }), {
+        status: 502,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      result: { id: 'prepared-after-retry', expiration_date: 1234567890 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+
+  try {
+    const prepared = await savePreparedPostMessage({
+      userId: 1,
+      title: 'Retry probe',
+      html: '<p>Hello</p>',
+      token: 'TEST_TOKEN',
+    });
+
+    assert.equal(prepared.id, 'prepared-after-retry');
+    assert.equal(attempts, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('uploads a 4x4 gallery as multipart attachments', async () => {
   const originalFetch = globalThis.fetch;
   let telegramRequest: RequestInit | undefined;
