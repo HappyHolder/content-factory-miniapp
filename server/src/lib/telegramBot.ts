@@ -206,6 +206,53 @@ export function buildInlineKeyboard(linkButtons: unknown): TelegramInlineKeyboar
   return rows.length > 0 ? { inline_keyboard: rows } : undefined;
 }
 
+interface PreparedRichMessageMedia {
+  id: string;
+  media: {
+    type: 'photo' | 'video';
+    media: string;
+  };
+}
+
+interface PreparedRichMessage {
+  html: string;
+  media?: PreparedRichMessageMedia[];
+}
+
+function decodeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+/**
+ * Prepared inline messages can't retain external media references in Rich HTML.
+ * Bot API 10.2 requires each file to be supplied through InputRichMessage.media
+ * and referenced from HTML with a tg:// media identifier.
+ */
+export function buildPreparedRichMessage(html: string): PreparedRichMessage {
+  const media: PreparedRichMessageMedia[] = [];
+  const addMedia = (type: 'photo' | 'video', rawUrl: string): string => {
+    if (media.length >= 50) return '';
+    const id = `${type}_${media.length + 1}`;
+    media.push({ id, media: { type, media: decodeHtmlAttribute(rawUrl) } });
+    return type === 'photo'
+      ? `<img src="tg://photo?id=${id}">`
+      : `<video src="tg://video?id=${id}"></video>`;
+  };
+
+  const preparedHtml = html
+    .replace(/<img src="(https?:\/\/[^"]+)">/gi, (_match, url: string) => addMedia('photo', url))
+    .replace(
+      /<video src="(https?:\/\/[^"]+)"(?: poster="[^"]+")?><\/video>/gi,
+      (_match, url: string) => addMedia('video', url),
+    );
+
+  return media.length > 0 ? { html: preparedHtml, media } : { html: preparedHtml };
+}
+
 /**
  * Saves a prepared inline message (Bot API `savePreparedInlineMessage`) so the
  * user can send a post via the native Telegram share dialog — no channel
@@ -226,7 +273,7 @@ export async function savePreparedPostMessage(params: {
   const { userId, title, html, text, replyMarkup, token } = params;
 
   const inputMessageContent = html && html.trim()
-    ? { rich_message: { html } }
+    ? { rich_message: buildPreparedRichMessage(html) }
     : { message_text: (text && text.trim()) || title || ' ', parse_mode: 'HTML' };
 
   const result: Record<string, unknown> = {

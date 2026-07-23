@@ -903,7 +903,7 @@ router.post('/:postId/prepare-share', async (req: Request, res: Response): Promi
   } catch (err) {
     const msg = err instanceof TelegramApiError ? err.message : (err as Error).message;
     console.error('[posts/prepare-share] failed:', msg);
-    res.status(502).json({ error: `Could not prepare the message: ${msg}` });
+    res.status(502).json({ error: 'Telegram could not prepare the post for sharing.', code: 'PREPARE_SHARE_FAILED' });
   }
 });
 

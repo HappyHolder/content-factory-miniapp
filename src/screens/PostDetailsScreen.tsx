@@ -183,8 +183,11 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ initData }),
       })
-      const data = await res.json().catch(() => ({})) as { preparedMessageId?: string; error?: string }
-      if (!res.ok || !data.preparedMessageId) { showToast(data.error ?? t('postDetails.fastShareFailed'), 'error'); return }
+      const data = await res.json().catch(() => ({})) as { preparedMessageId?: string; error?: string; code?: string }
+      if (!res.ok || !data.preparedMessageId) {
+        showToast(data.code === 'PREPARE_SHARE_FAILED' ? t('postDetails.fastShareFailed') : (data.error ?? t('postDetails.fastShareFailed')), 'error')
+        return
+      }
       handedToTelegram = shareTelegramMessage(data.preparedMessageId, handleShareResult)
       if (!handedToTelegram) { showToast(t('postDetails.fastShareUnsupported'), 'error'); return }
       setSendOpen(false)
