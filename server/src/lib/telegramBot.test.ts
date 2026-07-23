@@ -64,9 +64,12 @@ test('retries transient Telegram gateway failures', async () => {
   }
 });
 
-test('uploads a 4x4 gallery as multipart attachments', async () => {
+test('caches a 4x4 gallery in Telegram and prepares it with file_ids', async () => {
   const originalFetch = globalThis.fetch;
   let telegramRequest: RequestInit | undefined;
+  let albumCalls = 0;
+  let deleteCalls = 0;
+  let nextMessageId = 100;
   const urls = Array.from({ length: 16 }, (_, index) => `https://media.test/tile-${index}.png`);
   const tinyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
@@ -76,6 +79,29 @@ test('uploads a 4x4 gallery as multipart attachments', async () => {
       return new Response(new Uint8Array(tinyPng), {
         status: 200,
         headers: { 'content-type': 'image/png' },
+      });
+    }
+    if (url.includes('/botTEST_TOKEN/sendMediaGroup')) {
+      albumCalls += 1;
+      assert.ok(init?.body instanceof FormData);
+      const items = JSON.parse(String(init.body.get('media'))) as Array<{ type: string }>;
+      const result = items.map(() => {
+        nextMessageId += 1;
+        return {
+          message_id: nextMessageId,
+          photo: [{ file_id: `telegram-file-${nextMessageId}` }],
+        };
+      });
+      return new Response(JSON.stringify({ ok: true, result }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.includes('/botTEST_TOKEN/deleteMessages')) {
+      deleteCalls += 1;
+      return new Response(JSON.stringify({ ok: true, result: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
       });
     }
     if (url.includes('/botTEST_TOKEN/savePreparedInlineMessage')) {
@@ -98,19 +124,17 @@ test('uploads a 4x4 gallery as multipart attachments', async () => {
     });
 
     assert.equal(prepared.id, 'prepared-id');
-    assert.ok(telegramRequest?.body instanceof FormData);
-    const form = telegramRequest.body;
-    const result = JSON.parse(String(form.get('result'))) as {
-      input_message_content: { rich_message: { html: string; media: Array<{ media: { media: string } }> } };
+    assert.equal(albumCalls, 2);
+    assert.equal(deleteCalls, 2);
+    assert.equal(typeof telegramRequest?.body, 'string');
+    const request = JSON.parse(String(telegramRequest?.body)) as {
+      result: { input_message_content: { rich_message: { html: string; media: Array<{ media: { media: string } }> } } };
     };
-    const rich = result.input_message_content.rich_message;
+    const rich = request.result.input_message_content.rich_message;
     assert.equal(rich.media.length, 16);
-    assert.equal(rich.media[0]?.media.media, 'attach://rich_media_1');
-    assert.equal(rich.media[15]?.media.media, 'attach://rich_media_16');
-    assert.match(rich.html, /tg:\/\/photo\?id=photo_16/);
-    assert.ok(form.get('rich_media_1') instanceof Blob);
-    assert.equal((form.get('rich_media_1') as Blob).type, 'image/jpeg');
-    assert.ok(form.get('rich_media_16') instanceof Blob);
+    assert.equal(rich.media[0]?.media.media, 'telegram-file-101');
+    assert.equal(rich.media[15]?.media.media, 'telegram-file-116');
+    assert.ok(rich.html.includes('tg://photo?id=photo_16'));
   } finally {
     globalThis.fetch = originalFetch;
   }

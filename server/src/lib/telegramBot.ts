@@ -222,6 +222,7 @@ interface PreparedRichMessage {
 
 interface PreparedMediaUpload {
   attachmentName: string;
+  mediaType: 'photo' | 'video';
   bytes: Buffer;
   contentType: string;
   fileName: string;
@@ -365,7 +366,7 @@ async function buildPreparedRichMessageUpload(html: string): Promise<{
 
     totalBytes += file.bytes.length;
     const attachmentName = `rich_media_${index + 1}`;
-    uploads.push({ attachmentName, ...file });
+    uploads.push({ attachmentName, mediaType: item.media.type, ...file });
     media.push({
       ...item,
       media: { ...item.media, media: `attach://${attachmentName}` },
@@ -376,6 +377,97 @@ async function buildPreparedRichMessageUpload(html: string): Promise<{
     richMessage: media.length ? { html: preparedHtml, media } : { html: preparedHtml },
     uploads,
   };
+}
+
+async function deletePreparedCacheMessages(
+  chatId: number | string,
+  messageIds: number[],
+  token: string,
+): Promise<void> {
+  if (!messageIds.length) return;
+  const response = await fetchPreparedMessageWithRetry(() => fetch(`${TG_API}/bot${token}/deleteMessages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, message_ids: messageIds }),
+    signal: AbortSignal.timeout(10_000),
+  }));
+  const body = (await response.json()) as TgApiResponse<boolean>;
+  if (!body.ok) throw new TelegramApiError(body.description ?? 'Could not remove prepared-media cache messages', body.error_code);
+}
+
+function cachedTelegramFileId(message: unknown, type: 'photo' | 'video'): string | null {
+  if (!message || typeof message !== 'object') return null;
+  const record = message as { photo?: Array<{ file_id?: string }>; video?: { file_id?: string } };
+  if (type === 'video') return record.video?.file_id ?? null;
+  return record.photo?.at(-1)?.file_id ?? null;
+}
+
+async function cachePreparedMediaInTelegram(params: {
+  userId: number | string;
+  uploads: PreparedMediaUpload[];
+  token: string;
+}): Promise<Map<string, string>> {
+  const { userId, uploads, token } = params;
+  const fileIds = new Map<string, string>();
+
+  for (let offset = 0; offset < uploads.length; offset += 10) {
+    const batch = uploads.slice(offset, offset + 10);
+    const form = new FormData();
+    form.set('chat_id', String(userId));
+    form.set('disable_notification', 'true');
+
+    let endpoint: 'sendPhoto' | 'sendVideo' | 'sendMediaGroup';
+    if (batch.length === 1) {
+      endpoint = batch[0]!.mediaType === 'photo' ? 'sendPhoto' : 'sendVideo';
+      const upload = batch[0]!;
+      form.append(
+        upload.mediaType,
+        new Blob([new Uint8Array(upload.bytes)], { type: upload.contentType }),
+        upload.fileName,
+      );
+    } else {
+      endpoint = 'sendMediaGroup';
+      form.set('media', JSON.stringify(batch.map(upload => ({
+        type: upload.mediaType,
+        media: `attach://${upload.attachmentName}`,
+      }))));
+      for (const upload of batch) {
+        form.append(
+          upload.attachmentName,
+          new Blob([new Uint8Array(upload.bytes)], { type: upload.contentType }),
+          upload.fileName,
+        );
+      }
+    }
+
+    const response = await fetchPreparedMessageWithRetry(() => fetch(`${TG_API}/bot${token}/${endpoint}`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(20_000),
+    }));
+    const body = (await response.json()) as TgApiResponse<unknown>;
+    if (!body.ok || !body.result) {
+      throw new TelegramApiError(body.description ?? `${endpoint} could not cache prepared media`, body.error_code);
+    }
+
+    const messages = Array.isArray(body.result) ? body.result : [body.result];
+    const messageIds = messages
+      .map(message => message && typeof message === 'object' ? (message as { message_id?: number }).message_id : undefined)
+      .filter((messageId): messageId is number => typeof messageId === 'number');
+
+    try {
+      if (messages.length !== batch.length) throw new TelegramApiError('Telegram returned an incomplete prepared-media cache result');
+      batch.forEach((upload, index) => {
+        const fileId = cachedTelegramFileId(messages[index], upload.mediaType);
+        if (!fileId) throw new TelegramApiError('Telegram did not return a file_id for prepared media');
+        fileIds.set(upload.attachmentName, fileId);
+      });
+    } finally {
+      await deletePreparedCacheMessages(userId, messageIds, token);
+    }
+  }
+
+  return fileIds;
 }
 
 /**
@@ -400,6 +492,17 @@ export async function savePreparedPostMessage(params: {
   const preparedRich = html && html.trim()
     ? await buildPreparedRichMessageUpload(html)
     : null;
+  if (preparedRich?.uploads.length && preparedRich.richMessage.media) {
+    const fileIds = await cachePreparedMediaInTelegram({ userId, uploads: preparedRich.uploads, token });
+    preparedRich.richMessage.media = preparedRich.richMessage.media.map(item => {
+      const attachmentName = item.media.media.startsWith('attach://')
+        ? item.media.media.slice('attach://'.length)
+        : '';
+      const fileId = fileIds.get(attachmentName);
+      if (!fileId) throw new TelegramApiError('Prepared media is missing its Telegram file_id');
+      return { ...item, media: { ...item.media, media: fileId } };
+    });
+  }
   const inputMessageContent = preparedRich
     ? { rich_message: preparedRich.richMessage }
     : { message_text: (text && text.trim()) || title || ' ', parse_mode: 'HTML' };
@@ -415,39 +518,18 @@ export async function savePreparedPostMessage(params: {
   const url = `${TG_API}/bot${token}/savePreparedInlineMessage`;
   let res: Response;
   try {
-    if (preparedRich?.uploads.length) {
-      const form = new FormData();
-      form.set('user_id', String(userId));
-      form.set('result', JSON.stringify(result));
-      form.set('allow_user_chats', 'true');
-      form.set('allow_group_chats', 'true');
-      form.set('allow_channel_chats', 'true');
-      for (const upload of preparedRich.uploads) {
-        form.append(
-          upload.attachmentName,
-          new Blob([new Uint8Array(upload.bytes)], { type: upload.contentType }),
-          upload.fileName,
-        );
-      }
-      res = await fetchPreparedMessageWithRetry(() => fetch(url, {
-        method: 'POST',
-        body: form,
-        signal: AbortSignal.timeout(15_000),
-      }));
-    } else {
-      res = await fetchPreparedMessageWithRetry(() => fetch(url, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id:             userId,
-          result,
-          allow_user_chats:    true,
-          allow_group_chats:   true,
-          allow_channel_chats: true,
-        }),
-        signal: AbortSignal.timeout(15_000),
-      }));
-    }
+    res = await fetchPreparedMessageWithRetry(() => fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id:             userId,
+        result,
+        allow_user_chats:    true,
+        allow_group_chats:   true,
+        allow_channel_chats: true,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    }));
   } catch (err) {
     throw new TelegramApiError(`Network error calling savePreparedInlineMessage: ${(err as Error).message}`);
   }
