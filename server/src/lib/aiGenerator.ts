@@ -11,6 +11,7 @@
 import { env } from '../env';
 import { replicateText } from './replicateText';
 import { stripDisabledHighlightMarkers } from './richPost';
+import { buildTemplateSlotFallback } from './templateSlotFallback';
 
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -878,9 +879,32 @@ export async function fillTemplateSlots(
   ));
   if (slots.length === 0) return null;
 
+  const fallbackValues = buildTemplateSlotFallback(slots, post, brand);
+  const applyValues = (values: Record<string, unknown>): string => {
+    const rubricFallback = rubricSlotLabel(brand?.rubricName, post.coverLanguage);
+    let sectionSource = 'none';
+    const filled = templateHtml.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+      if (/^(RUBRIC|SECTION|CATEGORY)$/i.test(key)) {
+        const derived = sanitizeSectionLabel(values[key], brand);
+        const deterministic = fallbackValues[key];
+        sectionSource = derived ? 'post' : rubricFallback || deterministic ? 'rubric' : 'none';
+        return escapeHtmlText(derived ?? rubricFallback ?? deterministic ?? '');
+      }
+      const value = values[key];
+      if (typeof value === 'string' && value.trim()) return escapeHtmlText(value);
+      if (typeof value === 'number') return String(value);
+      return escapeHtmlText(fallbackValues[key] ?? '');
+    });
+    console.log(`[aiGenerator] Filled ${slots.length} template slots (section from ${sectionSource})`);
+    return filled;
+  };
+
   const hasDeepseek  = env.AI_PROVIDER === 'deepseek' && !!env.DEEPSEEK_API_KEY;
   const hasReplicate = !!env.REPLICATE_API_TOKEN;
-  if (!hasDeepseek && !hasReplicate) return null;
+  if (!hasDeepseek && !hasReplicate) {
+    console.warn('[aiGenerator] Slot fill: no AI provider, using deterministic fallback');
+    return applyValues({});
+  }
 
   const langRule =
     post.coverLanguage === 'ru' ? 'Russian, translating from the post language when needed'
@@ -959,34 +983,21 @@ export async function fillTemplateSlots(
         temperature:  0.5,
         timeoutMs:    40_000,
       });
-  if (!rawJson) return null;
+  if (!rawJson) {
+    console.warn('[aiGenerator] Slot fill: empty AI response, using deterministic fallback');
+    return applyValues({});
+  }
 
   let values: Record<string, unknown>;
   try {
     values = JSON.parse(extractJsonObject(rawJson)) as Record<string, unknown>;
   } catch (err) {
     console.warn('[aiGenerator] Slot fill: could not parse JSON:', (err as Error).message);
-    return null;
+    return applyValues({});
   }
 
-  // The rubric's label is the FALLBACK, not the override: the model names the
-  // section from the post, and we keep the rubric's name only when its answer is
-  // unusable (see sanitizeSectionLabel).
-  const rubricFallback = rubricSlotLabel(brand?.rubricName, post.coverLanguage);
-  let sectionSource = 'none';
-  const filled = templateHtml.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-    if (/^(RUBRIC|SECTION|CATEGORY)$/i.test(key)) {
-      const derived = sanitizeSectionLabel(values[key], brand);
-      sectionSource = derived ? 'post' : rubricFallback ? 'rubric' : 'none';
-      return escapeHtmlText(derived ?? rubricFallback ?? '');
-    }
-    const v = values[key];
-    return typeof v === 'string' ? escapeHtmlText(v)
-         : typeof v === 'number' ? String(v)
-         : '';
-  });
-  console.log(`[aiGenerator] Filled ${slots.length} template slots via ${hasDeepseek ? 'DeepSeek' : 'Claude'} (section from ${sectionSource})`);
-  return filled;
+  console.log(`[aiGenerator] Slot values received via ${hasDeepseek ? 'DeepSeek' : 'Claude'}`);
+  return applyValues(values);
 }
 
 // ─── Template classifier ─────────────────────────────────────────────────────
