@@ -1,36 +1,14 @@
 import { useId, useRef, useState } from 'react'
-import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Minus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText, Copy, X, Lock, Images, GalleryHorizontal, Grid2X2, Rows3, Image as ImageIcon, ArrowRight } from 'lucide-react'
+import { Loader2, Eye, Pencil, ChevronUp, ChevronDown, Trash2, Plus, Minus, Upload, GripVertical, Sparkles, Bold, Italic, Strikethrough, Code, Highlighter, EyeOff, Link2, FileText, X, Lock, Images, GalleryHorizontal, Grid2X2, Rows3, Image as ImageIcon, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { RichPostPreview, runsToText, textToRuns, listItemsToText, textToListItems } from '@/components/posts/RichPostPreview'
-import type { PostBlock, LinkItem, ButtonStyle } from '@/types'
+import type { PostBlock, LinkItem } from '@/types'
 import { cn } from '@/lib/utils'
 import { normalizePostBlocks } from '@/lib/postBlockNormalizer'
-
-// Inline-button styles Telegram accepts ('' = default). `chip` colors the picker
-// when active; `preview` colors the button chip in preview mode.
-const BTN_STYLES = [
-  { v: '',        label: 'Обычная', chip: 'bg-white/20 text-white',      preview: 'bg-white/[0.08] border-white/[0.14] text-[#5AA9FF]' },
-  { v: 'primary', label: 'Синяя',   chip: 'bg-[#2E7CF6] text-white',     preview: 'bg-[#2E7CF6]/15 border-[#2E7CF6]/45 text-[#7FB0FF]' },
-  { v: 'success', label: 'Зелёная', chip: 'bg-[#22A06B] text-white',     preview: 'bg-[#22A06B]/15 border-[#22A06B]/45 text-[#4FD394]' },
-  { v: 'danger',  label: 'Красная', chip: 'bg-[#E5484D] text-white',     preview: 'bg-[#E5484D]/15 border-[#E5484D]/45 text-[#FF7A7E]' },
-] as const
-
-const btnStyleMeta = (s?: ButtonStyle) => BTN_STYLES.find(m => m.v === (s ?? '')) ?? BTN_STYLES[0]
-const btnHasTarget = (b: LinkItem) => (b.kind === 'copy' ? (b.copyText ?? '').trim() : b.url.trim())
-
-// Groups valid buttons into keyboard rows, honoring `sameRow` (grid layout).
-function groupButtonRows(buttons: LinkItem[]): LinkItem[][] {
-  const rows: LinkItem[][] = []
-  for (const b of buttons) {
-    if (!b.label.trim() || !btnHasTarget(b)) continue
-    if (b.sameRow && rows.length > 0) rows[rows.length - 1].push(b)
-    else rows.push([b])
-  }
-  return rows
-}
+import { PostButtonsEditor, PostButtonsPreview, isPostButtonComplete, normalizePostButton } from '@/components/posts/PostButtonsEditor'
 
 interface RichPostEditorProps {
   postId:        string
@@ -84,22 +62,15 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   // field from `buttonLabel` so the shown text matches the real button and isn't
   // clobbered on save.
   const [buttons, setButtons] = useState<LinkItem[]>(
-    () => (state.posts.find(p => p.id === postId)?.linkButtons ?? [])
-      .map(b => ({ ...b, label: (b.buttonLabel || b.label || '').trim() })),
+    () => (state.posts.find(p => p.id === postId)?.linkButtons ?? []).map(normalizePostButton),
   )
   const [buttonsDirty, setButtonsDirty] = useState(false)
-  const addButton = () => {
-    setButtons([...buttons, {
-      id: `btn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      label: '', url: '', anchorText: '', buttonLabel: '', usage: 'button',
-      kind: 'url', copyText: '', sameRow: false,
-    }])
+  const [buttonErrors, setButtonErrors] = useState(false)
+  const changeButtons = (next: LinkItem[]) => {
+    setButtons(next)
     setButtonsDirty(true)
+    setButtonErrors(false)
   }
-  const patchButton = (i: number, patch: Partial<LinkItem>) => {
-    setButtons(buttons.map((b, idx) => idx === i ? { ...b, ...patch } : b)); setButtonsDirty(true)
-  }
-  const removeButton = (i: number) => { setButtons(buttons.filter((_, idx) => idx !== i)); setButtonsDirty(true) }
   const [addOpen, setAddOpen] = useState(false)
   // Upload target: 'new' = append a new block; number = replace block at index;
   // { gallery } = append a photo into the gallery block at that index.
@@ -336,6 +307,11 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
   const save = async () => {
     const initData = getTelegramInitData()
     if (!initData) { showToast('Доступно только в Telegram', 'error'); return }
+    if (buttonsDirty && buttons.some(button => !isPostButtonComplete(button))) {
+      setButtonErrors(true)
+      showToast('Заполните текст и действие каждой кнопки', 'error')
+      return
+    }
     setSaving(true)
     try {
       // Blocks (variant-level).
@@ -355,8 +331,8 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
       let savedButtons: LinkItem[] | null = null
       if (buttonsDirty) {
         const clean = buttons
-          .map(b => ({ ...b, label: b.label.trim(), url: b.url.trim(), copyText: (b.copyText ?? '').trim(), buttonLabel: b.label.trim() }))
-          .filter(b => b.label && (b.kind === 'copy' ? b.copyText : b.url))
+          .map(normalizePostButton)
+          .map(b => ({ ...b, label: b.label.trim(), buttonLabel: b.buttonLabel.trim(), url: b.url.trim(), copyText: (b.copyText ?? '').trim() }))
         const res = await fetch(`${API_BASE}/api/posts/${postId}/buttons`, {
           method:  'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -378,7 +354,7 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
         })
       }
       showToast('Сохранено')
-      setDirty(false); setButtonsDirty(false)
+      setDirty(false); setButtonsDirty(false); setButtonErrors(false)
       if (savedButtons) setButtons(savedButtons)
     } catch {
       showToast('Ошибка сохранения', 'error')
@@ -536,90 +512,20 @@ export function RichPostEditor({ postId, variantId, blocks: initial, channelName
         </div>
       )}
 
-      {/* Inline-keyboard buttons (all block posts) — editor in edit mode, chips in preview.
-          Seeded from post.linkButtons: for AI/bot posts that's the channel's inherited
-          buttons, which the user can now add to, edit, or remove per post. */}
+      {/* Post buttons use the same controls as channel style. */}
       {enableButtons && mode === 'edit' && (
-        <div className="rounded-[12px] bg-white/[0.03] border border-white/[0.07] p-2.5 space-y-2">
-          <div className="flex items-center gap-1.5">
-            <Link2 size={13} className="text-[#FF6A00]" />
-            <span className="text-[10px] font-semibold text-[#55555D] uppercase tracking-wider">Кнопки поста</span>
-          </div>
-          {buttons.length === 0 && (
-            <p className="text-[11px] text-[#55555D] leading-relaxed">
-              Кнопки под постом (инлайн-клавиатура): ссылка или «копировать текст», с цветом и раскладкой в ряды.
-            </p>
-          )}
-          {buttons.map((b, i) => {
-            const kind = b.kind ?? 'url'
-            return (
-              <div key={b.id} className="space-y-1.5 rounded-[10px] bg-white/[0.02] border border-white/[0.06] p-2">
-                <div className="flex gap-1.5">
-                  <input value={b.label} onChange={e => patchButton(i, { label: e.target.value })}
-                    placeholder="Текст кнопки" className="glass-input flex-1 min-w-0 px-2.5 py-1.5 text-[12px]" />
-                  <button onClick={() => removeButton(i)} className="p-1.5 text-[#55555D] hover:text-red-400"><Trash2 size={13} /></button>
-                </div>
-                {/* type: link vs copy */}
-                <div className="flex gap-1">
-                  {([['url', 'Ссылка'], ['copy', 'Копировать']] as const).map(([k, lbl]) => (
-                    <button key={k} onClick={() => patchButton(i, { kind: k })}
-                      className={cn('px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors',
-                        kind === k ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00] border-[rgba(255,106,0,0.38)]' : 'bg-white/5 text-[#A1A1AA] border-white/[0.06]')}>
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
-                {/* target */}
-                {kind === 'copy' ? (
-                  <input value={b.copyText ?? ''} onChange={e => patchButton(i, { copyText: e.target.value })}
-                    placeholder="Текст для копирования (напр. адрес кошелька)" className="glass-input w-full px-2.5 py-1.5 text-[12px]" />
-                ) : (
-                  <input value={b.url} onChange={e => patchButton(i, { url: e.target.value })}
-                    placeholder="https://… или @канал" className="glass-input w-full px-2.5 py-1.5 text-[12px]" />
-                )}
-                {/* style */}
-                <div className="flex flex-wrap gap-1">
-                  {BTN_STYLES.map(s => (
-                    <button key={s.v || 'default'} onClick={() => patchButton(i, { style: (s.v || undefined) as ButtonStyle | undefined })}
-                      className={cn('px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors',
-                        (b.style ?? '') === s.v ? `${s.chip} border-transparent` : 'bg-white/5 text-[#A1A1AA] border-white/[0.06]')}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-                {/* layout */}
-                {i > 0 && (
-                  <label className="flex items-center gap-2 text-[11px] text-[#A1A1AA]">
-                    <input type="checkbox" checked={b.sameRow === true} onChange={e => patchButton(i, { sameRow: e.target.checked })} />
-                    В один ряд с предыдущей
-                  </label>
-                )}
-              </div>
-            )
-          })}
-          <button onClick={addButton}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-[9px] border border-dashed border-white/[0.12] text-[12px] text-[#A1A1AA] hover:border-[#FF6A00]/40 hover:text-[#FF6A00] transition-colors">
-            <Plus size={13} /> Добавить кнопку
-          </button>
-        </div>
-      )}
-      {enableButtons && mode === 'preview' && groupButtonRows(buttons).length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          {groupButtonRows(buttons).map((row, ri) => (
-            <div key={ri} className="flex gap-1.5">
-              {row.map(b => {
-                const meta = btnStyleMeta(b.style)
-                return (
-                  <div key={b.id} className={cn('flex-1 min-w-0 text-center py-2 rounded-[10px] border text-[13px] font-medium flex items-center justify-center gap-1.5', meta.preview)}>
-                    {b.kind === 'copy' && <Copy size={12} className="shrink-0" />}
-                    <span className="truncate">{b.label}</span>
-                  </div>
-                )
-              })}
+        <div className="space-y-3 rounded-[14px] border border-white/[0.07] bg-white/[0.03] p-3">
+          <div className="flex items-center gap-2">
+            <Link2 size={15} className="text-[#FF6A00]" />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#66666E]">Кнопки поста</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-[#55555D]">Ссылка или копирование текста, цвет и расположение в рядах.</p>
             </div>
-          ))}
+          </div>
+          <PostButtonsEditor buttons={buttons} onChange={changeButtons} showErrors={buttonErrors} />
         </div>
       )}
+      {enableButtons && mode === 'preview' && <PostButtonsPreview buttons={buttons} />}
 
       {(dirty || buttonsDirty) && (
         <Button variant="primary" size="md" fullWidth onClick={save} disabled={saving}>

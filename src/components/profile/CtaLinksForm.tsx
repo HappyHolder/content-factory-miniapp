@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Plus, Trash2, ExternalLink, GripVertical } from 'lucide-react'
+import { ExternalLink, Link2, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
 import { useApp } from '@/context/AppContext'
 import type { Signature, LinkItem, LinkUsage } from '@/types'
 import { cn } from '@/lib/utils'
+import { PostButtonsEditor, isPostButtonComplete, normalizePostButton, postButtonLabel, postButtonTarget } from '@/components/posts/PostButtonsEditor'
 
 interface CtaLinksFormProps {
   channelId: string
@@ -13,6 +14,7 @@ interface CtaLinksFormProps {
 }
 
 type SigUsage = 'always' | 'when_relevant' | 'never'
+const isButtonUsage = (usage: LinkUsage) => usage === 'button' || usage === 'always'
 
 const QUICK_ADD_TEMPLATES = [
   { label: 'Product',  buttonLabel: 'Open Product',  anchorText: 'open the app'  },
@@ -22,7 +24,7 @@ const QUICK_ADD_TEMPLATES = [
 ]
 
 export function CtaLinksForm({ channelId, initialSignature, initialLinks }: CtaLinksFormProps) {
-  const { updateBrandKit, t } = useApp()
+  const { updateBrandKit, showToast, language, t } = useApp()
 
   // Signature state
   const [sigText,  setSigText]  = useState(initialSignature.text)
@@ -33,6 +35,7 @@ export function CtaLinksForm({ channelId, initialSignature, initialLinks }: CtaL
   const [links,       setLinks]       = useState<LinkItem[]>(initialLinks)
   const [editingLink, setEditingLink] = useState<LinkItem | null>(null)
   const [sheetOpen,   setSheetOpen]   = useState(false)
+  const [editorErrors, setEditorErrors] = useState(false)
 
   const sigUsageOptions: { value: SigUsage; label: string }[] = [
     { value: 'always',        label: t('channelStyle.ctaLinks.always')       },
@@ -49,35 +52,46 @@ export function CtaLinksForm({ channelId, initialSignature, initialLinks }: CtaL
   ]
 
   const openNew = (tpl?: { label: string; buttonLabel: string; anchorText: string }) => {
-    setEditingLink({
+    setEditorErrors(false)
+    setEditingLink(normalizePostButton({
       id: `l-${Date.now()}`,
-      label: tpl?.label ?? '',
+      label: tpl?.buttonLabel ?? '',
       url: '',
       anchorText: tpl?.anchorText ?? '',
       buttonLabel: tpl?.buttonLabel ?? '',
       usage: 'button',
-    })
+      kind: 'url',
+      copyText: '',
+      sameRow: false,
+    }))
     setSheetOpen(true)
   }
 
   const openEdit = (link: LinkItem) => {
-    setEditingLink({ ...link })
+    setEditorErrors(false)
+    setEditingLink(isButtonUsage(link.usage) ? normalizePostButton(link) : { ...link })
     setSheetOpen(true)
   }
 
   const saveLink = () => {
     if (!editingLink) return
-    const exists = links.some(l => l.id === editingLink.id)
-    const newLinks = exists
-      ? links.map(l => l.id === editingLink.id ? editingLink : l)
-      : [...links, editingLink]
+    const nextLink = isButtonUsage(editingLink.usage) ? normalizePostButton(editingLink) : editingLink
+    if (isButtonUsage(nextLink.usage) && !isPostButtonComplete(nextLink)) {
+      setEditorErrors(true)
+      showToast(language === 'ru' ? 'Заполните текст и действие кнопки' : 'Complete the button text and action', 'error')
+      return
+    }
+    if (!isButtonUsage(nextLink.usage) && (!nextLink.label.trim() || !nextLink.url.trim())) {
+      showToast(language === 'ru' ? 'Заполните название и ссылку' : 'Complete the name and link', 'error')
+      return
+    }
+    const exists = links.some(link => link.id === nextLink.id)
+    const newLinks = exists ? links.map(link => link.id === nextLink.id ? nextLink : link) : [...links, nextLink]
     setLinks(newLinks)
     setSheetOpen(false)
-    // Persist immediately — user expects "Save" in the sheet to be the final action.
-    // Also saves the current signature so both sections stay in sync.
     updateBrandKit(channelId, {
       signature: { text: sigText, cta: sigCta || undefined, usage: sigUsage },
-      linkKit:   { links: newLinks },
+      linkKit: { links: newLinks },
     })
   }
 
@@ -182,16 +196,16 @@ export function CtaLinksForm({ channelId, initialSignature, initialLinks }: CtaL
                 onClick={() => openEdit(link)}
                 className="flex items-start gap-3 p-3.5 rounded-[14px] bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] cursor-pointer transition-colors"
               >
-                <GripVertical size={14} className="text-[#66666E] mt-0.5 shrink-0" />
+
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2 mb-0.5">
-                    <span className="text-sm font-semibold text-white">{link.label}</span>
+                    <span className="text-sm font-semibold text-white">{isButtonUsage(link.usage) ? postButtonLabel(link) : link.label}</span>
                     <span className="text-[11px] text-[#66666E] shrink-0">
                       {linkUsageOptions.find(u => u.value === link.usage)?.label}
                     </span>
                   </div>
                   <p className="text-xs text-[#66666E] truncate">
-                    {link.url || t('channelStyle.ctaLinks.noUrl')}
+                    {isButtonUsage(link.usage) ? (postButtonTarget(link) || t('channelStyle.ctaLinks.noUrl')) : (link.url || t('channelStyle.ctaLinks.noUrl'))}
                   </p>
                   {link.buttonLabel && (
                     <div className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[rgba(255,106,0,0.10)] border border-[rgba(255,106,0,0.20)] text-[11px] text-[#FF6A00]">
@@ -202,7 +216,7 @@ export function CtaLinksForm({ channelId, initialSignature, initialLinks }: CtaL
                 </div>
                 <button
                   onClick={e => { e.stopPropagation(); deleteLink(link.id) }}
-                  className="text-[#66666E] hover:text-red-400 transition-colors p-1 shrink-0"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-[10px] text-[#66666E] transition-colors hover:bg-red-500/10 hover:text-red-400"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -249,54 +263,51 @@ export function CtaLinksForm({ channelId, initialSignature, initialLinks }: CtaL
         height="80"
       >
         {editingLink && (
-          <div className="space-y-3 pt-1">
-            {(['label', 'url', 'anchorText', 'buttonLabel'] as const).map(field => (
-              <div key={field}>
-                <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-1.5">
-                  {t(`channelStyle.ctaLinks.${field}`)}
-                </p>
-                <input
-                  value={editingLink[field]}
-                  onChange={e => setEditingLink(prev => prev ? { ...prev, [field]: e.target.value } : null)}
-                  placeholder={
-                    field === 'url'         ? 'https://…'      :
-                    field === 'anchorText'  ? 'click here'     :
-                    field === 'buttonLabel' ? 'Open Product'   : 'Product'
-                  }
-                  className="glass-input w-full px-3 py-2.5 text-sm"
-                />
-              </div>
-            ))}
-
+          <div className="space-y-4 pb-5 pt-1">
             <div>
-              <p className="text-xs font-medium text-[#66666E] uppercase tracking-wide mb-2">
-                {t('channelStyle.ctaLinks.usage')}
-              </p>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[#66666E]">{t('channelStyle.ctaLinks.usage')}</p>
               <div className="flex flex-wrap gap-2">
                 {linkUsageOptions.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setEditingLink(prev => prev ? { ...prev, usage: opt.value } : null)}
-                    className={cn(
-                      'px-3 py-1 rounded-full text-[12px] font-medium border transition-all',
-                      editingLink.usage === opt.value
-                        ? 'bg-[rgba(255,106,0,0.14)] text-[#FF6A00] border-[rgba(255,106,0,0.38)]'
-                        : 'bg-white/5 text-[#A1A1AA] border-white/[0.06]'
-                    )}
-                  >
+                  <button type="button" key={opt.value} onClick={() => {
+                    setEditorErrors(false)
+                    setEditingLink(prev => prev ? (isButtonUsage(opt.value) ? normalizePostButton({ ...prev, usage: opt.value }) : { ...prev, usage: opt.value }) : null)
+                  }} className={cn('min-h-11 rounded-full border px-3 text-[12px] font-medium transition-all', editingLink.usage === opt.value ? 'border-[rgba(255,106,0,0.38)] bg-[rgba(255,106,0,0.14)] text-[#FF6A00]' : 'border-white/[0.06] bg-white/5 text-[#A1A1AA]')}>
                     {opt.label}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="flex gap-2 pt-2">
-              <Button variant="secondary" size="md" onClick={() => setSheetOpen(false)} fullWidth>
-                {t('channelStyle.ctaLinks.cancel')}
-              </Button>
-              <Button variant="primary" size="md" onClick={saveLink} fullWidth>
-                {t('channelStyle.ctaLinks.save')}
-              </Button>
+            {isButtonUsage(editingLink.usage) ? (
+              <div className="space-y-2">
+                <div className="flex items-start gap-2 rounded-[12px] border border-white/[0.06] bg-white/[0.025] p-3">
+                  <Link2 size={15} className="mt-0.5 shrink-0 text-[#FF6A00]" />
+                  <p className="text-[12px] leading-relaxed text-[#777780]">{language === 'ru' ? 'Эти же настройки доступны в редакторе каждого поста.' : 'The same settings are available in every post editor.'}</p>
+                </div>
+                <PostButtonsEditor
+                  buttons={[editingLink]}
+                  onChange={next => setEditingLink(next[0] ?? editingLink)}
+                  allowAdd={false}
+                  allowRemove={false}
+                  firstCanJoinPrevious={(links.findIndex(link => link.id === editingLink.id) < 0 ? links : links.slice(0, links.findIndex(link => link.id === editingLink.id))).some(link => isButtonUsage(link.usage))}
+                  showPreview
+                  showErrors={editorErrors}
+                />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {(['label', 'url', 'anchorText'] as const).map(field => (
+                  <div key={field}>
+                    <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-[#66666E]">{t(`channelStyle.ctaLinks.${field}`)}</p>
+                    <input value={editingLink[field]} onChange={event => setEditingLink(prev => prev ? { ...prev, [field]: event.target.value } : null)} placeholder={field === 'url' ? 'https://…' : field === 'anchorText' ? 'click here' : 'Product'} className="glass-input min-h-11 w-full px-3 py-2.5 text-base" />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="sticky bottom-0 flex gap-2 border-t border-white/[0.06] bg-[#0C0C0F] pt-3">
+              <Button variant="secondary" size="lg" onClick={() => setSheetOpen(false)} fullWidth>{t('channelStyle.ctaLinks.cancel')}</Button>
+              <Button variant="primary" size="lg" onClick={saveLink} fullWidth>{t('channelStyle.ctaLinks.save')}</Button>
             </div>
           </div>
         )}
