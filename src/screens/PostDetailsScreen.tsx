@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type, Tag, ChevronDown, Share2 } from 'lucide-react'
+import { Send, Calendar, RefreshCw, Layers, Image as ImageIcon, Link as LinkIcon, Loader2, Trash2, Upload, Undo2, Type, Tag, ChevronDown } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import type { PostBlock } from '@/types'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -13,8 +13,9 @@ import { BannerPreview } from '@/components/posts/BannerPreview'
 import { RichPostEditor } from '@/components/posts/RichPostEditor'
 import { LinkButtonsPreview } from '@/components/posts/LinkButtonsPreview'
 import { ScheduleSheet } from '@/components/posts/ScheduleSheet'
+import { SharePostSheet } from '@/components/posts/SharePostSheet'
 import { brandKitService } from '@/services/brandKitService'
-import { getTelegramInitData, shareTelegramMessage } from '@/lib/telegram'
+import { getTelegramInitData, shareTelegramMessage, type TelegramShareResult } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { isWithinEditWindow } from '@/lib/postEditWindow'
 import { cn } from '@/lib/utils'
@@ -36,6 +37,7 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
   const [isSettingRubric, setIsSettingRubric] = useState(false)
   const [rubricMenuOpen, setRubricMenuOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [sendOpen, setSendOpen] = useState(false)
   const [openSection, setOpenSection] = useState<Section>('variants')
   const [isPublishing, setIsPublishing] = useState(false)
   const [isRepublishing, setIsRepublishing] = useState(false)
@@ -155,13 +157,26 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
     }
   }
 
-  // Fast Share: prepare the post as a shareable inline message and open Telegram's
-  // native share dialog. Works without connecting a channel or making the bot admin.
+  // Prepares the selected post, then hands recipient selection to Telegram.
+  // The user sends the native Rich Message on their own behalf.
+  const handleShareResult = (result: TelegramShareResult) => {
+    setIsSharing(false)
+    if (result.status === 'sent') {
+      showToast(t('postDetails.shareSent'))
+      return
+    }
+    if (result.status === 'cancelled') return
+    if (result.error === 'UNSUPPORTED') showToast(t('postDetails.fastShareUnsupported'), 'error')
+    else if (result.error === 'MESSAGE_EXPIRED') showToast(t('postDetails.shareExpired'), 'error')
+    else showToast(t('postDetails.shareSendFailed'), 'error')
+  }
+
   const handleFastShare = async () => {
     if (isSharing) return
     const initData = getTelegramInitData()
     if (!initData) { showToast(t('postDetails.publishFailed'), 'error'); return }
     setIsSharing(true)
+    let handedToTelegram = false
     try {
       const res = await fetch(`${API_BASE}/api/posts/${post.id}/prepare-share`, {
         method:  'POST',
@@ -170,14 +185,15 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
       })
       const data = await res.json().catch(() => ({})) as { preparedMessageId?: string; error?: string }
       if (!res.ok || !data.preparedMessageId) { showToast(data.error ?? t('postDetails.fastShareFailed'), 'error'); return }
-      if (!shareTelegramMessage(data.preparedMessageId)) { showToast(t('postDetails.fastShareUnsupported'), 'error') }
+      handedToTelegram = shareTelegramMessage(data.preparedMessageId, handleShareResult)
+      if (!handedToTelegram) { showToast(t('postDetails.fastShareUnsupported'), 'error'); return }
+      setSendOpen(false)
     } catch {
       showToast(t('postDetails.fastShareFailed'), 'error')
     } finally {
-      setIsSharing(false)
+      if (!handedToTelegram) setIsSharing(false)
     }
   }
-
   const handleSchedulePost = async (date: Date) => {
     if (authStatus !== 'authenticated') {
       // Dev / mock mode — local-only
@@ -781,39 +797,33 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
           )}
         </GlassCard>
 
-        {/* Actions — new post */}
+        {/* Actions: choose direct channel publish or Telegram sharing. */}
         {post.status === 'new' && (
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <Button variant="primary" size="lg" onClick={handlePublish} disabled={isPublishing} fullWidth>
-                <Send size={16} /> {isPublishing ? t('common.loading') : t('postDetails.publish')}
-              </Button>
-              <Button
-                variant="secondary"
-                size="lg"
-                onClick={() => {
-                  if (!canSchedulePosts) {
-                    showToast(t('postDetails.scheduleUpgradeToast'), 'info')
-                    return
-                  }
-                  setScheduleOpen(true)
-                }}
-              >
-                <Calendar size={16} />
-              </Button>
-            </div>
-            {/* Fast Share — send without connecting a channel */}
-            <Button variant="secondary" size="lg" onClick={handleFastShare} disabled={isSharing} fullWidth>
-              {isSharing ? <Loader2 size={16} className="animate-spin" /> : <Share2 size={16} />} {t('postDetails.fastShare')}
+          <div className="flex gap-2">
+            <Button variant="primary" size="lg" onClick={() => setSendOpen(true)} disabled={isPublishing || isSharing} fullWidth>
+              {(isPublishing || isSharing) ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {t('postDetails.send')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={() => {
+                if (!canSchedulePosts) {
+                  showToast(t('postDetails.scheduleUpgradeToast'), 'info')
+                  return
+                }
+                setScheduleOpen(true)
+              }}
+              className="min-w-[48px]"
+            >
+              <Calendar size={16} />
             </Button>
           </div>
         )}
-
-        {/* Actions — scheduled post */}
+        {/* Actions: scheduled post. */}
         {post.status === 'scheduled' && (
           <div className="space-y-2">
-            <Button variant="primary" size="lg" onClick={handlePublish} disabled={isPublishing} fullWidth>
-              <Send size={16} /> {isPublishing ? t('common.loading') : t('postDetails.publish')}
+            <Button variant="primary" size="lg" onClick={() => setSendOpen(true)} disabled={isPublishing || isSharing} fullWidth>
+              {(isPublishing || isSharing) ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {t('postDetails.send')}
             </Button>
             <Button
               variant="secondary"
@@ -831,7 +841,6 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
             </Button>
           </div>
         )}
-
         {/* Actions — published post */}
         {post.status === 'published' && (
           <div className="space-y-2">
@@ -891,6 +900,20 @@ export function PostDetailsScreen({ postId, onBack }: PostDetailsScreenProps) {
         </Button>
       </div>
 
+      <SharePostSheet
+        open={sendOpen}
+        onClose={() => setSendOpen(false)}
+        postTitle={post.title}
+        previewUrl={displayBannerUrl}
+        channelTitle={channel?.title}
+        channelUsername={channel?.username ?? post.channelUsername}
+        channelAvatarUrl={channel?.avatarUrl}
+        channelConnected={channel?.isConnected === true}
+        publishing={isPublishing}
+        sharing={isSharing}
+        onPublish={handlePublish}
+        onShare={handleFastShare}
+      />
       <ScheduleSheet
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}

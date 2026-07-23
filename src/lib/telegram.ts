@@ -11,6 +11,8 @@ interface TelegramWebApp {
   ready?: () => void
   openInvoice?: (url: string, callback: (status: string) => void) => void
   shareMessage?: (msgId: string, callback?: (sent: boolean) => void) => void
+  onEvent?: (eventType: string, eventHandler: (eventData?: unknown) => void) => void
+  offEvent?: (eventType: string, eventHandler: (eventData?: unknown) => void) => void
 }
 
 interface TelegramGlobal {
@@ -73,13 +75,47 @@ export function openTelegramInvoice(url: string, callback: (status: string) => v
  * Returns false (no-op) when the running Telegram client is too old to support
  * shareMessage, so callers can show a fallback message.
  */
-export function shareTelegramMessage(preparedMessageId: string, callback?: (sent: boolean) => void): boolean {
+export type TelegramShareResult =
+  | { status: 'sent' }
+  | { status: 'cancelled' }
+  | { status: 'failed'; error: string }
+
+export function shareTelegramMessage(preparedMessageId: string, callback?: (result: TelegramShareResult) => void): boolean {
   const wa = getWebApp()
   if (typeof wa?.shareMessage !== 'function') return false
+
+  let finished = false
+  let sentHandler: ((eventData?: unknown) => void) | undefined
+  let failedHandler: ((eventData?: unknown) => void) | undefined
+  const cleanup = () => {
+    if (sentHandler) wa.offEvent?.('shareMessageSent', sentHandler)
+    if (failedHandler) wa.offEvent?.('shareMessageFailed', failedHandler)
+  }
+  const finish = (result: TelegramShareResult) => {
+    if (finished) return
+    finished = true
+    cleanup()
+    callback?.(result)
+  }
+
   try {
-    wa.shareMessage(preparedMessageId, callback)
+    if (typeof wa.onEvent === 'function' && typeof wa.offEvent === 'function') {
+      sentHandler = () => finish({ status: 'sent' })
+      failedHandler = eventData => {
+        const error = eventData && typeof eventData === 'object' && 'error' in eventData
+          ? String((eventData as { error?: unknown }).error ?? 'UNKNOWN_ERROR')
+          : 'UNKNOWN_ERROR'
+        finish(error === 'USER_DECLINED' ? { status: 'cancelled' } : { status: 'failed', error })
+      }
+      wa.onEvent('shareMessageSent', sentHandler)
+      wa.onEvent('shareMessageFailed', failedHandler)
+      wa.shareMessage(preparedMessageId)
+    } else {
+      wa.shareMessage(preparedMessageId, sent => finish(sent ? { status: 'sent' } : { status: 'cancelled' }))
+    }
     return true
   } catch {
+    cleanup()
     return false
   }
 }
