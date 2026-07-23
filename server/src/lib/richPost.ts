@@ -46,7 +46,18 @@ export type PostBlock =
   | { type: 'image';     url: string; prompt?: string }
   | { type: 'video';     url: string; poster?: string }
   | { type: 'document';  url: string; name: string; mime?: string; size?: number }
-  | { type: 'gallery';   layout: 'slideshow' | 'collage' | 'stack'; urls: string[]; matrix4?: string[][] }
+  | {
+      type: 'gallery'
+      layout: 'slideshow' | 'collage' | 'stack'
+      urls: string[]
+      matrix4?: string[][]
+      panorama?: {
+        sourceUrl: string
+        method: 'ai' | 'upload'
+        orientation: 'horizontal' | 'vertical' | 'grid4'
+        count: number
+      }
+    }
   // A framed, filled CTA box with a centered link inside — a single bordered
   // header-cell table (Telegram: border="1" → is_bordered, <th> → fill).
   | { type: 'linkbox';   text: string; url: string }
@@ -118,6 +129,14 @@ function normalizeMatrix4(value: unknown): string[][] | undefined {
   const rows = value.map(row => Array.isArray(row) ? row.filter((v): v is string => typeof v === 'string') : []);
   return rows.every(row => row.length === 4) ? rows : undefined;
 }
+function normalizePanorama(value: unknown): Extract<PostBlock, { type: 'gallery' }>['panorama'] {
+  const panorama = objectValue(value);
+  if (!panorama || typeof panorama['sourceUrl'] !== 'string' || !panorama['sourceUrl'].trim()) return undefined;
+  if (panorama['method'] !== 'ai' && panorama['method'] !== 'upload') return undefined;
+  if (panorama['orientation'] !== 'horizontal' && panorama['orientation'] !== 'vertical' && panorama['orientation'] !== 'grid4') return undefined;
+  const count = panorama['orientation'] === 'grid4' ? 16 : Math.min(8, Math.max(2, typeof panorama['count'] === 'number' ? Math.round(panorama['count']) : 3));
+  return { sourceUrl: panorama['sourceUrl'], method: panorama['method'], orientation: panorama['orientation'], count };
+}
 function normalizeBlock(value: unknown): PostBlock | null {
   const block = objectValue(value);
   if (!block || typeof block['type'] !== 'string') return null;
@@ -148,7 +167,8 @@ function normalizeBlock(value: unknown): PostBlock | null {
       const matrix4 = normalizeMatrix4(block['matrix4']);
       const urls = matrix4?.flat() ?? (Array.isArray(block['urls']) ? block['urls'].filter((v): v is string => typeof v === 'string') : []);
       const layout = block['layout'] === 'collage' || block['layout'] === 'stack' ? block['layout'] : 'slideshow';
-      return { type: 'gallery', layout, urls, ...(matrix4 ? { matrix4 } : {}) };
+      const panorama = normalizePanorama(block['panorama']);
+      return { type: 'gallery', layout, urls, ...(matrix4 ? { matrix4 } : {}), ...(panorama ? { panorama } : {}) };
     }
     case 'linkbox': return typeof block['text'] === 'string' && typeof block['url'] === 'string' ? { type: 'linkbox', text: block['text'], url: block['url'] } : null;
     case 'checklist': {

@@ -26,7 +26,10 @@ function collectMediaUrls(variants: { bannerUrl?: string | null; blocks?: unknow
       if (b.type === 'image' && b.url) urls.add(b.url);
       else if (b.type === 'video') { if (b.url) urls.add(b.url); if (b.poster) urls.add(b.poster); }
       else if (b.type === 'document' && b.url) urls.add(b.url);
-      else if (b.type === 'gallery') for (const u of b.urls) if (u) urls.add(u);
+      else if (b.type === 'gallery') {
+        for (const u of b.urls) if (u) urls.add(u);
+        if (b.panorama?.sourceUrl) urls.add(b.panorama.sourceUrl);
+      }
     }
   }
   return [...urls];
@@ -938,7 +941,7 @@ router.post('/upload-block-image', uploadMiddleware.single('image'), async (req:
 // Count is explicit or auto-derived from the aspect ratio. Returns the piece URLs
 // + the gallery layout to use. Does NOT touch the DB.
 // Request: multipart { initData, image, orientation?, count? }
-// Response 200: { urls: string[], layout: 'slideshow' | 'stack', count }
+// Response 200: { urls: string[], sourceUrl: string, layout: 'slideshow' | 'stack', count }
 router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Request, res: Response): Promise<void> => {
   const initData = req.body['initData'] as unknown;
   const file = req.file;
@@ -979,7 +982,12 @@ router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Req
           ).then(o => o.url),
         )),
       ));
-      res.json({ urls: groups.flat(), groups, layout: 'slideshow', count: 16, rows: 4, columns: 4 });
+      const source = await putObject(
+        'posts/panorama/source/' + dbUser.id + '-' + stamp + '-upload.png',
+        await sharp(file.buffer).png().toBuffer(),
+        { contentType: 'image/png' },
+      );
+      res.json({ urls: groups.flat(), groups, sourceUrl: source.url, layout: 'slideshow', count: 16, rows: 4, columns: 4 });
       return;
     }
 
@@ -994,7 +1002,12 @@ router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Req
     const urls = await Promise.all(slices.map((buf, i) =>
       putObject(`posts/panorama/${dbUser.id}-${Date.now()}-${i}.png`, buf, { contentType: 'image/png' }).then(o => o.url)));
 
-    res.json({ urls, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count: slices.length });
+    const source = await putObject(
+      `posts/panorama/source/${dbUser.id}-${Date.now()}-upload.png`,
+      await sharp(file.buffer).png().toBuffer(),
+      { contentType: 'image/png' },
+    );
+    res.json({ urls, sourceUrl: source.url, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count: slices.length });
   } catch (err) {
     console.error('[posts/slice-panorama] slice failed:', (err as Error).message);
     res.status(500).json({ error: 'Slice failed. Try again.' });
@@ -1006,7 +1019,7 @@ router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Req
 // slices it into `count` pieces. 'horizontal' → 4:1/8:1 → slideshow carousel;
 // 'vertical' → 1:4/1:8 → stacked. Does NOT touch the DB.
 // Request: JSON { initData, postId, prompt, orientation?, count? }
-// Response 200: { urls: string[], layout: 'slideshow' | 'stack', count }
+// Response 200: { urls: string[], sourceUrl: string, layout: 'slideshow' | 'stack', count }
 router.post('/generate-panorama', async (req: Request, res: Response): Promise<void> => {
   const { initData, postId, prompt } = req.body as { initData?: unknown; postId?: unknown; prompt?: unknown };
   if (typeof initData !== 'string' || !initData.trim()) { res.status(400).json({ error: 'initData is required' }); return; }
@@ -1099,8 +1112,13 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
           ).then(o => o.url),
         )),
       ));
+      const source = await putObject(
+        'posts/panorama/source/' + dbUser.id + '-' + stamp + '-ai.png',
+        await sharp(image).png().toBuffer(),
+        { contentType: 'image/png' },
+      );
       visualCommitted = true;
-      res.json({ urls: groups.flat(), groups, layout: 'slideshow', count: 16, rows: 4, columns: 4 });
+      res.json({ urls: groups.flat(), groups, sourceUrl: source.url, layout: 'slideshow', count: 16, rows: 4, columns: 4 });
       return;
     }
 
@@ -1109,8 +1127,13 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
     const urls = await Promise.all(slices.map((buf, i) =>
       putObject(`posts/panorama/${dbUser.id}-${Date.now()}-${i}.png`, buf, { contentType: 'image/png' }).then(o => o.url)));
 
+    const source = await putObject(
+      `posts/panorama/source/${dbUser.id}-${Date.now()}-ai.png`,
+      await sharp(image).png().toBuffer(),
+      { contentType: 'image/png' },
+    );
     visualCommitted = true;
-    res.json({ urls, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count: slices.length });
+    res.json({ urls, sourceUrl: source.url, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count: slices.length });
   } catch (err) {
     console.error('[posts/generate-panorama] failed:', (err as Error).message);
     res.status(500).json({ error: 'Не удалось сгенерировать панораму. Попробуйте ещё раз.' });

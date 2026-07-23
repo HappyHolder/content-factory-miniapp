@@ -40,6 +40,15 @@ const matrix4 = (value: unknown): string[][] | undefined => {
   const rows = value.map(row => Array.isArray(row) ? row.filter((v): v is string => typeof v === 'string') : [])
   return rows.every(row => row.length === 4) ? rows : undefined
 }
+
+const panorama = (value: unknown): Extract<PostBlock, { type: 'gallery' }>['panorama'] => {
+  const p = record(value)
+  if (!p || typeof p.sourceUrl !== 'string' || !p.sourceUrl.trim()) return undefined
+  if (p.method !== 'ai' && p.method !== 'upload') return undefined
+  if (p.orientation !== 'horizontal' && p.orientation !== 'vertical' && p.orientation !== 'grid4') return undefined
+  const count = p.orientation === 'grid4' ? 16 : Math.min(8, Math.max(2, typeof p.count === 'number' ? Math.round(p.count) : 3))
+  return { sourceUrl: p.sourceUrl, method: p.method, orientation: p.orientation, count }
+}
 const block = (value: unknown): PostBlock | null => {
   const b = record(value)
   if (!b || typeof b.type !== 'string') return null
@@ -52,7 +61,7 @@ const block = (value: unknown): PostBlock | null => {
     case 'image': return typeof b.url === 'string' ? { type: 'image', url: b.url, ...(typeof b.prompt === 'string' ? { prompt: b.prompt } : {}) } : null
     case 'video': return typeof b.url === 'string' ? { type: 'video', url: b.url, ...(typeof b.poster === 'string' ? { poster: b.poster } : {}) } : null
     case 'document': return typeof b.url === 'string' && typeof b.name === 'string' ? { type: 'document', url: b.url, name: b.name, ...(typeof b.mime === 'string' ? { mime: b.mime } : {}), ...(typeof b.size === 'number' ? { size: b.size } : {}) } : null
-    case 'gallery': { const grid = matrix4(b.matrix4); return { type: 'gallery', layout: b.layout === 'collage' || b.layout === 'stack' ? b.layout : 'slideshow', urls: grid?.flat() ?? (Array.isArray(b.urls) ? b.urls.filter((v): v is string => typeof v === 'string') : []), ...(grid ? { matrix4: grid } : {}) } }
+    case 'gallery': { const grid = matrix4(b.matrix4); const pano = panorama(b.panorama); return { type: 'gallery', layout: b.layout === 'collage' || b.layout === 'stack' ? b.layout : 'slideshow', urls: grid?.flat() ?? (Array.isArray(b.urls) ? b.urls.filter((v): v is string => typeof v === 'string') : []), ...(grid ? { matrix4: grid } : {}), ...(pano ? { panorama: pano } : {}) } }
     case 'linkbox': return typeof b.text === 'string' && typeof b.url === 'string' ? { type: 'linkbox', text: b.text, url: b.url } : null
     case 'checklist': return { type: 'checklist', items: Array.isArray(b.items) ? b.items.flatMap(value => { const item = record(value); return item && typeof item.text === 'string' ? [{ text: item.text, checked: item.checked === true }] : [] }) : [] }
     case 'details': return typeof b.summary === 'string' && typeof b.body === 'string' ? { type: 'details', summary: b.summary, body: b.body } : null
