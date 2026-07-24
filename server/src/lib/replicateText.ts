@@ -66,6 +66,20 @@ export interface ReplicateTextParams {
 }
 
 /**
+ * Replicate rejects max_tokens below 1024 on the Anthropic models with HTTP 422,
+ * which silently turns every short-answer call (image prompts, template slots)
+ * into a null result. max_tokens is an upper bound — answer length is governed by
+ * the prompt — so raising a smaller caller value costs nothing.
+ */
+const ANTHROPIC_MIN_MAX_TOKENS = 1024;
+
+export function resolveMaxTokens(model: string, maxTokens: number | undefined): number | undefined {
+  if (maxTokens == null) return undefined;
+  if (!model.startsWith('anthropic/')) return maxTokens;
+  return Math.max(maxTokens, ANTHROPIC_MIN_MAX_TOKENS);
+}
+
+/**
  * Runs a single prompt through a Replicate text model and returns the raw text
  * output (markdown fences NOT stripped — caller decides), or null on failure.
  */
@@ -75,6 +89,7 @@ export async function replicateText(params: ReplicateTextParams): Promise<string
     return null;
   }
   const { model, prompt, systemPrompt, maxTokens, temperature, timeoutMs = 90_000, input: extraInput } = params;
+  const effectiveMaxTokens = resolveMaxTokens(model, maxTokens);
 
   try {
     const createRes = await fetch(
@@ -89,7 +104,7 @@ export async function replicateText(params: ReplicateTextParams): Promise<string
           input: {
             prompt,
             ...(systemPrompt ? { system_prompt: systemPrompt } : {}),
-            ...(maxTokens   != null ? { max_tokens: maxTokens } : {}),
+            ...(effectiveMaxTokens != null ? { max_tokens: effectiveMaxTokens } : {}),
             ...(temperature != null ? { temperature } : {}),
             ...(extraInput ?? {}),
           },
@@ -131,6 +146,7 @@ export async function replicateTextStream(
 ): Promise<string | null> {
   if (!env.REPLICATE_API_TOKEN) return null;
   const { model, prompt, systemPrompt, maxTokens, temperature, timeoutMs = 120_000, input: extraInput } = params;
+  const effectiveMaxTokens = resolveMaxTokens(model, maxTokens);
 
   try {
     const createRes = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
@@ -141,7 +157,7 @@ export async function replicateTextStream(
         input: {
           prompt,
           ...(systemPrompt ? { system_prompt: systemPrompt } : {}),
-          ...(maxTokens   != null ? { max_tokens: maxTokens } : {}),
+          ...(effectiveMaxTokens != null ? { max_tokens: effectiveMaxTokens } : {}),
           ...(temperature != null ? { temperature } : {}),
           ...(extraInput ?? {}),
         },

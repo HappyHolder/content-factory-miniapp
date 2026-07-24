@@ -178,7 +178,14 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
       } catch (err) {
         console.warn('[coverBuilder] Hybrid: bg prompt generation failed:', (err as Error).message);
       }
-      if (!bgPrompt) bgPrompt = [imagePrompt?.trim(), effectiveHybridPrompt].filter(Boolean).join('. ') || null;
+      // The fallback carries NO post topic — every cover of the channel comes out
+      // of the same generic template prompt. Say so loudly: a silent "ok" here hid
+      // a broken art-director call for days.
+      const artDirectorFailed = !bgPrompt;
+      if (artDirectorFailed) {
+        bgPrompt = [imagePrompt?.trim(), effectiveHybridPrompt].filter(Boolean).join('. ') || null;
+        console.warn('[coverBuilder] Hybrid: art director produced nothing — using the topic-free fallback prompt; covers will not reflect their posts');
+      }
 
       // 3. Clean, text-free Flux background. One retry — a transient Replicate
       //    failure here would otherwise degrade the cover to a no-photo Satori card.
@@ -193,7 +200,7 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
           }
         }
       }
-      console.log(`[coverBuilder] Hybrid: bgPrompt=${bgPrompt ? 'ok' : 'MISSING'}, bg=${bgUrl ?? 'FAILED'}`);
+      console.log(`[coverBuilder] Hybrid: bgPrompt=${!bgPrompt ? 'MISSING' : artDirectorFailed ? 'FALLBACK' : 'ok'}, bg=${bgUrl ?? 'FAILED'}`);
 
       // 4a. Deterministic path — the channel HAS a slot template: render THAT
       //     template (filled above) over the photo (its real design, brand
@@ -408,7 +415,10 @@ export async function buildCover(args: BuildCoverInput): Promise<GeneratedCover 
         console.warn('[coverBuilder] Auto image prompt generation failed:', (err as Error).message);
       }
     }
-    if (!resolvedImagePrompt) resolvedImagePrompt = imagePrompt?.trim() || null;
+    if (!resolvedImagePrompt) {
+      if (useBrandKit) console.warn('[coverBuilder] AI: art director produced nothing — falling back to the raw user prompt');
+      resolvedImagePrompt = imagePrompt?.trim() || null;
+    }
 
     if (resolvedImagePrompt) {
       // Sharp burns the post title onto the cover; when the channel pins a

@@ -128,9 +128,13 @@ interface RawBrandColor {
 const NEGATIVE_SUFFIX = ', no text, no typography, no letters, no words, no watermark, no border, no frame, no margin, full-bleed';
 
 /**
- * Returns the first usable reference image URL from visualKit.
- * Priority: references[] first, then logoUrl.
+ * Returns the first uploaded style reference URL from visualKit, or null.
  * Used as image input for models that support it (e.g. gpt-image-2).
+ *
+ * The logo is deliberately NOT a fallback here: it is branding, not a style
+ * reference, and it is composited by sharp after generation anyway. Feeding it
+ * as img2img input made every cover of a channel without references inherit the
+ * logo's shapes and finish.
  */
 function extractReferenceImage(visualKit: unknown): string | null {
   if (!visualKit || typeof visualKit !== 'object') return null;
@@ -143,9 +147,6 @@ function extractReferenceImage(visualKit: unknown): string | null {
       if (typeof url === 'string' && url.startsWith('http')) return url;
     }
   }
-
-  const logo = vk['logoUrl'];
-  if (typeof logo === 'string' && logo.startsWith('http')) return logo;
 
   return null;
 }
@@ -409,6 +410,7 @@ export async function generateImageForPost(
       };
 
   console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} ref=${refImageUrl ? 'yes' : 'no'} detail=${detailKey} style=${styleKey} promptLen=${prompt.length}`);
+  console.log(`[imageGenerator] prompt — ${prompt}`);
 
   try {
     const createRes = await fetch(
