@@ -577,6 +577,60 @@ model Community {
   managedCommunityManagerBot ManagedCommunityManagerBot?
   communityManager           CommunityManager?
   personas                   Persona[]
+  dailyParticipants          CommunityDailyParticipant[]
+  dailyStats                 CommunityDailyStat[]
+}
+
+// ─── Pulse: community analytics ────────────────────────────────────────────────
+// Two layers. LAYER 1 (CommunityDailyParticipant) is the fact table: one row per
+// person per day. Period metrics that are NOT additive — unique actives, DAU/MAU,
+// cohorts, Orbit tiers, concentration — can only be computed correctly from it
+// (summing daily uniques double-counts), and it lets us RECOMPUTE any metric
+// retroactively when a formula changes. LAYER 2 (CommunityDailyStat) is the
+// pre-aggregated day row that powers fast charts. Days are MSK ('YYYY-MM-DD')
+// so month/quarter/year boundaries never drift.
+
+model CommunityDailyParticipant {
+  id          String   @id @default(cuid())
+  communityId String
+  tgUserId    String
+  day         String // 'YYYY-MM-DD', Europe/Moscow
+  messages    Int      @default(0)
+  replies     Int      @default(0)
+  firstDay    Boolean  @default(false) // first day this person ever spoke here
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, tgUserId, day])
+  @@index([communityId, day])
+  @@index([communityId, tgUserId])
+}
+
+model CommunityDailyStat {
+  id             String   @id @default(cuid())
+  communityId    String
+  day            String // 'YYYY-MM-DD', Europe/Moscow
+  messages       Int      @default(0)
+  activeUsers    Int      @default(0) // distinct people who wrote that day
+  replies        Int      @default(0)
+  joins          Int      @default(0)
+  leaves         Int      @default(0)
+  newSpeakers    Int      @default(0) // spoke here for the very first time
+  memberCount    Int? // getChatMemberCount snapshot — needed for % metrics
+  blockedMsgs    Int      @default(0) // moderation removed them
+  interventions  Int      @default(0)
+  conflictEvents Int      @default(0)
+  hourHistogram  Json? // 24 ints, MSK hours — additive, powers the heatmap
+  climateScore   Float?
+  computedAt     DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, day])
+  @@index([communityId, day])
 }
 
 model Moderator {

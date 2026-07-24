@@ -16,6 +16,7 @@ import { handleManualCommand } from '../moderator/manualCommands';
 import { matchRegexWithTimeout } from '../moderator/regexGuard';
 import { DEFAULT_BLOCKS, parseBlocks, type AiModerationBlock, type AntiSpamBlock, type CaptchaBlock, type ContentFiltersBlock, type ProbationBlock, type TextFilterCategory, type WarningPolicyBlock, type WelcomeBlock, type TriggersBlock, type TriggerReply } from '../moderator/config';
 import { ownerFeedbackContext } from '../moderator/feedbackContext';
+import { communityIdForChat, recordPulseMessage, recordPulseMembership } from '../lib/communityPulse';
 import { TIER_LIMITS, getEffectiveSubscription, hasCustomBotSlot } from '../lib/subscriptionLimits';
 
 const router = Router();
@@ -27,7 +28,7 @@ const eventKey = (updateId: number) => String(currentBotId()) + ':' + updateId;
 type TgAdmin = { status: string; can_delete_messages?: boolean; can_restrict_members?: boolean; can_invite_users?: boolean; can_pin_messages?: boolean };
 type TgUser = { id: number; first_name: string; username?: string; is_bot?: boolean };
 type TgEntity = { type: string; offset: number; length: number; url?: string };
-type TgMessage = { message_id: number; chat: { id: number; title?: string; username?: string; type?: string }; from?: TgUser; text?: string; caption?: string; entities?: TgEntity[]; caption_entities?: TgEntity[]; new_chat_members?: TgUser[]; photo?: unknown[]; video?: unknown; document?: unknown; audio?: unknown; voice?: unknown; video_note?: unknown; sticker?: unknown; animation?: unknown; poll?: unknown; contact?: unknown; location?: unknown; forward_origin?: unknown; forward_from?: unknown; forward_from_chat?: unknown; reply_to_message?: { message_id: number; from?: TgUser } };
+type TgMessage = { message_id: number; chat: { id: number; title?: string; username?: string; type?: string }; from?: TgUser; text?: string; caption?: string; entities?: TgEntity[]; caption_entities?: TgEntity[]; new_chat_members?: TgUser[]; left_chat_member?: TgUser; photo?: unknown[]; video?: unknown; document?: unknown; audio?: unknown; voice?: unknown; video_note?: unknown; sticker?: unknown; animation?: unknown; poll?: unknown; contact?: unknown; location?: unknown; forward_origin?: unknown; forward_from?: unknown; forward_from_chat?: unknown; reply_to_message?: { message_id: number; from?: TgUser } };
 type MyChatMemberUpdate = { chat: { id: number; title?: string; username?: string; type: string }; from?: { id: number }; new_chat_member: TgAdmin };
 type CallbackQuery = { id: string; from: TgUser; data?: string; message?: TgMessage };
 type ModeratorUpdate = { update_id: number; my_chat_member?: MyChatMemberUpdate; message?: TgMessage; edited_message?: TgMessage; callback_query?: CallbackQuery };
@@ -368,6 +369,31 @@ async function trackRaidOnJoin(ctx: NonNullable<Awaited<ReturnType<typeof publis
   return alreadyActive || triggered;
 }
 
+/**
+ * Pulse analytics collection. Runs for EVERY group update, independent of which
+ * moderator features are enabled — this webhook is the one place all messages
+ * flow through, so it's the only honest source for community activity data.
+ * Fire-and-forget: never blocks or fails message handling.
+ */
+async function recordPulseActivity(message: TgMessage): Promise<void> {
+  const communityId = await communityIdForChat(String(message.chat.id));
+  if (!communityId) return;
+  const at = new Date();
+
+  if (message.new_chat_members?.length) {
+    await recordPulseMembership(communityId, 'join', message.new_chat_members.filter(m => !m.is_bot).length, at);
+    return;
+  }
+  if (message.left_chat_member) {
+    if (!message.left_chat_member.is_bot) await recordPulseMembership(communityId, 'leave', 1, at);
+    return;
+  }
+  // A real human message (service messages carry no from / are bots).
+  if (!message.from || message.from.is_bot) return;
+  if (!message.text && !message.caption) return;
+  await recordPulseMessage({ communityId, tgUserId: String(message.from.id), isReply: Boolean(message.reply_to_message), at });
+}
+
 async function recordCommunityManagerDisposition(update: ModeratorUpdate, message: TgMessage): Promise<void> {
   const community = await prisma.community.findFirst({
     where: { moderatorChat: { tgChatId: String(message.chat.id) }, moderator: { enabled: true } },
@@ -393,6 +419,8 @@ async function processModeratorWebhook(req: Request, res: Response): Promise<voi
   if (!Number.isInteger(update.update_id)) { res.json({ ok: true, ignored: true }); return; }
   const dispositionMessage = update.edited_message ?? update.message;
   if (dispositionMessage) res.once('finish', () => { void recordCommunityManagerDisposition(update, dispositionMessage).catch(err => console.error('[moderator/disposition]', (err as Error).message)); });
+  // Pulse analytics: only fresh messages/events, never edits (an edit is not new activity).
+  if (update.message) res.once('finish', () => { void recordPulseActivity(update.message!).catch(err => console.error('[pulse/record]', (err as Error).message)); });
   try {
     if (update.callback_query && await handleCallback(update, update.callback_query, res)) return;
     if (update.message) { const command = await handleManualCommand(eventKey(update.update_id), update.message, currentToken(), currentBotId()); if (command.handled) { res.json({ ok: true, command: command.command }); return; } }

@@ -1154,3 +1154,18 @@ export async function getChatMember(
   }
   return body.result;
 }
+
+/**
+ * Total members in a chat. Needed for every percentage-based community metric
+ * (daily-active %, MAU %) — without it we can only show absolute numbers.
+ * Returns null on any failure so analytics degrades instead of breaking.
+ */
+export async function getChatMemberCount(chatId: string, token: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${TG_API}/bot${token}/getChatMemberCount?chat_id=${encodeURIComponent(chatId)}`);
+    const body = (await res.json()) as TgApiResponse<number>;
+    return body.ok && typeof body.result === 'number' ? body.result : null;
+  } catch {
+    return null;
+  }
+}
