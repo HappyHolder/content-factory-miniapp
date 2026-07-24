@@ -16,7 +16,8 @@ import { handleManualCommand } from '../moderator/manualCommands';
 import { matchRegexWithTimeout } from '../moderator/regexGuard';
 import { DEFAULT_BLOCKS, parseBlocks, type AiModerationBlock, type AntiSpamBlock, type CaptchaBlock, type ContentFiltersBlock, type ProbationBlock, type TextFilterCategory, type WarningPolicyBlock, type WelcomeBlock, type TriggersBlock, type TriggerReply } from '../moderator/config';
 import { ownerFeedbackContext } from '../moderator/feedbackContext';
-import { communityIdForChat, recordPulseMessage, recordPulseMembership } from '../lib/communityPulse';
+import { communityIdForChat, recordPulseMessage, recordPulseMembership, seedPulseHistory, rollupPulseDay, pulseDayKey } from '../lib/communityPulse';
+import { computePulse, PULSE_BENCHMARKS } from '../lib/communityPulseMetrics';
 import { TIER_LIMITS, getEffectiveSubscription, hasCustomBotSlot } from '../lib/subscriptionLimits';
 
 const router = Router();
@@ -706,6 +707,36 @@ router.post('/communities/:communityId/events/:eventId/feedback', async (req, re
   if (!event) { res.status(404).json({ error: 'Event not found' }); return; }
   const updated = await prisma.moderationEvent.update({ where: { id: event.id }, data: { feedback: value } });
   res.json({ event: updated });
+});
+
+// ─── GET /communities/:communityId/pulse ──────────────────────────────────────
+// The «Пульс» report for a period: ?days=30 (month) | 90 (quarter) | 365 (year).
+// Non-additive metrics are recomputed from the per-participant-day facts, so any
+// window is correct. First call also seeds whatever history survived elsewhere.
+router.get('/communities/:communityId/pulse', async (req, res) => {
+  let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; }
+  const community = await prisma.community.findFirst({
+    where: { id: req.params['communityId'], channel: { userId: auth.user.id } },
+    select: { id: true, moderatorChat: { select: { title: true } } },
+  });
+  if (!community) { res.status(404).json({ error: 'Community not found' }); return; }
+
+  const requested = Number((req.query as { days?: string }).days ?? 30);
+  const days = [7, 30, 90, 365].includes(requested) ? requested : 30;
+
+  // Make sure today's row reflects messages that arrived since the last sweep,
+  // and seed past data once (both are cheap no-ops when already done).
+  await rollupPulseDay(community.id, pulseDayKey()).catch(() => undefined);
+  const hasHistory = await prisma.communityDailyParticipant.findFirst({ where: { communityId: community.id }, select: { id: true } });
+  if (!hasHistory) await seedPulseHistory(community.id).catch(() => undefined);
+
+  try {
+    const report = await computePulse(community.id, days);
+    res.json({ report, benchmarks: PULSE_BENCHMARKS, chatTitle: community.moderatorChat?.title ?? null });
+  } catch (err) {
+    console.error('[pulse] report failed:', (err as Error).message);
+    res.status(500).json({ error: 'Не удалось собрать аналитику' });
+  }
 });
 
 router.get('/communities/:communityId/events', async (req, res) => {
