@@ -9,6 +9,7 @@ import { communityManagerExecutor, incomingManagedCommunityBot, managedCommunity
 import { decryptManagedBotToken } from '../moderator/managedBotCrypto';
 import { actionPresentation } from '../communityManager/actionPresentation';
 import { participantPublic } from '../communityManager/participantMemory';
+import { primaryTextModelConfigured } from '../lib/assistantModel';
 import { getEffectiveSubscription, hasCustomBotSlot, refundSubscriptionQuota, reserveSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
 
 const router=Router();
@@ -94,7 +95,7 @@ router.get('/:id/health',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
   let botStatus='missing',executorType=c.manager.executorType;try{if(c.manager.community.moderatorChat){const executor=await communityManagerExecutor(c.manager.community.id);executorType=executor.type;botStatus=(await getChatMember(c.manager.community.moderatorChat.tgChatId,executor.botId,executor.token)).status}}catch{botStatus='error'}
   const [pending,retrying,failed24h,oldest]=await Promise.all([prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:{in:['PENDING','RETRY_WAIT','CLAIMED']}}}),prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:'RETRY_WAIT'}}),prisma.communityManagerJob.count({where:{communityManagerId:c.manager.id,status:'FAILED',updatedAt:{gte:new Date(Date.now()-86400_000)}}}),prisma.communityManagerJob.findFirst({where:{communityManagerId:c.manager.id,status:{in:['PENDING','RETRY_WAIT','CLAIMED']}},orderBy:{createdAt:'asc'},select:{createdAt:true}})]);
-  res.json({executor:botStatus,executorType,webhook:executorType==='CUSTOM'?Boolean(c.manager.community.managedCommunityManagerBot?.webhookSecret):Boolean(env.COMMUNITY_MANAGER_WEBHOOK_SECRET),published:Boolean(c.manager.publishedVersion),enabled:c.manager.enabled,ai:Boolean(env.REPLICATE_API_TOKEN&&env.CM_TEXT_MODEL),research:Boolean(env.ANTHROPIC_API_KEY||env.TAVILY_API_KEY||process.env.SERPER_API_KEY),pending,retrying,failed24h,oldestPendingAt:oldest?.createdAt??null,lastHealthyAt:c.manager.lastHealthyAt,lastError:c.manager.lastError});
+  res.json({executor:botStatus,executorType,webhook:executorType==='CUSTOM'?Boolean(c.manager.community.managedCommunityManagerBot?.webhookSecret):Boolean(env.COMMUNITY_MANAGER_WEBHOOK_SECRET),published:Boolean(c.manager.publishedVersion),enabled:c.manager.enabled,ai:primaryTextModelConfigured(),research:Boolean(env.ANTHROPIC_API_KEY||env.TAVILY_API_KEY||process.env.SERPER_API_KEY),pending,retrying,failed24h,oldestPendingAt:oldest?.createdAt??null,lastHealthyAt:c.manager.lastHealthyAt,lastError:c.manager.lastError});
 });
 
 router.post('/:id/simulate',async(req,res)=>{

@@ -1,7 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../db';
-import { env } from '../env';
-import { terraText } from '../lib/assistantModel';
+import { primaryTextModel, primaryTextModelConfigured, terraText } from '../lib/assistantModel';
 import { sendChannelPost } from '../lib/telegramBot';
 import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { parseCommunityManagerConfig } from './config';
@@ -43,7 +42,7 @@ function chunks(lines:string[]):string[]{
 }
 function plain(text:string){return stripDisabledHighlightMarkers(text).replace(/<[^>]+>/g,'').replace(/[*_#>]/g,'').replace(/^[-•]\s*/gm,'• ').replace(/\n{3,}/g,'\n\n').trim()}
 async function complete(system:string,prompt:string,maxTokens:number){
-  if(!env.OPENAI_API_KEY&&!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
+  if(!primaryTextModelConfigured())throw new Error('CM_AI_NOT_CONFIGURED');
   const text=await terraText({system,prompt,maxTokens,timeoutMs:60_000,effort:'low',verbosity:'low'});
   if(!text?.trim())throw new Error('CM_AI_EMPTY');return text.trim();
 }
@@ -73,7 +72,7 @@ export async function runDueDailyDigest(managerId:string,now=new Date()){
       body=plain(await complete(personalityPrompt(config)+'\nСоставь короткую человеческую основную часть ежедневного дайджеста Telegram-чата. Используй только промежуточные факты ниже. Дай до '+config.activities.dailyDigestMaxTopics+' действительно обсуждавшихся тем, затем при наличии одну строку с полезным итогом или незакрытым вопросом. Без приветствия, самопрезентации, источников, рекламы, хэштегов, рейтинга людей и выдуманных событий. Не повторяй дату и статистику — они будут добавлены отдельно. Обычный текст и маркеры •, максимум 700 символов.',chunkSummaries.join('\n\n---\n\n'),850));
     }
     const header='📅 Что обсуждали вчера · '+window.displayDate+'\n'+messages.length+' сообщений · '+participantIds.length+' участников',text=(header+'\n\n'+body).slice(0,1000),executor=await communityManagerExecutor(manager.community.id),ref=await sendChannelPost({chatId:manager.community.moderatorChat.tgChatId,text,bannerUrl:config.activities.dailyDigestImageUrl||null,title:'Итоги чата за '+window.displayDate,siteName:manager.community.channel.name,token:executor.token}),sentAt=new Date();
-    await prisma.$transaction([prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'COMPLETED',sentAt,telegramMessageId:ref?.messageId,result:{automatic:true,evaluated:true,reason:'daily_digest',dateKey:window.dateKey,from:window.from.toISOString(),to:window.to.toISOString(),messageCount:messages.length,participantCount:participantIds.length,chunkCount:parts.length,image:Boolean(config.activities.dailyDigestImageUrl)}}}),prisma.communityManagerAction.create({data:{communityManagerId:manager.id,decision:'ACTIVITY',intent:'daily_digest',response:text,model:env.CM_TEXT_MODEL,promptVersion:'community-daily-digest-v1',telegramMessageId:ref?.messageId}}),prisma.communityManager.update({where:{id:manager.id},data:{lastActionAt:sentAt,lastHealthyAt:sentAt,lastError:null}})]);
+    await prisma.$transaction([prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'COMPLETED',sentAt,telegramMessageId:ref?.messageId,result:{automatic:true,evaluated:true,reason:'daily_digest',dateKey:window.dateKey,from:window.from.toISOString(),to:window.to.toISOString(),messageCount:messages.length,participantCount:participantIds.length,chunkCount:parts.length,image:Boolean(config.activities.dailyDigestImageUrl)}}}),prisma.communityManagerAction.create({data:{communityManagerId:manager.id,decision:'ACTIVITY',intent:'daily_digest',response:text,model:primaryTextModel(),promptVersion:'community-daily-digest-v1',telegramMessageId:ref?.messageId}}),prisma.communityManager.update({where:{id:manager.id},data:{lastActionAt:sentAt,lastHealthyAt:sentAt,lastError:null}})]);
     return{activityId:activity.id,dateKey:window.dateKey,messageCount:messages.length,telegramMessageId:ref?.messageId};
   }catch(error){await prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'FAILED',lastError:error instanceof Error?error.message.slice(0,500):'Daily digest failed'}});throw error}
 }

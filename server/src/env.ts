@@ -62,9 +62,8 @@ export const env = {
   DEEPSEEK_API_KEY:  process.env['DEEPSEEK_API_KEY']  ?? '',
   DEEPSEEK_BASE_URL: process.env['DEEPSEEK_BASE_URL'] ?? 'https://api.deepseek.com',
   DEEPSEEK_MODEL:    process.env['DEEPSEEK_MODEL']    ?? 'deepseek-chat',
-  // Community Manager chat model. Runs on Replicate via replicateText — the same
-  // transport the Moderator's Terra uses. Needs REPLICATE_API_TOKEN.
-  CM_TEXT_MODEL:     process.env['CM_TEXT_MODEL']     ?? 'openai/gpt-5.6-terra',
+  // CM_TEXT_MODEL is gone: Moderator, Community Manager and Community Core all
+  // run on OPENAI_CHAT_MODEL through terraText now, with no per-role override.
   // Layout/formatting model (richPostGenerator). 'replicate' → LAYOUT_MODEL
   // (GPT-5.6 Terra) with a DeepSeek fallback; 'deepseek' → DeepSeek only. Needs
   // REPLICATE_API_TOKEN for the replicate path; otherwise falls back to DeepSeek.
@@ -80,10 +79,13 @@ export const env = {
   // Reuses REPLICATE_API_TOKEN. Default = fast Whisper large-v3.
   WHISPER_MODEL:                     process.env['WHISPER_MODEL']                     ?? 'openai/whisper',
   REPLICATE_API_TOKEN:               process.env['REPLICATE_API_TOKEN']               ?? '',
-  // ─── Direct OpenAI API (assistant chat only — native tool calling) ──────────
-  // When ASSISTANT_PROVIDER='openai' AND OPENAI_API_KEY is set, the assistant
-  // chat runs the OpenAI agentic loop (real function calling). Anything else
-  // keeps the Replicate/Terra path. Covers, moderation, research stay on Replicate.
+  // ─── Direct OpenAI API ──────────────────────────────────────────────────────
+  // OPENAI_API_KEY is now REQUIRED for every text feature: Moderator, Community
+  // Manager, Community Core, research and planning all go through terraText,
+  // which has no second provider. Without it those features return "not
+  // configured". ASSISTANT_PROVIDER='openai' additionally switches the assistant
+  // chat to the agentic loop with native function calling. Only image and cover
+  // generation still run on Replicate.
   OPENAI_API_KEY:                    process.env['OPENAI_API_KEY']                    ?? '',
   OPENAI_CHAT_MODEL:                 process.env['OPENAI_CHAT_MODEL']                 ?? 'gpt-5.6-terra',
   ASSISTANT_PROVIDER:                process.env['ASSISTANT_PROVIDER']                ?? 'replicate',

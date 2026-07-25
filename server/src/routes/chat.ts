@@ -113,7 +113,6 @@ async function decideSearchBlock(message: string, history: { role: string; conte
     prompt: (recent ? `Conversation so far:\n${recent}\n\n` : '') + `LATEST user message: ${trimmed.slice(0, 600)}`,
     maxTokens: 120,
     effort: 'low',
-    noFallback: true,
     timeoutMs: 30_000,
   });
   let query: string | null = null;
@@ -160,7 +159,7 @@ async function detectPlanIntent(
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const p = await terraJson({ system, prompt: transcript, maxTokens: 250, effort: 'low', noFallback: true, timeoutMs: 30_000 }) as any;
+    const p = await terraJson({ system, prompt: transcript, maxTokens: 250, effort: 'low', timeoutMs: 30_000 }) as any;
     if (!p || p.ready !== true) return null;
     const topic = typeof p.topic === 'string' ? p.topic.trim() : '';
     const postsPerDay = Number(p.postsPerDay);

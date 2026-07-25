@@ -1,7 +1,6 @@
 import { prisma } from '../db';
-import { env } from '../env';
 import { research } from '../lib/researchEngine';
-import { terraText } from '../lib/assistantModel';
+import { primaryTextModel, primaryTextModelConfigured, terraText } from '../lib/assistantModel';
 import { sendBotMessage } from '../lib/telegramBot';
 import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { isQuietHour, parseCommunityManagerConfig } from './config';
@@ -15,7 +14,7 @@ const jsonObject=(text:string)=>{const match=text.match(/\{[\s\S]*\}/);if(!match
 const plain=(text:string)=>stripDisabledHighlightMarkers(text).replace(/<[^>]+>/g,'').replace(/[*_#>]/g,'').replace(/^[-•]\s*/gm,'• ').replace(/\n{3,}/g,'\n\n').trim();
 
 async function complete(system:string,prompt:string){
-  if(!env.OPENAI_API_KEY&&!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
+  if(!primaryTextModelConfigured())throw new Error('CM_AI_NOT_CONFIGURED');
   const text=await terraText({system,prompt,maxTokens:1000,timeoutMs:45000,effort:'low',verbosity:'low'});
   if(!text?.trim())throw new Error('CM_AI_EMPTY');return text.trim();
 }
@@ -96,7 +95,7 @@ export async function runActivity(managerId:string,type:CommunityActivityType,to
     const sentAt=new Date(),longRunning=isRewardActivity(type),endsAt=longRunning?new Date(sentAt.getTime()+(type==='CONTEST'?7:3)*86400_000):undefined;await prisma.$transaction([
       prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:longRunning?'ACTIVE':'COMPLETED',sentAt,telegramMessageId,scheduledAt:longRunning?new Date(sentAt.getTime()+(type==='CONTEST'?84:36)*3600_000):sentAt,result:{automatic:Boolean(meta.automatic),evaluated:!meta.automatic,reason:meta.reason??'manual',postId:meta.postId,phase:meta.phase,ignoredStreak:meta.ignoredStreak??0,rewardMode:config.activities.rewardMode,rewardDescription:config.activities.rewardDescription,endsAt:endsAt?.toISOString(),reminderSent:false,sources:researchSources as any}}}),
       prisma.communityManager.update({where:{id:manager.id},data:{lastActionAt:sentAt,lastHealthyAt:sentAt,lastError:null}}),
-      prisma.communityManagerAction.create({data:{communityManagerId:manager.id,decision:'ACTIVITY',intent:type.toLowerCase(),response:output.slice(0,5000),sources:researchSources as any,model:env.CM_TEXT_MODEL,promptVersion:'community-activity-v2',telegramMessageId}}),
+      prisma.communityManagerAction.create({data:{communityManagerId:manager.id,decision:'ACTIVITY',intent:type.toLowerCase(),response:output.slice(0,5000),sources:researchSources as any,model:primaryTextModel(),promptVersion:'community-activity-v2',telegramMessageId}}),
     ]);
     return{activityId:activity.id,telegramMessageId,status:longRunning?'ACTIVE':'COMPLETED'};
   }catch(error){if(actionReserved&&!actionSent)await refundSubscriptionQuota(manager.community.channel.userId,'communityManagerActions');await prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'FAILED',lastError:error instanceof Error?error.message.slice(0,500):'failed'}});throw error}

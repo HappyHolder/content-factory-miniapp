@@ -1,5 +1,5 @@
 import { env } from '../env';
-import { replicateText, replicateTextStream } from './replicateText';
+import { replicateTextStream } from './replicateText';
 import { openAiText } from './openaiChat';
 
 export type TerraEffort = 'low' | 'medium' | 'high';
@@ -10,48 +10,44 @@ export interface TerraTextParams {
   effort?: TerraEffort;
   verbosity?: 'low' | 'medium' | 'high';
   timeoutMs?: number;
-  /** Kept for call-site compatibility; the unified model has no fallback provider. */
-  noFallback?: boolean;
+}
+
+/** The model actually answering — for journal rows and admin surfaces. */
+export const primaryTextModel = (): string => env.OPENAI_CHAT_MODEL;
+
+/** True when the primary text model can be reached at all. */
+export const primaryTextModelConfigured = (): boolean => Boolean(env.OPENAI_API_KEY);
+
+/**
+ * Primary text completion for every backend AI path (moderation, Community
+ * Manager, Community Core, research, planning). Direct OpenAI, nothing else.
+ *
+ * Replicate used to sit behind this as a fallback. It was removed: the model we
+ * run (gpt-5.6-terra) IS OpenAI's — Replicate only resold it, and throttles to
+ * ~6 requests/min once the account balance drops below $5, which took down
+ * moderation, CM replies, activities and digests at the same time. A fallback
+ * onto the exact thing that fails first is not a safety net, so the transport is
+ * now single-provider with a retry (see openAiText) instead.
+ */
+export async function terraText(p: TerraTextParams): Promise<string | null> {
+  if (!env.OPENAI_API_KEY) return null;
+  const direct = await openAiText({
+    system: p.system,
+    prompt: p.prompt,
+    effort: p.effort ?? 'low',
+    verbosity: p.verbosity ?? 'medium',
+    maxTokens: p.maxTokens ?? 1024,
+    timeoutMs: p.timeoutMs ?? 90_000,
+  });
+  return direct?.trim() || null;
 }
 
 /**
- * Primary text completion for every backend AI path (moderation, CM, research,
- * planning). Order: direct OpenAI → Replicate.
- *
- * OpenAI goes first because the model we use (gpt-5.6-terra) IS OpenAI's —
- * Replicate merely resold it, and throttles to ~6 requests/min once the account
- * balance falls below $5, which took down moderation, CM and post generation at
- * the same time. Same model and same parameters on both paths, so behaviour is
- * unchanged; Replicate stays as a safety net.
+ * Streaming variant — still Replicate, and the last Replicate text path left.
+ * Used only by the assistant chat when it streams; every other caller goes
+ * through terraText above. Migrating this one needs the streaming Responses
+ * bridge (runOpenAiChat), which is a separate change.
  */
-export async function terraText(p: TerraTextParams): Promise<string | null> {
-  const maxTokens = p.maxTokens ?? 1024;
-
-  if (env.OPENAI_API_KEY) {
-    const direct = await openAiText({
-      system: p.system,
-      prompt: p.prompt,
-      effort: p.effort ?? 'low',
-      verbosity: p.verbosity ?? 'medium',
-      maxTokens,
-      timeoutMs: p.timeoutMs ?? 90_000,
-    });
-    if (direct?.trim()) return direct.trim();
-    console.warn('[assistantModel] OpenAI returned nothing — falling back to Replicate');
-  }
-
-  if (!env.REPLICATE_API_TOKEN) return null;
-  const output = await replicateText({
-    model: env.LAYOUT_MODEL,
-    systemPrompt: p.system,
-    prompt: p.prompt,
-    maxTokens,
-    timeoutMs: p.timeoutMs ?? 90_000,
-    input: { max_completion_tokens: maxTokens, reasoning_effort: p.effort ?? 'low', verbosity: p.verbosity ?? 'medium' },
-  });
-  return output?.trim() || null;
-}
-
 export async function terraTextStream(p: TerraTextParams, onChunk: (delta: string) => void): Promise<string | null> {
   if (!env.REPLICATE_API_TOKEN) return null;
   const maxTokens = p.maxTokens ?? 1024;

@@ -1,8 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { verifyModeratorSession } from '../lib/moderatorSession';
-import { env } from '../env';
-import { replicateText } from '../lib/replicateText';
+import { terraText } from '../lib/assistantModel';
 import { DEFAULT_PERSONA_CONFIG, parsePersonaConfig } from '../communityCore/personaConfig';
 import { encryptPersonaSession } from '../communityCore/personaCrypto';
 import { startLogin, confirmCode, confirmPassword, withPersonaClient, updateProfile, joinChat, communityCoreEnabled } from '../communityCore/accountService';
@@ -114,11 +113,10 @@ router.post('/:id/generate-canon', async (req, res) => {
     const { persona } = await ownedPersona(req, req.params.id);
     const brief = String((req.body as { brief?: unknown }).brief ?? '').trim().slice(0, 400);
     if (brief.length < 4) { res.status(400).json({ error: 'Опишите личность в двух словах' }); return; }
-    const raw = await replicateText({
-      model: env.CM_TEXT_MODEL,
-      systemPrompt: 'Ты создаёшь досье живого участника Telegram-чата по короткому описанию. Верни ТОЛЬКО JSON вида {"identity":{"displayName","gender":"male|female|unspecified","age","city","occupation","about"},"role","interests":["..."],"canon":["факт о себе","..."],"voice":{"messageExamples":["как он реально пишет, коротко","..."],"speechStyle","emojiUse":"none|rare|normal|heavy"},"behavior":{"expertTopics":["..."]}}. Пиши по-русски, живо и конкретно, как настоящий человек, а не бренд. 4–5 примеров реплик и 4–6 канон-фактов.',
+    const raw = await terraText({
+      system: 'Ты создаёшь досье живого участника Telegram-чата по короткому описанию. Верни ТОЛЬКО JSON вида {"identity":{"displayName","gender":"male|female|unspecified","age","city","occupation","about"},"role","interests":["..."],"canon":["факт о себе","..."],"voice":{"messageExamples":["как он реально пишет, коротко","..."],"speechStyle","emojiUse":"none|rare|normal|heavy"},"behavior":{"expertTopics":["..."]}}. Пиши по-русски, живо и конкретно, как настоящий человек, а не бренд. 4–5 примеров реплик и 4–6 канон-фактов.',
       prompt: 'Описание: ' + brief,
-      maxTokens: 900, timeoutMs: 45000, input: { max_completion_tokens: 900, reasoning_effort: 'low' },
+      maxTokens: 900, timeoutMs: 45_000, effort: 'low',
     });
     const match = raw?.match(/\{[\s\S]*\}/);
     const parsedRaw = match ? (() => { try { return JSON.parse(match[0]); } catch { return {}; } })() : {};

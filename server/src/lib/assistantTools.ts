@@ -64,7 +64,7 @@ export async function routeAssistantAction(
     `- "switch_channel": user asks to switch to another of their channels. params: channelQuery (the name/handle they said). Their channels:\n${channelList}\n` +
     `Return ONLY JSON: {"action":"...","input":"","generateVisual":true,"when":"","channelQuery":"","sinceHours":24}. Omit params you don't need.`;
 
-  const p = await terraJson({ system, prompt: transcript, maxTokens: 220, effort: 'low', noFallback: true, timeoutMs: 30_000 });
+  const p = await terraJson({ system, prompt: transcript, maxTokens: 220, effort: 'low', timeoutMs: 30_000 });
   if (!p || typeof p['action'] !== 'string') return null;
   const action = p['action'] as string;
   const valid: AssistantAction[] = ['answer', 'create_post', 'schedule_post', 'list_scheduled', 'channel_stats', 'moderation_summary', 'switch_channel'];

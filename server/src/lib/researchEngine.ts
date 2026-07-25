@@ -4,9 +4,9 @@
  * Deep research for the AI content manager. Given a search query (one plan
  * item), gathers grounded material a writer can turn into a post.
  *
- * Pipeline (Replicate-only, per product decision — no Anthropic API):
- *   Serper/Tavily search → fetchArticle on the top links → GPT-5.6 Terra
- *   synthesis pass through the unified primary model.
+ * Pipeline (one path, no Anthropic API):
+ *   Serper (Google) → Tavily fallback → fetchArticle on the top links →
+ *   synthesis pass through the primary model (direct OpenAI, see terraText).
  *
  * The legacy `backend` option is accepted for call-site compatibility but
  * ignored — there is one pipeline now. Never throws: individual tool failures

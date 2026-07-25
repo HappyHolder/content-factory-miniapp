@@ -10,7 +10,7 @@
 import { NewMessage, NewMessageEvent } from 'telegram/events';
 import { prisma } from '../db';
 import { env } from '../env';
-import { replicateText } from '../lib/replicateText';
+import { primaryTextModel, terraText } from '../lib/assistantModel';
 import { webSearch } from '../lib/webSearch';
 import { runOpenAiChat, type OaiTool, type ToolOutcome } from '../lib/openaiChat';
 import { recordPulseMessage } from '../lib/communityPulse';
@@ -31,11 +31,10 @@ const asleepLoggedAt = new Map<string, number>();
 
 const jsonObject = (s: string) => { const m = s.match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } };
 
+/** Plain one-shot completion (no tools) — the persona's decision without the
+ *  tool-calling bridge. Direct OpenAI, same as everything else. */
 async function decide(system: string, user: string): Promise<{ text: string; input: number; output: number }> {
-  const raw = await replicateText({
-    model: env.CM_TEXT_MODEL, systemPrompt: system, prompt: user,
-    maxTokens: 700, timeoutMs: 45000, input: { max_completion_tokens: 700, reasoning_effort: 'low', verbosity: 'low' },
-  });
+  const raw = await terraText({ system, prompt: user, maxTokens: 700, timeoutMs: 45_000, effort: 'low', verbosity: 'low' });
   if (!raw) throw new Error('PERSONA_AI_EMPTY');
   return { text: raw.trim(), input: 0, output: 0 };
 }
@@ -190,6 +189,7 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
         return { result: 'Unknown tool.' };
       };
       const oa = await runOpenAiChat({ system, history: [], userMessage: userPrompt, tools, execute, effort: 'low', verbosity: 'low', maxTokens: 1400, maxRounds: 3, timeoutMs: 60_000, onDelta: () => undefined }).catch(() => null);
+      // Tool round failed → one plain completion, same provider and model.
       out = oa?.ok && oa.text ? { text: oa.text, input: 0, output: 0 } : await decide(system, userPrompt);
     } else {
       out = await decide(system, userPrompt);
@@ -254,7 +254,7 @@ async function log(personaId: string, decision: string, reason: string, incoming
     personaId, decision, reason: reason.slice(0, 500),
     response: response?.slice(0, 5000) ?? null, reaction: reaction ?? null,
     targetMessageId: targetMessageId ?? null, sentMessageId: sentMessageId ?? null,
-    model: env.CM_TEXT_MODEL, inputTokens: usage.input, outputTokens: usage.output,
+    model: primaryTextModel(), inputTokens: usage.input, outputTokens: usage.output,
     latencyMs: Date.now() - start, status: isError ? 'FAILED' : 'COMPLETED', error: isError ? reason.slice(0, 500) : null,
     intent: incoming.slice(0, 120),
   } });
@@ -373,14 +373,14 @@ async function maybeInitiate(personaId: string): Promise<void> {
       const oa = await runOpenAiChat({ system: openaiInitiateSystem(baseSystem), history: [], userMessage: userPrompt, tools, execute, effort: 'medium', verbosity: 'low', maxTokens: 1500, maxRounds: 3, timeoutMs: 60_000, onDelta: () => undefined }).catch(() => null);
       if (oa?.ok && oa.text) text = oa.text;
     }
-    if (!text) { const out = await decide(baseSystem, userPrompt); text = out.text; } // Replicate fallback if OpenAI is off/down
+    if (!text) { const out = await decide(baseSystem, userPrompt); text = out.text; } // no tools, no web — still OpenAI
 
     const msg = sanitizeConversationReply(text.replace(/^["'«]+|["'»]+$/g, '').trim(), true).slice(0, 600);
     if (!msg) return;
     // An opener is a spontaneous act after a quiet spell — no "was away" delay.
     const sent = await sendHumanMessage(entry.client, chatId, msg, undefined, { allowDistraction: false });
     b.initiatives++;
-    await prisma.personaAction.create({ data: { personaId, decision: 'INITIATE', reason: env.OPENAI_API_KEY ? 'quiet chat (openai)' : 'quiet chat', response: msg, model: env.OPENAI_API_KEY ? env.OPENAI_CHAT_MODEL : env.CM_TEXT_MODEL, latencyMs: Date.now() - start } });
+    await prisma.personaAction.create({ data: { personaId, decision: 'INITIATE', reason: 'quiet chat', response: msg, model: primaryTextModel(), latencyMs: Date.now() - start } });
     await prisma.persona.update({ where: { id: personaId }, data: { lastActionAt: new Date(), lastHealthyAt: new Date() } });
     void sent;
   } catch { /* best-effort */ }

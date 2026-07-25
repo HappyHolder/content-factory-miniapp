@@ -3,7 +3,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { getBotIdFromToken, sendBotMessage, setBotMessageReaction } from '../lib/telegramBot';
 import { research, type ResearchSource } from '../lib/researchEngine';
-import { terraText } from '../lib/assistantModel';
+import { primaryTextModel, primaryTextModelConfigured, terraText } from '../lib/assistantModel';
 import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { DEFAULT_CM_CONFIG, isQuietHour, parseCommunityManagerConfig, randomInitiativeDate, type CommunityManagerConfigData } from './config';
 import { communityManagerExecutor } from './managedBot';
@@ -148,8 +148,7 @@ async function recentCmReplies(id:string){
 }
 
 async function ai(system:string,user:string){
-  if(!env.OPENAI_API_KEY&&!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
-  // terraText = direct OpenAI first, Replicate as fallback (same model/params).
+  if(!primaryTextModelConfigured())throw new Error('CM_AI_NOT_CONFIGURED');
   const raw=await terraText({system,prompt:user,maxTokens:1200,timeoutMs:45000,effort:'low',verbosity:'low'});
   if(!raw)throw new Error('CM_AI_EMPTY');
   return{text:raw.trim(),input:0,output:0};
@@ -226,7 +225,7 @@ async function withinQuota(ctx:Ctx,m:any,enforceUserCooldown=true){
 }
 
 async function log(ctx:Ctx,m:any,decision:string,intent:string,confidence:number,reason:string,start:number,response?:string,sources:ResearchSource[]=[],usage={input:0,output:0},error?:unknown,telegramMessageId?:number,metadata?:Prisma.InputJsonValue){
-  await prisma.communityManagerAction.create({data:{communityManagerId:ctx.manager.id,messageId:m?.id,decision,intent,confidence,reason:reason.slice(0,500),response:response?.slice(0,5000),sources:sources as any,metadata,model:env.CM_TEXT_MODEL,promptVersion:'community-manager-human-v10',inputTokens:usage.input,outputTokens:usage.output,latencyMs:Date.now()-start,telegramMessageId,status:error?'FAILED':'COMPLETED',error:error instanceof Error?error.message.slice(0,500):undefined}});
+  await prisma.communityManagerAction.create({data:{communityManagerId:ctx.manager.id,messageId:m?.id,decision,intent,confidence,reason:reason.slice(0,500),response:response?.slice(0,5000),sources:sources as any,metadata,model:primaryTextModel(),promptVersion:'community-manager-human-v10',inputTokens:usage.input,outputTokens:usage.output,latencyMs:Date.now()-start,telegramMessageId,status:error?'FAILED':'COMPLETED',error:error instanceof Error?error.message.slice(0,500):undefined}});
 }
 async function done(id:string,status:string,error?:string,runAfter?:Date){await prisma.communityManagerJob.update({where:{id},data:{status:runAfter?'RETRY_WAIT':status,lastError:error,runAfter,leaseUntil:null}})}
 async function deferOpenLoop(id:string,minutes:number){await prisma.communityManagerJob.update({where:{id},data:{type:'OPEN_LOOP',status:'RETRY_WAIT',lastError:'Waiting for a human answer',runAfter:new Date(Date.now()+minutes*60_000),leaseUntil:null}})}
@@ -290,7 +289,7 @@ async function processJob(job:any){
   if((isQuietHour(ctx.config)&&!priorityReply)||!await withinQuota(ctx,m,!priorityReply)){await log(ctx,m,'SILENT','limits',1,priorityReply?'Hourly or daily reply quota':'Quiet hours or conversation quota',start,undefined,[],decision.usage,undefined,undefined,decisionMeta);await done(job.id,'SKIPPED');return}
   const researchSince=new Date(Date.now()-86400_000),[answerResearchUsed,activityResearchUsed]=await Promise.all([prisma.communityManagerAction.count({where:{communityManagerId:ctx.manager.id,intent:'external_fresh',createdAt:{gte:researchSince}}}),prisma.communityManagerActivity.count({where:{communityManagerId:ctx.manager.id,type:'HOT_NEWS',createdAt:{gte:researchSince},status:{in:['RUNNING','ACTIVE','COMPLETED']}}})]),researchUsed=answerResearchUsed+activityResearchUsed;
   const needsFreshData=explicitFreshRequest(text),blocked=ctx.config.research.blockedDomains,allowed=ctx.config.research.allowedDomains.filter(a=>!blocked.some(b=>a===b||a.endsWith('.'+b)||b.endsWith('.'+a))),strict=ctx.config.research.sourcePolicy==='allowlist',canResearch=!strict||allowed.length>0;
-  if(ctx.config.research.mode!=='off'&&researchUsed<ctx.config.research.dailyLimit&&needsFreshData&&canResearch)try{const rr=await research(text,{backend:'opus',extraContext:k.map(x=>x.text).join('\n\n').slice(0,8000),allowedDomains:strict?allowed:undefined,blockedDomains:ctx.config.research.blockedDomains,maxSearches:ctx.config.research.maxSearchesPerAnswer});external=rr.text.slice(0,10000);sources=rr.sources.slice(0,5)}catch{}
+  if(ctx.config.research.mode!=='off'&&researchUsed<ctx.config.research.dailyLimit&&needsFreshData&&canResearch)try{const rr=await research(text,{extraContext:k.map(x=>x.text).join('\n\n').slice(0,8000),allowedDomains:strict?allowed:undefined,blockedDomains:ctx.config.research.blockedDomains,maxSearches:ctx.config.research.maxSearchesPerAnswer});external=rr.text.slice(0,10000);sources=rr.sources.slice(0,5)}catch{}
   if(needsFreshData&&!external){const stillEnabled=await prisma.communityManager.findFirst({where:{id:ctx.manager.id,enabled:true,publishedVersion:ctx.manager.publishedVersion},select:{id:true}});if(!stillEnabled){await done(job.id,'CANCELLED');return}const response='Не хочу называть непроверенные актуальные данные. Сейчас у меня нет подтверждения из доверенных источников.';const actionQuota=await reserveSubscriptionQuota(ctx.community.channel.userId,'communityManagerActions');if(!actionQuota.ok){await done(job.id,'SKIPPED');return}let actionSent=false;try{const ref=await sendBotMessage(m.tgChatId,response,executor.token,undefined,undefined,m.telegramMessageId);actionSent=true;await log(ctx,m,'RESPOND','external_fresh',decision.confidence,'Trusted research unavailable',start,response,[],decision.usage,undefined,ref?.messageId,{...decisionMeta,researchRequested:true,researchUnavailable:true,replyToCurrent:true});await prisma.communityManager.update({where:{id:ctx.manager.id},data:{lastActionAt:new Date(),lastHealthyAt:new Date(),lastError:null}});await done(job.id,'COMPLETED')}catch(e){if(!actionSent)await refundSubscriptionQuota(ctx.community.channel.userId,'communityManagerActions');await log(ctx,m,'ERROR','external_fresh',decision.confidence,'Telegram send failed',start,response,[],decision.usage,e);const retry=canRetryJob(job.attempts);await done(job.id,retry?'RETRY_WAIT':'FAILED',e instanceof Error?e.message:'send failed',retry?new Date(Date.now()+retryDelayMs(job.attempts)):undefined)}return}
   const brand=ctx.config.support.useBrandKit?JSON.stringify(ctx.community.channel.brandKit??{}).slice(0,6000):'',history=conversation.history,previousReplies=await recentCmReplies(ctx.manager.id),ground=k.map((x,i)=>'[K'+(i+1)+' '+x.source+'] '+x.text).join('\n\n'),allowGreeting=allowConversationGreeting(text,Boolean(history||previousReplies));
   const expert=questionLike(text)&&decision.topic&&Number(m.telegramMessageId)%4===0?await relevantExpert(ctx.manager.id,decision.topic):null,expertInvite=expert?.username?'@'+expert.username:null;

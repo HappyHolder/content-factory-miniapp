@@ -11,9 +11,12 @@
  * function tools + reasoning together on chat/completions. Responses keeps both,
  * and reasoning models plan smarter multi-tool calls there.
  *
- * Thin: raw fetch, no SDK, store:false (OpenAI keeps nothing). Used ONLY for the
- * assistant chat when ASSISTANT_PROVIDER='openai'. Covers/moderation/research
- * stay on Replicate.
+ * Thin: raw fetch, no SDK, store:false (OpenAI keeps nothing).
+ *
+ * runOpenAiChat() (tools + streaming) drives the assistant chat and the
+ * Community Core personas. openAiText() (below) is the plain transport behind
+ * terraText — moderation, Community Manager and research all run on it. Only
+ * image/cover generation still uses Replicate.
  */
 
 import { env } from '../env';
@@ -62,16 +65,16 @@ export interface OpenAiTextParams {
   timeoutMs?: number;
 }
 
-/**
- * Plain, non-streaming text completion through the same Responses API — no
- * tools, no streaming. This is the transport every backend caller wants
- * (moderator decisions, CM replies, digests): one prompt in, one text out.
- * Returns null on any failure so callers can fall back to another provider.
- */
-export async function openAiText(p: OpenAiTextParams): Promise<string | null> {
-  if (!env.OPENAI_API_KEY) return null;
+/** Rate limits and 5xx are transient; a bad key or a malformed request is not. */
+const retryableStatus = (status: number) => status === 408 || status === 429 || status >= 500;
+/** Leave enough of the caller's budget for a second attempt to be worth making. */
+const RETRY_FLOOR_MS = 4_000;
+const RETRY_BACKOFF_MS = 1_200;
+
+/** One Responses call. Returns the text, or a retry hint when it failed. */
+async function textOnce(p: OpenAiTextParams, deadline: number): Promise<{ text: string | null; retryable: boolean }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), p.timeoutMs ?? 60_000);
+  const timer = setTimeout(() => controller.abort(), Math.max(1_000, deadline - Date.now()));
   try {
     const res = await fetch(OPENAI_URL, {
       method: 'POST',
@@ -90,20 +93,49 @@ export async function openAiText(p: OpenAiTextParams): Promise<string | null> {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       console.warn(`[openAiText] HTTP ${res.status}: ${body.slice(0, 200)}`);
-      return null;
+      return { text: null, retryable: retryableStatus(res.status) };
     }
-    const data = await res.json() as { output?: Item[]; output_text?: string };
-    // `output_text` is the convenience field; fall back to walking the items.
+    const data = await res.json() as { output?: Item[]; output_text?: string; status?: string; incomplete_details?: unknown };
+    // `output_text` is a convenience field this model does not send — the item
+    // walk below is what actually produces the text. Keep both.
     const text = typeof data.output_text === 'string' && data.output_text.trim()
       ? data.output_text
       : textOf(Array.isArray(data.output) ? data.output : []);
-    return text.trim() || null;
+    if (!text.trim()) {
+      console.warn(`[openAiText] empty output (status=${data.status ?? '?'} incomplete=${JSON.stringify(data.incomplete_details ?? null)})`);
+      return { text: null, retryable: false }; // a truncated/refused answer will not fix itself
+    }
+    return { text: text.trim(), retryable: false };
   } catch (err) {
+    // Network drop or our own timeout — worth one more try if the budget allows.
     console.warn('[openAiText] failed:', (err as Error).message);
-    return null;
+    return { text: null, retryable: true };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Plain, non-streaming text completion through the same Responses API — no
+ * tools, no streaming. This is the transport every backend caller wants
+ * (moderator decisions, CM replies, digests): one prompt in, one text out.
+ *
+ * Retries once on a transient failure (429, 5xx, dropped connection), but only
+ * while the caller's own timeout budget still allows it: `timeoutMs` is the
+ * total wall-clock budget across attempts, never per attempt. Returns null when
+ * both attempts fail — there is no second provider behind this any more.
+ */
+export async function openAiText(p: OpenAiTextParams): Promise<string | null> {
+  if (!env.OPENAI_API_KEY) return null;
+  const deadline = Date.now() + (p.timeoutMs ?? 60_000);
+
+  const first = await textOnce(p, deadline);
+  if (first.text) return first.text;
+  if (!first.retryable || deadline - Date.now() < RETRY_FLOOR_MS) return null;
+
+  await new Promise(resolve => setTimeout(resolve, RETRY_BACKOFF_MS));
+  console.warn('[openAiText] retrying once');
+  return (await textOnce(p, deadline)).text;
 }
 
 export interface RunOpenAiChatResult {
