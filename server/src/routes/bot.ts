@@ -84,7 +84,9 @@ interface TgMessage {
     username?: string;
     is_bot?: boolean;
   };
-  chat: { id: number };
+  // 'private' is a one-to-one DM with the bot; groups are 'group'/'supergroup'
+  // regardless of whether they are public or invite-only.
+  chat: { id: number; type?: string };
   // text-only messages
   text?: string;
   entities?: TgMessageEntity[];
@@ -558,6 +560,18 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 
   const message = update.message;
   const chatId  = message.chat.id;
+
+  // The main bot is a DM tool: you send it text/links/photos and it drafts a post.
+  // In groups it must stay completely silent — otherwise it replies to random
+  // chatter ("Пришли текст, ссылку или фото…") and, worse, turns a member's group
+  // message into a post that burns the owner's AI quota. 'private' is the
+  // one-to-one chat with the bot; every group (public or invite-only) is
+  // 'group'/'supergroup', so this single check covers them all. Moderator, CM and
+  // Community Core run on their own bots/routers and are unaffected.
+  if (message.chat.type && message.chat.type !== 'private') {
+    res.status(200).json({ ok: true });
+    return;
+  }
 
   // Ignore messages with no sender (e.g. anonymous channel posts forwarded to a group)
   if (!message.from) {

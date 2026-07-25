@@ -195,7 +195,11 @@ function fallbackBlocks(input: RichGenInput): PostBlock[] {
   const bodyLines = heading ? lines.slice(1) : lines;
   const blocks: PostBlock[] = [];
   if (input.images[0]) blocks.push({ type: 'image', url: input.images[0] });
-  if (heading) blocks.push({ type: 'heading', text: heading });
+  // Same marker stripping as the AI-layout path above: a heading renders as plain
+  // display-bold text, so leftover **bold** markers would show literally. This
+  // path runs whenever the layout model fails (e.g. provider throttling), which
+  // is exactly when a broken heading is most visible.
+  if (heading) blocks.push({ type: 'heading', text: parseInline(stripDisabledHighlightMarkers(heading)).map(r => r.t).join('') });
   for (const paragraph of bodyLines) {
     blocks.push({ type: 'paragraph', runs: parseInline(paragraph) });
   }
