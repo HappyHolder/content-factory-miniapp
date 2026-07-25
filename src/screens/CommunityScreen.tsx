@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Bot, Check, ChevronRight, Loader2, RefreshCw, ShieldCheck, Sparkles, Users } from 'lucide-react'
+import { Activity, Bot, Check, ChevronRight, Loader2, RefreshCw, ShieldCheck, Sparkles, Users } from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
@@ -17,6 +17,7 @@ import { ModeratorHelpSheet, ModeratorInfoButton } from '@/components/moderator/
 import { RoleKnowledgeDocs } from '@/components/community/RoleKnowledgeDocs'
 import { CommunityManagerPanel } from '@/components/community-manager/CommunityManagerPanel'
 import { CommunityCorePanel } from '@/components/community-core/CommunityCorePanel'
+import { PulseTab } from '@/components/community-pulse/PulseTab'
 import { API_BASE } from '@/lib/api'
 import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 
@@ -50,7 +51,7 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
   const [refreshing, setRefreshing] = useState(false)
   const [connectingId, setConnectingId] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const [activeProduct, setActiveProduct] = useState<'moderator' | 'manager' | 'core'>('moderator')
+  const [activeProduct, setActiveProduct] = useState<'moderator' | 'manager' | 'core' | 'pulse'>('moderator')
   const [overviewHelpOpen, setOverviewHelpOpen] = useState(false)
 
   const initData = getTelegramInitData()
@@ -115,14 +116,34 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
     <div className="pb-6">
       <PageHeader title="Сообщество" subtitle={channelUsername} onBack={onBack} />
       <div className="px-4 pt-2">
+        {/* 44px touch targets (a11y floor); icons only on the active tab so four
+            labels still fit on a 375px screen. */}
         <div className="flex gap-1 rounded-[12px] border border-white/[0.06] bg-white/[0.04] p-1" role="tablist" aria-label="Инструменты сообщества">
-          <button type="button" role="tab" aria-selected={activeProduct === 'moderator'} onClick={() => setActiveProduct('moderator')} className={`flex min-h-10 flex-1 items-center justify-center gap-1 rounded-[9px] px-1.5 text-[11.5px] font-semibold transition-colors ${activeProduct === 'moderator' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]'}`}><ShieldCheck size={14} /> Moderator</button>
-          <button type="button" role="tab" aria-selected={activeProduct === 'manager'} onClick={() => setActiveProduct('manager')} className={`flex min-h-10 flex-1 items-center justify-center gap-1 rounded-[9px] px-1.5 text-[11.5px] font-semibold transition-colors ${activeProduct === 'manager' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]'}`}><Sparkles size={14} /> Manager</button>
-          <button type="button" role="tab" aria-selected={activeProduct === 'core'} onClick={() => setActiveProduct('core')} className={`flex min-h-10 flex-1 items-center justify-center gap-1 rounded-[9px] px-1.5 text-[11.5px] font-semibold transition-colors ${activeProduct === 'core' ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]'}`}><Users size={14} /> Ядро</button>
+          {([
+            { id: 'moderator', label: 'Moderator', Icon: ShieldCheck },
+            { id: 'manager', label: 'Manager', Icon: Sparkles },
+            { id: 'core', label: 'Ядро', Icon: Users },
+            { id: 'pulse', label: 'Пульс', Icon: Activity },
+          ] as const).map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={activeProduct === id}
+              onClick={() => setActiveProduct(id)}
+              className={`flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1 rounded-[9px] px-1 text-[11px] font-semibold transition-colors ${activeProduct === id ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA] hover:text-white'}`}
+            >
+              {activeProduct === id && <Icon size={13} />} {label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {activeProduct === 'core' ? (
+      {activeProduct === 'pulse' ? (
+        community?.id
+          ? <PulseTab communityId={community.id} />
+          : <div className="px-4 pt-3"><GlassCard><p className="text-[12px] leading-relaxed text-[#8A8A93]">Аналитика появится, когда к каналу будет подключена группа обсуждений — статистику мы считаем по её чату.</p></GlassCard></div>
+      ) : activeProduct === 'core' ? (
         <div className="px-4 pt-3"><CommunityCorePanel channelId={channelId} /></div>
       ) : activeProduct === 'manager' ? (
         <div className="px-4 pt-3"><CommunityManagerPanel channelId={channelId} channelUsername={channelUsername} /></div>
