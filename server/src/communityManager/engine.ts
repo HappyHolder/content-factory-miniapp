@@ -18,6 +18,7 @@ import type { CommunityActivityType } from './activityDirector';
 import { allowConversationGreeting, sanitizeConversationReply } from './conversationStyle';
 import { documentChunks, rankKnowledge } from './knowledgeSearch';
 import { canRetryJob, retryDelayMs } from './jobPolicy';
+import { recordPulseMessage } from '../lib/communityPulse';
 import { markExpertMentioned, relevantExpert, rememberCmExchange, rememberParticipant } from './participantMemory';
 import { consolidateEpisodes, parseEpisodes } from './memoryPolicy';
 import { communityManagerUpdateKey, isProductContinuation } from './conversationRouting';
@@ -64,6 +65,9 @@ export async function acceptCommunityManagerUpdate(update:TgUpdate,executor:{typ
   const m=update.message??update.edited_message,text=(m?.text??m?.caption??'').trim();
   if(!m?.from||m.from.is_bot||!text||text.startsWith('/'))return'ignored';
   const ctx=await published(String(m.chat.id),executor.type,executor.communityId);if(!ctx)return'ignored';
+  // Pulse analytics: CM sees the chat even when Moderator is off. The recorder
+  // claims each message id, so overlapping sources never double-count.
+  if(!update.edited_message)void recordPulseMessage({communityId:ctx.community.id,tgUserId:String(m.from.id),telegramMessageId:m.message_id,isReply:Boolean(m.reply_to_message),at:m.date?new Date(m.date*1000):new Date()}).catch(()=>undefined);
   const reply=m.reply_to_message,replyText=(reply?.text??reply?.caption??'').trim();
   if(reply?.from&&!reply.from.is_bot){
     const tgUserId=String(reply.from.id),username=reply.from.username?.trim().replace(/^@/,'')||null,firstName=reply.from.first_name?.trim()||null,lastName=reply.from.last_name?.trim()||null,displayName=[firstName,lastName].filter(Boolean).join(' ')||username||('Участник '+tgUserId),replyAt=reply.date?new Date(reply.date*1000):new Date();

@@ -22,7 +22,7 @@ import { env } from '../env';
 import { moderatorTokenForCommunity } from '../moderator/managedBotCrypto';
 import { sendChannelPost, sendRichChannelPost, buildInlineKeyboard, deleteBotMessage, kickChatUser, restrictChatUser } from './telegramBot';
 import { deleteObject, purgeOldFiles } from './storage';
-import { rollupAllCommunities } from './communityPulse';
+import { rollupAllCommunities, purgePulseClaims } from './communityPulse';
 import { POST_EDIT_WINDOW_MS } from './postRetention';
 import { normalizePostBlocks, type PostBlock } from './richPost';
 
@@ -275,7 +275,10 @@ export function startScheduler(): void {
   // Pulse analytics: recompute today + yesterday every 30 min. Idempotent by
   // (community, day), so re-runs never double-count and a missed run self-heals;
   // covering yesterday too catches messages that landed around midnight.
-  const pulseTick = () => { void rollupAllCommunities(2).catch(err => console.error('[pulse] rollup failed:', (err as Error).message)); };
+  const pulseTick = () => {
+    void rollupAllCommunities(2).catch(err => console.error('[pulse] rollup failed:', (err as Error).message));
+    void purgePulseClaims().catch(() => undefined);
+  };
   setTimeout(pulseTick, 60_000).unref?.();
   setInterval(pulseTick, 30 * 60_000).unref?.();
 }

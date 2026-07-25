@@ -46,8 +46,17 @@ const emptyHours = (): number[] => Array.from({ length: 24 }, () => 0);
  * Records one human message: the participant-day fact + the day's hour bucket.
  * `isReply` feeds the engagement axis; `firstDay` marks a person's first ever
  * message here (lurker → contributor conversion).
+ *
+ * Three independent sources observe the chat (moderator webhook, CM webhook,
+ * GramJS personas) so every call carries `telegramMessageId` and the first
+ * writer claims it — otherwise an active chat would count 2–3× per message.
  */
-export async function recordPulseMessage(input: { communityId: string; tgUserId: string; isReply: boolean; at?: Date }): Promise<void> {
+export async function recordPulseMessage(input: { communityId: string; tgUserId: string; telegramMessageId: number; isReply: boolean; at?: Date }): Promise<void> {
+  // Claim the message; a duplicate key means another source already counted it.
+  try {
+    await prisma.pulseMessageClaim.create({ data: { communityId: input.communityId, telegramMessageId: input.telegramMessageId } });
+  } catch { return; }
+
   const at = input.at ?? new Date();
   const day = pulseDayKey(at);
   const hour = pulseHour(at);
@@ -134,6 +143,13 @@ export async function rollupPulseDay(communityId: string, day: string): Promise<
  * yesterday, so messages landing either side of midnight are never lost), and
  * snapshots the chat's member count, which percentage metrics need.
  */
+/** Drops message claims older than 6h — they only guard against concurrent
+ *  double-counting by the three sources, which all observe within seconds. */
+export async function purgePulseClaims(): Promise<number> {
+  const { count } = await prisma.pulseMessageClaim.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 6 * 3_600_000) } } });
+  return count;
+}
+
 export async function rollupAllCommunities(days = 2): Promise<number> {
   const communities = await prisma.community.findMany({
     where: { moderatorChat: { isNot: null } },

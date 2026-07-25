@@ -392,7 +392,7 @@ async function recordPulseActivity(message: TgMessage): Promise<void> {
   // A real human message (service messages carry no from / are bots).
   if (!message.from || message.from.is_bot) return;
   if (!message.text && !message.caption) return;
-  await recordPulseMessage({ communityId, tgUserId: String(message.from.id), isReply: Boolean(message.reply_to_message), at });
+  await recordPulseMessage({ communityId, tgUserId: String(message.from.id), telegramMessageId: message.message_id, isReply: Boolean(message.reply_to_message), at });
 }
 
 async function recordCommunityManagerDisposition(update: ModeratorUpdate, message: TgMessage): Promise<void> {

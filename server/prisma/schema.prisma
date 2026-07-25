@@ -608,6 +608,21 @@ model CommunityDailyParticipant {
   @@index([communityId, tgUserId])
 }
 
+// One row per counted message. Three independent sources can see the same
+// message (moderator webhook, CM webhook, GramJS personas) — whichever gets
+// there first inserts the claim and counts it; the others hit the unique
+// constraint and skip, so a message is never counted twice. Rows are purged
+// after a few hours by the scheduler.
+model PulseMessageClaim {
+  id                String   @id @default(cuid())
+  communityId       String
+  telegramMessageId Int
+  createdAt         DateTime @default(now())
+
+  @@unique([communityId, telegramMessageId])
+  @@index([createdAt])
+}
+
 model CommunityDailyStat {
   id             String   @id @default(cuid())
   communityId    String

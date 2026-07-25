@@ -13,6 +13,7 @@ import { env } from '../env';
 import { replicateText } from '../lib/replicateText';
 import { webSearch } from '../lib/webSearch';
 import { runOpenAiChat, type OaiTool, type ToolOutcome } from '../lib/openaiChat';
+import { recordPulseMessage } from '../lib/communityPulse';
 import { decryptPersonaSession } from './personaCrypto';
 import { sendHumanMessage, reactToMessage, communityCoreEnabled } from './accountService';
 import { parsePersonaConfig, isPersonaAwake, buildPersonaSystemPrompt, type PersonaConfigData } from './personaConfig';
@@ -115,6 +116,21 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
   const start = Date.now();
   try {
     const { author, isBot } = await resolveAuthor(message);
+
+    // Pulse analytics: a persona's GramJS client sees every message in the chat,
+    // including when Moderator/CM are off — the third and most reliable source.
+    // Recorded before the bot check so human traffic is captured even when this
+    // persona then stays silent; the recorder claims the message id, so the
+    // moderator/CM webhooks observing the same message never double-count it.
+    if (author && !isBot) {
+      const replyToId = (message as any)?.replyTo?.replyToMsgId ?? null;
+      void recordPulseMessage({
+        communityId, tgUserId: author.id, telegramMessageId: messageId,
+        isReply: typeof replyToId === 'number',
+        at: message.date ? new Date(message.date * 1000) : new Date(),
+      }).catch(() => undefined);
+    }
+
     if (isBot) return; // never react to or argue with the CM / Moderator bots
 
     // Moderator gate: don't act on content the Moderator already blocked.
