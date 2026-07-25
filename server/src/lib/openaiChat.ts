@@ -53,6 +53,59 @@ export interface RunOpenAiChatOpts {
   onDelta: (text: string) => void;
 }
 
+export interface OpenAiTextParams {
+  system: string;
+  prompt: string;
+  effort?: 'low' | 'medium' | 'high';
+  verbosity?: 'low' | 'medium' | 'high';
+  maxTokens?: number;
+  timeoutMs?: number;
+}
+
+/**
+ * Plain, non-streaming text completion through the same Responses API — no
+ * tools, no streaming. This is the transport every backend caller wants
+ * (moderator decisions, CM replies, digests): one prompt in, one text out.
+ * Returns null on any failure so callers can fall back to another provider.
+ */
+export async function openAiText(p: OpenAiTextParams): Promise<string | null> {
+  if (!env.OPENAI_API_KEY) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), p.timeoutMs ?? 60_000);
+  try {
+    const res = await fetch(OPENAI_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: env.OPENAI_CHAT_MODEL,
+        instructions: p.system,
+        input: [{ role: 'user', content: p.prompt }],
+        reasoning: { effort: p.effort ?? 'low' },
+        text: { verbosity: p.verbosity ?? 'low' },
+        max_output_tokens: p.maxTokens ?? 1200,
+        store: false,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[openAiText] HTTP ${res.status}: ${body.slice(0, 200)}`);
+      return null;
+    }
+    const data = await res.json() as { output?: Item[]; output_text?: string };
+    // `output_text` is the convenience field; fall back to walking the items.
+    const text = typeof data.output_text === 'string' && data.output_text.trim()
+      ? data.output_text
+      : textOf(Array.isArray(data.output) ? data.output : []);
+    return text.trim() || null;
+  } catch (err) {
+    console.warn('[openAiText] failed:', (err as Error).message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface RunOpenAiChatResult {
   text: string;
   action?: Record<string, unknown>;

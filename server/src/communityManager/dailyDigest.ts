@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { env } from '../env';
-import { replicateText } from '../lib/replicateText';
+import { terraText } from '../lib/assistantModel';
 import { sendChannelPost } from '../lib/telegramBot';
 import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { parseCommunityManagerConfig } from './config';
@@ -43,8 +43,8 @@ function chunks(lines:string[]):string[]{
 }
 function plain(text:string){return stripDisabledHighlightMarkers(text).replace(/<[^>]+>/g,'').replace(/[*_#>]/g,'').replace(/^[-•]\s*/gm,'• ').replace(/\n{3,}/g,'\n\n').trim()}
 async function complete(system:string,prompt:string,maxTokens:number){
-  if(!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
-  const text=await replicateText({model:env.CM_TEXT_MODEL,systemPrompt:system,prompt,maxTokens,timeoutMs:60_000,input:{max_completion_tokens:maxTokens,reasoning_effort:'low',verbosity:'low'}});
+  if(!env.OPENAI_API_KEY&&!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
+  const text=await terraText({system,prompt,maxTokens,timeoutMs:60_000,effort:'low',verbosity:'low'});
   if(!text?.trim())throw new Error('CM_AI_EMPTY');return text.trim();
 }
 async function claim(managerId:string,dateKey:string,scheduledAt:Date){

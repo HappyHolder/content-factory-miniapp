@@ -1,7 +1,7 @@
 import { prisma } from '../db';
 import { env } from '../env';
 import { research } from '../lib/researchEngine';
-import { replicateText } from '../lib/replicateText';
+import { terraText } from '../lib/assistantModel';
 import { sendBotMessage } from '../lib/telegramBot';
 import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { isQuietHour, parseCommunityManagerConfig } from './config';
@@ -15,8 +15,8 @@ const jsonObject=(text:string)=>{const match=text.match(/\{[\s\S]*\}/);if(!match
 const plain=(text:string)=>stripDisabledHighlightMarkers(text).replace(/<[^>]+>/g,'').replace(/[*_#>]/g,'').replace(/^[-•]\s*/gm,'• ').replace(/\n{3,}/g,'\n\n').trim();
 
 async function complete(system:string,prompt:string){
-  if(!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
-  const text=await replicateText({model:env.CM_TEXT_MODEL,systemPrompt:system,prompt,maxTokens:1000,timeoutMs:45000,input:{max_completion_tokens:1000,reasoning_effort:'low',verbosity:'low'}});
+  if(!env.OPENAI_API_KEY&&!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
+  const text=await terraText({system,prompt,maxTokens:1000,timeoutMs:45000,effort:'low',verbosity:'low'});
   if(!text?.trim())throw new Error('CM_AI_EMPTY');return text.trim();
 }
 

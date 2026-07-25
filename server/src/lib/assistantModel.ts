@@ -1,5 +1,6 @@
 import { env } from '../env';
 import { replicateText, replicateTextStream } from './replicateText';
+import { openAiText } from './openaiChat';
 
 export type TerraEffort = 'low' | 'medium' | 'high';
 export interface TerraTextParams {
@@ -13,9 +14,33 @@ export interface TerraTextParams {
   noFallback?: boolean;
 }
 
+/**
+ * Primary text completion for every backend AI path (moderation, CM, research,
+ * planning). Order: direct OpenAI → Replicate.
+ *
+ * OpenAI goes first because the model we use (gpt-5.6-terra) IS OpenAI's —
+ * Replicate merely resold it, and throttles to ~6 requests/min once the account
+ * balance falls below $5, which took down moderation, CM and post generation at
+ * the same time. Same model and same parameters on both paths, so behaviour is
+ * unchanged; Replicate stays as a safety net.
+ */
 export async function terraText(p: TerraTextParams): Promise<string | null> {
-  if (!env.REPLICATE_API_TOKEN) return null;
   const maxTokens = p.maxTokens ?? 1024;
+
+  if (env.OPENAI_API_KEY) {
+    const direct = await openAiText({
+      system: p.system,
+      prompt: p.prompt,
+      effort: p.effort ?? 'low',
+      verbosity: p.verbosity ?? 'medium',
+      maxTokens,
+      timeoutMs: p.timeoutMs ?? 90_000,
+    });
+    if (direct?.trim()) return direct.trim();
+    console.warn('[assistantModel] OpenAI returned nothing — falling back to Replicate');
+  }
+
+  if (!env.REPLICATE_API_TOKEN) return null;
   const output = await replicateText({
     model: env.LAYOUT_MODEL,
     systemPrompt: p.system,

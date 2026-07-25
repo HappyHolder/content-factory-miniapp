@@ -3,7 +3,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { getBotIdFromToken, sendBotMessage, setBotMessageReaction } from '../lib/telegramBot';
 import { research, type ResearchSource } from '../lib/researchEngine';
-import { replicateText } from '../lib/replicateText';
+import { terraText } from '../lib/assistantModel';
 import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { DEFAULT_CM_CONFIG, isQuietHour, parseCommunityManagerConfig, randomInitiativeDate, type CommunityManagerConfigData } from './config';
 import { communityManagerExecutor } from './managedBot';
@@ -148,8 +148,9 @@ async function recentCmReplies(id:string){
 }
 
 async function ai(system:string,user:string){
-  if(!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
-  const raw=await replicateText({model:env.CM_TEXT_MODEL,systemPrompt:system,prompt:user,maxTokens:1200,timeoutMs:45000,input:{max_completion_tokens:1200,reasoning_effort:'low',verbosity:'low'}});
+  if(!env.OPENAI_API_KEY&&!env.REPLICATE_API_TOKEN)throw new Error('CM_AI_NOT_CONFIGURED');
+  // terraText = direct OpenAI first, Replicate as fallback (same model/params).
+  const raw=await terraText({system,prompt:user,maxTokens:1200,timeoutMs:45000,effort:'low',verbosity:'low'});
   if(!raw)throw new Error('CM_AI_EMPTY');
   return{text:raw.trim(),input:0,output:0};
 }
