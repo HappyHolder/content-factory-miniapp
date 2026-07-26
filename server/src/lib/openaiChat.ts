@@ -138,6 +138,58 @@ export async function openAiText(p: OpenAiTextParams): Promise<string | null> {
   return (await textOnce(p, deadline)).text;
 }
 
+export interface OpenAiVisionParams {
+  prompt: string;
+  /** A public https URL or a `data:image/...;base64,` URI. */
+  image: string;
+  maxTokens?: number;
+  timeoutMs?: number;
+  /** Defaults to OPENAI_VISION_MODEL. */
+  model?: string;
+}
+
+/**
+ * Reads an image and returns text about it — the transport behind
+ * visionExtractor. Same Responses API, with an `input_image` content part.
+ * Returns null on any failure; callers degrade rather than throw.
+ */
+export async function openAiVision(p: OpenAiVisionParams): Promise<string | null> {
+  if (!env.OPENAI_API_KEY) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), p.timeoutMs ?? 60_000);
+  try {
+    const res = await fetch(OPENAI_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: p.model ?? env.OPENAI_VISION_MODEL,
+        input: [{ role: 'user', content: [
+          { type: 'input_text', text: p.prompt },
+          { type: 'input_image', image_url: p.image },
+        ] }],
+        max_output_tokens: p.maxTokens ?? 800,
+        store: false,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[openAiVision] HTTP ${res.status}: ${body.slice(0, 200)}`);
+      return null;
+    }
+    const data = await res.json() as { output?: Item[]; output_text?: string };
+    const text = typeof data.output_text === 'string' && data.output_text.trim()
+      ? data.output_text
+      : textOf(Array.isArray(data.output) ? data.output : []);
+    return text.trim() || null;
+  } catch (err) {
+    console.warn('[openAiVision] failed:', (err as Error).message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface RunOpenAiChatResult {
   text: string;
   action?: Record<string, unknown>;

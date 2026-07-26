@@ -17,7 +17,7 @@
 
 import { env } from '../env';
 import { parseInline, stripDisabledHighlightMarkers } from './richPost';
-import { replicateText } from './replicateText';
+import { terraText } from './assistantModel';
 import type { ListItem, PostBlock } from './richPost';
 
 export type FormatLevel = 'auto' | 'minimal' | 'article';
@@ -114,22 +114,13 @@ function parseLayout(raw: string): AiLayout | null {
   catch { return null; }
 }
 
-/** GPT-5.6 Terra (or any LAYOUT_MODEL) via Replicate. Returns null on any failure. */
-async function layoutViaReplicate(system: string, user: string): Promise<AiLayout | null> {
-  if (!env.REPLICATE_API_TOKEN) return null;
-  const raw = await replicateText({
-    model:        env.LAYOUT_MODEL,
-    systemPrompt: system,
-    prompt:       user,
-    timeoutMs:    60_000,
-    input:        { reasoning_effort: 'low' }, // Let the model use its native output capacity.
-  });
-  return raw ? parseLayout(raw) : null;
-}
-
-/** Uses the same primary text model as the rest of the product. */
+/** Uses the same primary text model as the rest of the product. Null on failure. */
 async function callLayoutAI(system: string, user: string): Promise<AiLayout | null> {
-  return layoutViaReplicate(system, user);
+  if (!env.OPENAI_API_KEY) return null;
+  // 8000 tokens: a full post laid out as blocks is long, and the old Replicate
+  // call left max_tokens unset to get the model's native capacity.
+  const raw = await terraText({ system, prompt: user, maxTokens: 8000, timeoutMs: 60_000, effort: 'low' });
+  return raw ? parseLayout(raw) : null;
 }
 // ─── Mapping AiLayout → PostBlock[] ─────────────────────────────────────────────
 

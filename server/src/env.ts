@@ -64,31 +64,33 @@ export const env = {
   DEEPSEEK_MODEL:    process.env['DEEPSEEK_MODEL']    ?? 'deepseek-chat',
   // CM_TEXT_MODEL is gone: Moderator, Community Manager and Community Core all
   // run on OPENAI_CHAT_MODEL through terraText now, with no per-role override.
-  // Layout/formatting model (richPostGenerator). 'replicate' → LAYOUT_MODEL
-  // (GPT-5.6 Terra) with a DeepSeek fallback; 'deepseek' → DeepSeek only. Needs
-  // REPLICATE_API_TOKEN for the replicate path; otherwise falls back to DeepSeek.
-  LAYOUT_PROVIDER: (process.env['LAYOUT_PROVIDER'] ?? 'replicate') as 'replicate' | 'deepseek',
-  LAYOUT_MODEL:    process.env['LAYOUT_MODEL'] ?? 'openai/gpt-5.6-terra',
-  // Image generation — all optional; server starts fine if absent
+  // LAYOUT_PROVIDER / LAYOUT_MODEL are gone: the layout pass (richPostGenerator),
+  // the image and carousel planners and the visual brief all run on
+  // OPENAI_CHAT_MODEL through terraText now.
+  // Image generation — all optional; server starts fine if absent.
+  // IMAGE_MODEL is gone: it only ever fed a `?? env.IMAGE_MODEL` default that no
+  // call site could reach, because every one of them passes HIGH_IMAGE_MODEL.
+  // VISION_MODEL / WHISPER_MODEL are gone too — see OPENAI_VISION_MODEL and
+  // OPENAI_TRANSCRIBE_MODEL below.
   IMAGE_PROVIDER,
-  IMAGE_MODEL:                       process.env['IMAGE_MODEL']                       ?? 'black-forest-labs/flux-schnell',
-  // Vision model (on Replicate) used to read incoming photos in the bot.
-  // Reuses REPLICATE_API_TOKEN — no separate provider/key needed.
-  VISION_MODEL:                      process.env['VISION_MODEL']                      ?? 'openai/gpt-4o-mini',
-  // Speech-to-text model (on Replicate) for the assistant's voice input.
-  // Reuses REPLICATE_API_TOKEN. Default = fast Whisper large-v3.
-  WHISPER_MODEL:                     process.env['WHISPER_MODEL']                     ?? 'openai/whisper',
   REPLICATE_API_TOKEN:               process.env['REPLICATE_API_TOKEN']               ?? '',
   // ─── Direct OpenAI API ──────────────────────────────────────────────────────
-  // OPENAI_API_KEY is now REQUIRED for every text feature: Moderator, Community
-  // Manager, Community Core, research and planning all go through terraText,
-  // which has no second provider. Without it those features return "not
-  // configured". ASSISTANT_PROVIDER='openai' additionally switches the assistant
-  // chat to the agentic loop with native function calling. Only image and cover
-  // generation still run on Replicate.
+  // OPENAI_API_KEY is REQUIRED. Every text, vision, transcription and cover path
+  // goes through it and has no second provider: Moderator, Community Manager,
+  // Community Core, the assistant, research, planning, photo reading, voice input
+  // and cover images. Without it those features report "not configured".
+  // Replicate is now used by exactly one thing — panoramaGenerator (nano-banana,
+  // the only model that renders 1:4 / 4:1 / 1:8 / 8:1 in a single pass).
   OPENAI_API_KEY:                    process.env['OPENAI_API_KEY']                    ?? '',
   OPENAI_CHAT_MODEL:                 process.env['OPENAI_CHAT_MODEL']                 ?? 'gpt-5.6-terra',
-  ASSISTANT_PROVIDER:                process.env['ASSISTANT_PROVIDER']                ?? 'replicate',
+  // Reads photos sent to the bot and brand reference images (visionExtractor).
+  // Default = the same model we used to rent through Replicate.
+  OPENAI_VISION_MODEL:               process.env['OPENAI_VISION_MODEL']               ?? 'gpt-4o-mini',
+  // Voice input (voiceTranscriber). whisper-1 hallucinates on near-silence;
+  // gpt-4o-mini-transcribe returns empty. Set to 'whisper-1' to revert.
+  OPENAI_TRANSCRIBE_MODEL:           process.env['OPENAI_TRANSCRIBE_MODEL']           ?? 'gpt-4o-mini-transcribe',
+  // Cover images. gpt-image-2 caps at 16:9 — extreme ratios need panoramas.
+  OPENAI_IMAGE_MODEL:                process.env['OPENAI_IMAGE_MODEL']                ?? 'gpt-image-2',
   // How long to wait for a Replicate prediction to finish (ms).
   // Imagen 4 typically takes 30–90 s on Replicate.
   // Set higher than your HTTP gateway timeout if you want to see the result;
@@ -112,15 +114,11 @@ export const env = {
   TONCENTER_API_KEY:    process.env['TONCENTER_API_KEY']    ?? '',
   // Web search for the AI assistant (Tavily). Optional — search is disabled if absent.
   TAVILY_API_KEY:       process.env['TAVILY_API_KEY']       ?? '',
-  // Replicate text model for AI-generated HTML covers in user's brand style.
-  // Sonnet (not Haiku): strong enough to genuinely re-compose a fresh layout per
-  // post from the CSS design system, instead of cloning the reference structure.
-  COVER_HTML_MODEL: process.env['COVER_HTML_MODEL'] ?? 'anthropic/claude-4.5-sonnet',
-  // Unified production model configuration for all subscription tiers.
-  // Post text goes to Claude on Replicate; covers to GPT Image on Replicate.
-  // LOW keeps DeepSeek (text) + IMAGE_MODEL/Flux (covers). See docs/low-high-plan.md.
-  HIGH_TEXT_MODEL:  process.env['HIGH_TEXT_MODEL']  ?? 'anthropic/claude-4.5-sonnet',
-  HIGH_IMAGE_MODEL: process.env['HIGH_IMAGE_MODEL'] ?? 'openai/gpt-image-2',
+  // COVER_HTML_MODEL and HIGH_TEXT_MODEL are gone: AI-generated HTML covers and
+  // post text now run on OPENAI_CHAT_MODEL through terraText. Post text used to
+  // be Claude 4.5 Sonnet rented through Replicate, which tied the product's core
+  // output to that account's balance.
+  HIGH_IMAGE_MODEL: process.env['HIGH_IMAGE_MODEL'] ?? 'gpt-image-2',
   // Cover generation engine:
   //   'template' — always use HTML/Satori templates (free, instant, brand-perfect)
   //   'flux'     — always use Flux via Replicate (AI-generated artistic images)

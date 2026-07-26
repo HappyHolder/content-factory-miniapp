@@ -12,7 +12,7 @@
 
 import { env } from '../../env';
 import { MAX_ITEMS, MIN_ITEMS, type CarouselContent, type CarouselContext, type CarouselItem, type CarouselPosition } from './types';
-import { replicateText } from '../replicateText';
+import { terraText } from '../assistantModel';
 
 interface AiPlan {
   carousel?:   unknown;
@@ -129,16 +129,15 @@ function sanitize(plan: AiPlan): CarouselContent | null {
  * existed.
  */
 export async function planCarousel(ctx: CarouselContext): Promise<CarouselContent | null> {
-  if (!env.REPLICATE_API_TOKEN || ctx.postText.length < 200) return null;
+  if (!env.OPENAI_API_KEY || ctx.postText.length < 200) return null;
   const { system, user } = buildPrompt(ctx);
   try {
-    const raw = await replicateText({
-      model: env.LAYOUT_MODEL,
-      systemPrompt: system,
+    const raw = await terraText({
+      system,
       prompt: user,
       maxTokens: 1200,
       timeoutMs: 25_000,
-      input: { max_completion_tokens: 1200, reasoning_effort: 'low' },
+      effort: 'low',
     });
     return sanitize(JSON.parse(raw ?? '{}') as AiPlan);
   } catch (err) {

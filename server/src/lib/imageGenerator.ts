@@ -1,17 +1,14 @@
 /**
  * imageGenerator.ts
  *
- * Generates a single image via the Replicate HTTP API.
- * Returns the image URL on success, or null if generation is skipped / fails.
+ * Generates one cover image and composites the headline and logo onto it with
+ * sharp. Returns the hosted cover + the clean text-free base, or null when
+ * generation is disabled or fails.
  *
- * Supports both Replicate response shapes:
- *   - Synchronous: output URL is in the initial POST response.
- *   - Asynchronous: response contains a prediction id that must be polled.
- *
- * Polling strategy: up to IMAGE_GENERATION_POLL_TIMEOUT_MS total (default 120 s),
- * ~3 s between polls. Timeout is configurable via env without code changes.
- *
- * No external dependencies — uses Node's built-in fetch (Node 18+).
+ * The picture comes from the direct OpenAI Images API (see openaiImage.ts) —
+ * previously the same gpt-image model rented through Replicate, which meant
+ * creating a prediction, polling it and downloading the result. Now it is one
+ * call that returns bytes, so nothing here needs a URL round trip.
  */
 
 import fs from 'fs';
@@ -19,6 +16,7 @@ import path from 'path';
 import sharp from 'sharp';
 import { putObject } from './storage';
 import { env } from '../env';
+import { openAiImage, sizeForAspectRatio } from './openaiImage';
 
 // Bundled Cyrillic-capable font for the headline overlay. Resolved across the
 // possible runtime cwds (dist/lib in prod, src/lib under tsx). Passing an explicit
@@ -37,78 +35,6 @@ function resolveFontFile(): string | null {
   return null;
 }
 const FONT_FILE = resolveFontFile();
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ReplicatePrediction {
-  id:     string;
-  status: 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled';
-  output: string | string[] | null;
-  error:  string | null;
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Extracts the first URL string from a Replicate output value.
- * output may be a direct string, an array of strings, or null.
- */
-function extractUrl(output: string | string[] | null): string | null {
-  if (!output) return null;
-  if (typeof output === 'string') return output.trim() || null;
-  if (Array.isArray(output)) {
-    const first = output[0];
-    return (typeof first === 'string' && first.trim()) ? first.trim() : null;
-  }
-  return null;
-}
-
-/**
- * Polls a prediction until succeeded/failed/canceled or until timeoutMs elapses.
- * Returns the output URL or null.
- */
-async function pollPrediction(
-  predictionId: string,
-  token: string,
-  timeoutMs: number,
-): Promise<string | null> {
-  const deadline = Date.now() + timeoutMs;
-  const pollIntervalMs = 3_000;   // 3 s between polls
-
-  while (Date.now() < deadline) {
-    await sleep(pollIntervalMs);
-
-    const res = await fetch(
-      `https://api.replicate.com/v1/predictions/${predictionId}`,
-      { headers: { Authorization: `Token ${token}` } },
-    );
-
-    if (!res.ok) {
-      console.warn(`[imageGenerator] Poll failed: HTTP ${res.status}`);
-      return null;
-    }
-
-    const prediction = await res.json() as ReplicatePrediction;
-
-    if (prediction.status === 'succeeded') {
-      return extractUrl(prediction.output);
-    }
-
-    if (prediction.status === 'failed' || prediction.status === 'canceled') {
-      console.warn(`[imageGenerator] Prediction ended with status: ${prediction.status}`);
-      return null;
-    }
-
-    // status is 'starting' or 'processing' — keep polling
-  }
-
-  console.warn(`[imageGenerator] Polling timed out after ${timeoutMs / 1000} s — prediction ${predictionId} did not finish in time`);
-  return null;
-}
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -232,8 +158,9 @@ export interface GenerateImageInput {
    */
   calmZone?: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
   /**
-   * Replicate model override (e.g. 'openai/gpt-image-1' for HIGH tier). When
-   * absent, falls back to env.IMAGE_MODEL (Flux — the LOW default).
+   * Model override. Accepts a bare id ('gpt-image-2') or a legacy Replicate slug
+   * ('openai/gpt-image-2') — the owner prefix is stripped. Defaults to
+   * env.OPENAI_IMAGE_MODEL.
    */
   model?: string;
 }
@@ -248,9 +175,8 @@ export interface GeneratedCover {
 }
 
 /**
- * Generates an image via Replicate and returns the composited cover + clean
- * base, or null if generation is disabled, misconfigured, or encounters a
- * non-fatal error.
+ * Generates an image and returns the composited cover + clean base, or null if
+ * generation is disabled, misconfigured, or hits a non-fatal error.
  *
  * Never throws — callers (draftGenerator) can safely ignore a null result.
  */
@@ -258,15 +184,19 @@ export async function generateImageForPost(
   input: GenerateImageInput,
 ): Promise<GeneratedCover | null> {
 
-  // ── Guard: only run when IMAGE_PROVIDER === 'replicate' ──────────────────
-  if (env.IMAGE_PROVIDER !== 'replicate') return null;
+  // ── Guard: image generation switched off entirely ─────────────────────────
+  // 'replicate' is the legacy value that means "on" — kept so existing
+  // deployments keep generating covers without an env edit.
+  if (env.IMAGE_PROVIDER === 'none') return null;
 
-  if (!env.REPLICATE_API_TOKEN) {
-    console.warn('[imageGenerator] REPLICATE_API_TOKEN is not set — skipping image generation');
+  if (!env.OPENAI_API_KEY) {
+    console.warn('[imageGenerator] OPENAI_API_KEY is not set — skipping image generation');
     return null;
   }
 
-  const model = input.model ?? env.IMAGE_MODEL;  // HIGH passes 'openai/gpt-image-1'; LOW uses Flux
+  // Callers may still pass a Replicate-style slug ('openai/gpt-image-2'); the
+  // direct API wants the bare model id.
+  const model = (input.model ?? env.OPENAI_IMAGE_MODEL).replace(/^[^/]+\//, '');
 
   const userPrompt = input.prompt.trim();
   if (!userPrompt) return null;
@@ -378,81 +308,22 @@ export async function generateImageForPost(
   // high enough to pull in dark/neon/color mood from the reference.
   const refImageUrl = extractReferenceImage(input.visualKit);
 
-  // ── Build model input ─────────────────────────────────────────────────────
-  // flux-2-max uses `input_images: string[]` for img2img (file[] API).
-  // flux-schnell / flux-dev use `image: string` + `prompt_strength`.
-  // gpt-image uses `image: string`.
-  const isGptImage  = model.includes('gpt-image');
-  const isFlux2Max  = model.includes('flux-2-max');
-  // gpt-image-2 aspect_ratio enum has 1:1 / 16:9 / 9:16 but no 4:5 — map to nearest portrait.
-  const gptAspect = aspectRatio === '4:5' ? '2:3' : aspectRatio;
-  const modelInput: Record<string, unknown> = isGptImage
-    ? {
-        prompt,
-        aspect_ratio: gptAspect,
-        // medium is the cost/quality sweet spot for covers (see docs/low-high-plan.md).
-        quality: 'medium',
-        // img2img reference uses input_images[] (NOT `image`); openai_api_key is
-        // optional on gpt-image-2 (billed via Replicate) — don't send it.
-        ...(refImageUrl ? { input_images: [refImageUrl] } : {}),
-      }
-    : isFlux2Max
-    ? {
-        prompt,
-        aspect_ratio: aspectRatio,
-        resolution:   '1 MP',
-        ...(refImageUrl ? { input_images: [refImageUrl] } : {}),
-      }
-    : {
-        prompt,
-        aspect_ratio: aspectRatio,
-        ...(refImageUrl ? { image: refImageUrl, prompt_strength: 0.35 } : {}),
-      };
-
-  console.log(`[imageGenerator] model=${model} logo=${logoUrl ? 'yes' : 'no'} ref=${refImageUrl ? 'yes' : 'no'} detail=${detailKey} style=${styleKey} promptLen=${prompt.length}`);
+  console.log(`[imageGenerator] model=${model} size=${sizeForAspectRatio(aspectRatio)} logo=${logoUrl ? 'yes' : 'no'} ref=${refImageUrl ? 'yes' : 'no'} detail=${detailKey} style=${styleKey} promptLen=${prompt.length}`);
   console.log(`[imageGenerator] prompt — ${prompt}`);
 
   try {
-    const createRes = await fetch(
-      `https://api.replicate.com/v1/models/${model}/predictions`,
-      {
-        method:  'POST',
-        headers: {
-          'Authorization': `Token ${env.REPLICATE_API_TOKEN}`,
-          'Content-Type':  'application/json',
-        },
-        body: JSON.stringify({ input: modelInput }),
-      },
-    );
-
-    if (!createRes.ok) {
-      console.warn(`[imageGenerator] Create prediction failed: HTTP ${createRes.status}`);
-      return null;
-    }
-
-    const prediction = await createRes.json() as ReplicatePrediction;
-
-    // ── Synchronous response: output already present ──────────────────────
-    if (prediction.status === 'succeeded' && prediction.output) {
-      const url = extractUrl(prediction.output);
-      return url ? composeCover(url, { logoUrl, headline, brandColor }) : null;
-    }
-
-    // ── Failed immediately ────────────────────────────────────────────────
-    if (prediction.status === 'failed' || prediction.status === 'canceled') {
-      console.warn(`[imageGenerator] Prediction failed immediately: ${prediction.status}`);
-      return null;
-    }
-
-    // ── Asynchronous: poll until done ─────────────────────────────────────
-    if (!prediction.id) {
-      console.warn('[imageGenerator] No prediction id in response — cannot poll');
-      return null;
-    }
-
-    const polledUrl = await pollPrediction(prediction.id, env.REPLICATE_API_TOKEN, env.IMAGE_GENERATION_POLL_TIMEOUT_MS);
-    return polledUrl ? composeCover(polledUrl, { logoUrl, headline, brandColor }) : null;
-
+    // One direct call — no prediction to create, poll and download. The brand
+    // reference (when present) is uploaded to /images/edits so the palette and
+    // mood carry over; medium quality is the cost/quality sweet spot for covers
+    // (see docs/low-high-plan.md).
+    const imageBuf = await openAiImage({
+      prompt,
+      aspectRatio,
+      quality: 'medium',
+      referenceImageUrl: refImageUrl,
+      model,
+    });
+    return imageBuf ? composeCover(imageBuf, { logoUrl, headline, brandColor }) : null;
   } catch (err) {
     console.warn('[imageGenerator] Unexpected error:', (err as Error).message);
     return null;
@@ -606,11 +477,10 @@ async function buildOverlayLayers(
  * generation always returns something.
  */
 async function composeCover(
-  coverUrl: string,
+  coverBuf: Buffer,
   opts: { logoUrl: string | null; headline: string | null; brandColor: string | null },
-): Promise<GeneratedCover> {
+): Promise<GeneratedCover | null> {
   try {
-    const coverBuf = await downloadImage(coverUrl);
 
     // Re-host the clean (text-free) background so the headline can be re-rendered
     // later without regenerating the picture.
@@ -627,8 +497,11 @@ async function composeCover(
 
     const layers = await buildOverlayLayers(W, H, opts);
     if (layers.length === 0) {
-      // No overlay → the banner is just the clean base (or the original URL).
-      return { bannerUrl: coverBaseUrl ?? coverUrl, coverBaseUrl };
+      // No overlay → the banner IS the clean base. There is no remote URL to
+      // fall back on any more (the model hands us bytes), so if the base re-host
+      // failed above, host the image now.
+      const bannerUrl = coverBaseUrl ?? await uploadCover(await sharp(coverBuf).jpeg({ quality: 90 }).toBuffer(), 'cover');
+      return { bannerUrl, coverBaseUrl };
     }
 
     const bannerUrl = await uploadCover(
@@ -639,8 +512,13 @@ async function composeCover(
     return { bannerUrl, coverBaseUrl };
 
   } catch (err) {
-    console.warn('[imageGenerator] Cover compose failed (returning original):', (err as Error).message);
-    return { bannerUrl: coverUrl, coverBaseUrl: null };
+    console.warn('[imageGenerator] Cover compose failed — publishing the plain image:', (err as Error).message);
+    try {
+      return { bannerUrl: await uploadCover(await sharp(coverBuf).jpeg({ quality: 90 }).toBuffer(), 'cover'), coverBaseUrl: null };
+    } catch (uploadErr) {
+      console.warn('[imageGenerator] Plain image upload failed too:', (uploadErr as Error).message);
+      return null;
+    }
   }
 }
 

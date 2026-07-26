@@ -1,72 +1,41 @@
 /**
  * voiceTranscriber.ts
  *
- * Speech-to-text for the assistant's voice input: sends recorded audio to a
- * Whisper model on Replicate (WHISPER_MODEL) and returns the transcript. Reuses
- * REPLICATE_API_TOKEN — no separate provider. Never throws; returns null on any
- * failure so the caller degrades to "couldn't recognise".
+ * Speech-to-text for the assistant's voice input. Direct OpenAI
+ * /v1/audio/transcriptions with OPENAI_TRANSCRIBE_MODEL — one multipart upload,
+ * no prediction to create and poll. Never throws; returns null on any failure so
+ * the caller degrades to "couldn't recognise".
+ *
+ * Replaces openai/whisper on Replicate. Note the model change: whisper-1 (v2)
+ * invents words on near-silent audio — verified, it returned "you" for 200 ms of
+ * silence — while gpt-4o-mini-transcribe returns an empty string. Set
+ * OPENAI_TRANSCRIBE_MODEL=whisper-1 to go back.
  */
 
 import { env } from '../env';
 
-const REPLICATE_API = 'https://api.replicate.com/v1';
-const POLL_TIMEOUT_MS = 60_000;
-const POLL_INTERVAL_MS = 1_500;
+const OPENAI_TRANSCRIBE_URL = 'https://api.openai.com/v1/audio/transcriptions';
 const MAX_OUT_CHARS = 4_000;
+const TIMEOUT_MS = 60_000;
 
-interface ReplicatePrediction {
-  id:     string;
-  status: 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled';
-  output: unknown;
-  error:  string | null;
+/** Splits `data:audio/ogg;base64,AAAA` into its mime type and bytes. */
+function parseDataUri(dataUri: string): { buf: Buffer; mime: string } | null {
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(dataUri);
+  if (!match) return null;
+  const mime = match[1] || 'audio/ogg';
+  const payload = match[3] ?? '';
+  const buf = match[2] ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf8');
+  return buf.length ? { buf, mime } : null;
 }
 
-const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-
-/**
- * Whisper output shapes vary by model:
- *  - openai/whisper → { transcription, segments, detected_language }
- *  - incredibly-fast-whisper → { text, chunks:[{text}] }
- *  - some models → a plain string or string[] of chunks.
- */
-function outputToText(output: unknown): string {
-  if (typeof output === 'string') return output;
-  if (Array.isArray(output)) return output.filter(x => typeof x === 'string').join(' ');
-  if (output && typeof output === 'object') {
-    const o = output as Record<string, unknown>;
-    if (typeof o['transcription'] === 'string') return o['transcription'];
-    if (typeof o['text'] === 'string') return o['text'];
-    if (Array.isArray(o['chunks'])) {
-      return (o['chunks'] as unknown[])
-        .map(c => (c && typeof c === 'object' && typeof (c as Record<string, unknown>)['text'] === 'string') ? (c as Record<string, string>)['text'] : '')
-        .join('').trim();
-    }
-    if (Array.isArray(o['segments'])) {
-      return (o['segments'] as unknown[])
-        .map(s => (s && typeof s === 'object' && typeof (s as Record<string, unknown>)['text'] === 'string') ? (s as Record<string, string>)['text'] : '')
-        .join(' ').trim();
-    }
-  }
-  return '';
-}
-
-// The Whisper models we use are COMMUNITY models — they have no
-// /models/{owner}/{name}/predictions endpoint (that 404s), so we must call
-// /v1/predictions with a resolved version id. Cache the version per model.
-const versionCache = new Map<string, string>();
-async function resolveVersion(model: string): Promise<string | null> {
-  // Allow WHISPER_MODEL = "owner/name:version" to pin explicitly.
-  const [name, pinned] = model.split(':');
-  if (pinned) return pinned;
-  if (versionCache.has(name!)) return versionCache.get(name!)!;
-  try {
-    const res = await fetch(`${REPLICATE_API}/models/${name}`, { headers: { 'Authorization': `Token ${env.REPLICATE_API_TOKEN}` } });
-    if (!res.ok) return null;
-    const data = await res.json() as { latest_version?: { id?: string } };
-    const id = data.latest_version?.id;
-    if (id) { versionCache.set(name!, id); return id; }
-    return null;
-  } catch { return null; }
+/** The API picks its decoder by file extension, so the name must match the mime. */
+function filenameFor(mime: string): string {
+  const subtype = mime.split('/')[1]?.split(';')[0]?.toLowerCase() ?? 'ogg';
+  const known: Record<string, string> = {
+    ogg: 'ogg', opus: 'ogg', oga: 'ogg', mpeg: 'mp3', mp3: 'mp3', mp4: 'mp4',
+    m4a: 'm4a', 'x-m4a': 'm4a', wav: 'wav', 'x-wav': 'wav', webm: 'webm', flac: 'flac',
+  };
+  return 'audio.' + (known[subtype] ?? 'ogg');
 }
 
 /**
@@ -74,39 +43,36 @@ async function resolveVersion(model: string): Promise<string | null> {
  * Returns the recognised text, or null on failure / when not configured.
  */
 export async function transcribeAudio(dataUri: string): Promise<string | null> {
-  if (!env.REPLICATE_API_TOKEN || !env.WHISPER_MODEL) return null;
+  if (!env.OPENAI_API_KEY) return null;
+  const parsed = parseDataUri(dataUri);
+  if (!parsed) { console.warn('[voiceTranscriber] not a usable data URI'); return null; }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const version = await resolveVersion(env.WHISPER_MODEL);
-    if (!version) { console.warn(`[voiceTranscriber] could not resolve version for ${env.WHISPER_MODEL}`); return null; }
-    const createRes = await fetch(`${REPLICATE_API}/predictions`, {
-      method:  'POST',
-      headers: { 'Authorization': `Token ${env.REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' },
-      // `audio` is the input field both openai/whisper and fast-whisper accept.
-      body: JSON.stringify({ version, input: { audio: dataUri } }),
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(parsed.buf)], { type: parsed.mime }), filenameFor(parsed.mime));
+    form.append('model', env.OPENAI_TRANSCRIBE_MODEL);
+    form.append('response_format', 'json');
+
+    const res = await fetch(OPENAI_TRANSCRIBE_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+      body: form,
     });
-    if (!createRes.ok) {
-      const t = await createRes.text().catch(() => '');
-      console.warn(`[voiceTranscriber] create HTTP ${createRes.status}: ${t.slice(0, 200)}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[voiceTranscriber] HTTP ${res.status}: ${body.slice(0, 200)}`);
       return null;
     }
-    let prediction = await createRes.json() as ReplicatePrediction;
-    const deadline = Date.now() + POLL_TIMEOUT_MS;
-    while ((prediction.status === 'starting' || prediction.status === 'processing') && Date.now() < deadline) {
-      await sleep(POLL_INTERVAL_MS);
-      const pollRes = await fetch(`${REPLICATE_API}/predictions/${prediction.id}`, {
-        headers: { 'Authorization': `Token ${env.REPLICATE_API_TOKEN}` },
-      });
-      if (!pollRes.ok) return null;
-      prediction = await pollRes.json() as ReplicatePrediction;
-    }
-    if (prediction.status !== 'succeeded') {
-      console.warn(`[voiceTranscriber] status=${prediction.status} error=${prediction.error ?? ''}`);
-      return null;
-    }
-    const text = outputToText(prediction.output).trim().slice(0, MAX_OUT_CHARS);
+    const data = await res.json() as { text?: unknown };
+    const text = typeof data.text === 'string' ? data.text.trim().slice(0, MAX_OUT_CHARS) : '';
     return text || null;
   } catch (err) {
     console.warn('[voiceTranscriber] failed:', (err as Error).message);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }

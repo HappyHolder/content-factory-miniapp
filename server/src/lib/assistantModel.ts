@@ -1,5 +1,4 @@
 import { env } from '../env';
-import { replicateTextStream } from './replicateText';
 import { openAiText } from './openaiChat';
 
 export type TerraEffort = 'low' | 'medium' | 'high';
@@ -42,25 +41,9 @@ export async function terraText(p: TerraTextParams): Promise<string | null> {
   return direct?.trim() || null;
 }
 
-/**
- * Streaming variant — still Replicate, and the last Replicate text path left.
- * Used only by the assistant chat when it streams; every other caller goes
- * through terraText above. Migrating this one needs the streaming Responses
- * bridge (runOpenAiChat), which is a separate change.
- */
-export async function terraTextStream(p: TerraTextParams, onChunk: (delta: string) => void): Promise<string | null> {
-  if (!env.REPLICATE_API_TOKEN) return null;
-  const maxTokens = p.maxTokens ?? 1024;
-  const streamed = await replicateTextStream({
-    model: env.LAYOUT_MODEL,
-    systemPrompt: p.system,
-    prompt: p.prompt,
-    maxTokens,
-    timeoutMs: p.timeoutMs ?? 120_000,
-    input: { max_completion_tokens: maxTokens, reasoning_effort: p.effort ?? 'low', verbosity: p.verbosity ?? 'medium' },
-  }, onChunk);
-  return streamed?.trim() || null;
-}
+// terraTextStream is gone. It was Replicate-only and served just one caller —
+// the assistant's legacy fallback. Streaming for the assistant's real path comes
+// from runOpenAiChat (openaiChat.ts), which streams over the Responses API.
 
 export function extractJsonObject(raw: string): Record<string, unknown> | null {
   try {

@@ -1,11 +1,18 @@
 /**
  * panoramaGenerator.ts
  *
- * The ONLY place nano-banana-2 (Google Gemini 3.1 Flash Image) is used. It is the
- * one Replicate image model that generates true extreme ratios (1:4 / 4:1 / 1:8 /
- * 8:1) in a single pass — used for post PANORAMAS, sliced into stacked/carousel
- * slides. Isolated from the cover engine (Flux + HTML), the carousel engine and
- * the layout model (Terra) — none of them touch this file.
+ * The ONLY place nano-banana-2 (Google Gemini 3.1 Flash Image) is used, and the
+ * ONLY thing left in the product that talks to Replicate at all.
+ *
+ * It stays because it is the one model that renders true extreme ratios (1:4 /
+ * 4:1 / 1:8 / 8:1) in a single pass, for post PANORAMAS sliced into
+ * stacked/carousel slides. Neither alternative can replace it: the direct OpenAI
+ * Images API caps at 3:1 ("The maximum supported aspect ratio is 3:1", verified),
+ * and Google's own Gemini API documents nothing beyond 21:9 — Replicate's wrapper
+ * exposes ratios the direct API does not.
+ *
+ * Isolated from the cover engine, the carousel engine and the text model — none
+ * of them touch this file.
  */
 
 import sharp from 'sharp';
@@ -177,6 +184,42 @@ export function buildPanoramaPrompt(
 
 function sleep(ms: number): Promise<void> { return new Promise(r => setTimeout(r, ms)); }
 
+/**
+ * Creates the prediction, waiting out Replicate's rate limiter instead of
+ * failing on it.
+ *
+ * This is now the ONLY Replicate call in the product, so its throttling is worth
+ * absorbing: below $5 of credit the account drops to 6 requests/min with a burst
+ * of 1, which used to turn a single 429 into a silently missing image. Replicate
+ * tells us exactly how long to wait (`retry-after`), so we honour it. Three
+ * attempts covers the grid4 flow, where the base and the edit are created back to
+ * back.
+ */
+async function createWithBackoff(token: string, modelInput: Record<string, unknown>): Promise<Response | null> {
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const res = await fetch(`https://api.replicate.com/v1/models/${NANO_MODEL}/predictions`, {
+      method: 'POST',
+      headers: { Authorization: `Token ${token}`, 'Content-Type': 'application/json', Prefer: 'wait' },
+      body: JSON.stringify({ input: modelInput }),
+    });
+    if (res.ok) return res;
+
+    const body = await res.text().catch(() => '');
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || attempt === MAX_ATTEMPTS) {
+      console.warn('[panoramaGenerator] create failed', res.status, body.slice(0, 200));
+      return null;
+    }
+    // `retry-after` is in seconds; +1 s of slack, capped so a wedged limiter
+    // cannot hold a request open indefinitely.
+    const waitMs = Math.min((Number(res.headers.get('retry-after')) || 10) * 1000 + 1_000, 30_000);
+    console.warn(`[panoramaGenerator] HTTP ${res.status}, retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt}/${MAX_ATTEMPTS}): ${body.slice(0, 160)}`);
+    await sleep(waitMs);
+  }
+  return null;
+}
+
 async function poll(id: string, token: string, timeoutMs = 90_000): Promise<Prediction | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -207,15 +250,8 @@ async function runNanoImage(
     if (options?.resolution) modelInput['resolution'] = options.resolution;
     if (options?.imageInput?.length) modelInput['image_input'] = options.imageInput;
 
-    const res = await fetch(`https://api.replicate.com/v1/models/${NANO_MODEL}/predictions`, {
-      method: 'POST',
-      headers: { Authorization: `Token ${token}`, 'Content-Type': 'application/json', Prefer: 'wait' },
-      body: JSON.stringify({ input: modelInput }),
-    });
-    if (!res.ok) {
-      console.warn('[panoramaGenerator] create failed', res.status, (await res.text()).slice(0, 200));
-      return null;
-    }
+    const res = await createWithBackoff(token, modelInput);
+    if (!res) return null;
 
     let prediction = await res.json() as Prediction;
     if (prediction.status !== 'succeeded' && prediction.id) {

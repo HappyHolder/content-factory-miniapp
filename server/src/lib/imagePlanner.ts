@@ -11,7 +11,7 @@
  */
 
 import { env } from '../env';
-import { replicateText } from './replicateText';
+import { terraText } from './assistantModel';
 
 export type ImageEngine = 'ai' | 'template';
 export type ImageRole = 'cover' | 'illustration' | 'quote_card';
@@ -69,17 +69,16 @@ export async function planPostImages(input: {
   postText: string; rubric?: string | null; maxImages: number;
 }): Promise<ImageSpec[]> {
   const cap = Math.max(1, Math.min(input.maxImages, 6));
-  if (!env.REPLICATE_API_TOKEN) return [{ role: 'cover', engine: 'ai' }];
+  if (!env.OPENAI_API_KEY) return [{ role: 'cover', engine: 'ai' }];
 
   const { system, user } = buildPrompt(input.postText, cap, input.rubric ?? null);
   try {
-    const raw = await replicateText({
-      model: env.LAYOUT_MODEL,
-      systemPrompt: system,
+    const raw = await terraText({
+      system,
       prompt: user,
       maxTokens: 800,
       timeoutMs: 25_000,
-      input: { max_completion_tokens: 800, reasoning_effort: 'low' },
+      effort: 'low',
     });
     return sanitize(JSON.parse(raw ?? '{}') as AiPlan, cap);
   } catch (err) {

@@ -5,7 +5,7 @@ import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { analyzeReferenceStyle } from '../lib/visionExtractor';
-import { replicateText } from '../lib/replicateText';
+import { terraText } from '../lib/assistantModel';
 
 // ─── Multer setup ─────────────────────────────────────────────────────────────
 // Memory storage: file lives only in RAM (req.file.buffer), never on disk.
@@ -509,13 +509,12 @@ router.post('/generate-cover-style', async (req: Request, res: Response): Promis
   const userPrompt = contextParts.join('\n') + '\n\nWrite the cover style description:';
 
   try {
-    const style = (await replicateText({
-      model: env.LAYOUT_MODEL,
-      systemPrompt,
+    const style = (await terraText({
+      system: systemPrompt,
       prompt: userPrompt,
       maxTokens: 200,
       timeoutMs: 30_000,
-      input: { max_completion_tokens: 200, reasoning_effort: 'low' },
+      effort: 'low',
     }))?.trim() ?? '';
     res.json({ style });
   } catch (err) {

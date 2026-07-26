@@ -1,17 +1,20 @@
 /**
  * claudeHtmlGenerator.ts
  *
- * Generates a new unique HTML cover for each post using the user's templates
- * as a design system reference via Claude Haiku on Replicate.
+ * Generates a new unique HTML cover for each post using the channel's templates
+ * as a design system reference. Named after Claude, which used to render it via
+ * Replicate; it now runs on the primary text model (terraText → direct OpenAI),
+ * so there is no Anthropic dependency left here.
  *
  * Strategy: extract the CSS from the reference template (exact colors, effects,
- * component styles) → send to Haiku → ask it to write a NEW <body> using those
- * same CSS classes in a fresh composition for the specific post content.
+ * component styles) → hand it to the model → ask it to write a NEW <body> using
+ * those same CSS classes in a fresh composition for the specific post content.
  *
  * Result: different layout per post, identical visual language per channel.
  */
 
 import { env } from '../env';
+import { primaryTextModel, terraText } from './assistantModel';
 
 export interface HtmlCoverInput {
   referenceHtml: string;
@@ -290,48 +293,11 @@ function injectBrandLogo(
   return out;
 }
 
-// ─── Replicate polling ────────────────────────────────────────────────────────
-
-interface Prediction {
-  id:     string;
-  status: 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled';
-  output: string | string[] | null;
-  error:  string | null;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
-}
-
-function joinOutput(output: string | string[] | null): string {
-  if (!output) return '';
-  return Array.isArray(output) ? output.join('') : output;
-}
-
-async function pollText(id: string, token: string, timeoutMs = 90_000): Promise<string | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    await sleep(3_000);
-    const res = await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
-      headers: { Authorization: `Token ${token}` },
-    });
-    if (!res.ok) return null;
-    const p = await res.json() as Prediction;
-    if (p.status === 'succeeded') return joinOutput(p.output) || null;
-    if (p.status === 'failed' || p.status === 'canceled') {
-      console.warn(`[htmlCoverGenerator] Prediction ${p.status}: ${p.error ?? ''}`);
-      return null;
-    }
-  }
-  console.warn('[htmlCoverGenerator] Polling timed out');
-  return null;
-}
-
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function generateHtmlCover(input: HtmlCoverInput): Promise<string | null> {
-  if (!env.REPLICATE_API_TOKEN) {
-    console.warn('[htmlCoverGenerator] REPLICATE_API_TOKEN not set');
+  if (!env.OPENAI_API_KEY) {
+    console.warn('[htmlCoverGenerator] OPENAI_API_KEY not set');
     return null;
   }
 
@@ -394,45 +360,19 @@ ${layoutRule}
 9. NO markdown fences, NO explanation — raw HTML only`;
 
   try {
-    const createRes = await fetch(
-      `https://api.replicate.com/v1/models/${env.COVER_HTML_MODEL}/predictions`,
-      {
-        method:  'POST',
-        headers: {
-          Authorization: `Token ${env.REPLICATE_API_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          input: {
-            prompt:        userPrompt,
-            system_prompt: systemPrompt,
-            max_tokens:    4096,
-            // Low temperature: the model must follow the channel's template
-            // faithfully, not improvise a new layout. Variety comes from having
-            // multiple rubric templates, not from sampling randomness.
-            temperature:   0.4,
-          },
-        }),
-      },
-    );
-
-    if (!createRes.ok) {
-      const body = await createRes.text();
-      console.warn(`[htmlCoverGenerator] Create failed: HTTP ${createRes.status} — ${body.slice(0, 200)}`);
-      return null;
-    }
-
-    const prediction = await createRes.json() as Prediction;
-
-    let raw: string | null = null;
-    if (prediction.status === 'succeeded') {
-      raw = joinOutput(prediction.output) || null;
-    } else if (prediction.status === 'failed' || prediction.status === 'canceled') {
-      console.warn(`[htmlCoverGenerator] Failed immediately: ${prediction.status}`);
-      return null;
-    } else if (prediction.id) {
-      raw = await pollText(prediction.id, env.REPLICATE_API_TOKEN);
-    }
+    // effort 'medium': composing a fresh layout inside the template's CSS
+    // constraints is exactly the kind of task where reasoning pays for itself —
+    // broken markup does not degrade the cover, it drops the post to the Satori
+    // fallback. There is no temperature knob here; the layout rules in the
+    // prompt do the pinning the old temperature 0.4 was for.
+    const raw = await terraText({
+      system: systemPrompt,
+      prompt: userPrompt,
+      maxTokens: 8000,
+      effort: 'medium',
+      verbosity: 'low',
+      timeoutMs: 120_000,
+    });
 
     if (!raw) return null;
 
@@ -447,7 +387,7 @@ ${layoutRule}
       return null;
     }
 
-    console.log(`[htmlCoverGenerator] Generated ${html.length}-char cover (${w}×${h}) via ${env.COVER_HTML_MODEL}`);
+    console.log(`[htmlCoverGenerator] Generated ${html.length}-char cover (${w}×${h}) via ${primaryTextModel()}`);
     return html;
 
   } catch (err) {
@@ -557,8 +497,8 @@ export function buildFallbackOverlayHtml(input: HtmlOverlayInput): string {
  * Returns raw HTML, or null on failure.
  */
 export async function generateHtmlOverlay(input: HtmlOverlayInput): Promise<string | null> {
-  if (!env.REPLICATE_API_TOKEN) {
-    console.warn('[htmlOverlay] REPLICATE_API_TOKEN not set');
+  if (!env.OPENAI_API_KEY) {
+    console.warn('[htmlOverlay] OPENAI_API_KEY not set');
     return null;
   }
 
@@ -633,24 +573,14 @@ ${styleRule}
 11. Return complete HTML starting with <!DOCTYPE html>. NO markdown fences, raw HTML only.`;
 
   try {
-    const createRes = await fetch(
-      `https://api.replicate.com/v1/models/${env.COVER_HTML_MODEL}/predictions`,
-      {
-        method:  'POST',
-        headers: { Authorization: `Token ${env.REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: { prompt: userPrompt, system_prompt: systemPrompt, max_tokens: 4096, temperature: 0.6 } }),
-      },
-    );
-    if (!createRes.ok) {
-      console.warn(`[htmlOverlay] Create failed: HTTP ${createRes.status}`);
-      return null;
-    }
-
-    const prediction = await createRes.json() as Prediction;
-    let raw: string | null = null;
-    if (prediction.status === 'succeeded') raw = joinOutput(prediction.output) || null;
-    else if (prediction.status === 'failed' || prediction.status === 'canceled') return null;
-    else if (prediction.id) raw = await pollText(prediction.id, env.REPLICATE_API_TOKEN);
+    const raw = await terraText({
+      system: systemPrompt,
+      prompt: userPrompt,
+      maxTokens: 8000,
+      effort: 'medium',
+      verbosity: 'low',
+      timeoutMs: 120_000,
+    });
     if (!raw) return null;
 
     const html = raw.replace(/^```html?\s*/i, '').replace(/```\s*$/, '').trim();

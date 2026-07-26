@@ -1,6 +1,6 @@
 import { env } from '../../env';
 import type { CoverContextV2, VisualBriefV2 } from './types';
-import { replicateText } from '../replicateText';
+import { terraText } from '../assistantModel';
 
 function extractJsonObject(raw: string): string {
   const start = raw.indexOf('{');
@@ -39,7 +39,7 @@ export function fallbackVisualBriefV2(ctx: CoverContextV2): VisualBriefV2 {
 
 export async function createVisualBriefV2(ctx: CoverContextV2, dryRun = false): Promise<VisualBriefV2> {
   const fallback = fallbackVisualBriefV2(ctx);
-  if (dryRun || !env.REPLICATE_API_TOKEN || !ctx.postText) return fallback;
+  if (dryRun || !env.OPENAI_API_KEY || !ctx.postText) return fallback;
 
   const systemPrompt =
     'You are a visual editor. Return ONLY valid JSON. Extract the post story as visual guidance: event, actors, conflict, consequence, and one concrete visual metaphor. Do not write an image prompt.';
@@ -49,13 +49,12 @@ export async function createVisualBriefV2(ctx: CoverContextV2, dryRun = false): 
     'Return JSON exactly with keys: coreEvent string, actors string[], conflict string, consequence string, visualMetaphor string, avoid string[], keywords string[].';
 
   try {
-    const raw = await replicateText({
-      model: env.LAYOUT_MODEL,
-      systemPrompt,
+    const raw = await terraText({
+      system: systemPrompt,
       prompt: userPrompt,
       maxTokens: 500,
       timeoutMs: 20_000,
-      input: { max_completion_tokens: 500, reasoning_effort: 'low' },
+      effort: 'low',
     });
     const parsed = JSON.parse(extractJsonObject(raw?.trim() ?? '{}')) as Record<string, unknown>;
     return {

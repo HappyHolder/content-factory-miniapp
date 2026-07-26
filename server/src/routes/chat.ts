@@ -6,7 +6,7 @@ import { TIER_LIMITS, getEffectiveSubscription, reserveSubscriptionQuota, refund
 import type { PlanTier } from '@prisma/client';
 import multer from 'multer';
 import { webSearch } from '../lib/webSearch';
-import { terraText, terraTextStream, terraJson, type TerraEffort } from '../lib/assistantModel';
+import { terraText, terraJson, type TerraEffort } from '../lib/assistantModel';
 import { generateContentPlan, type ContentPlanDTO, MAX_POSTS_PER_DAY, MAX_DAYS } from '../lib/contentPlanner';
 import { extractImageContentFromUrl } from '../lib/visionExtractor';
 import { transcribeAudio } from '../lib/voiceTranscriber';
@@ -363,7 +363,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   const tier = subscription.tier;
   const plan = TIER_LIMITS[tier];
   const canPlan = plan.canUseContentManager;
-  if (!env.REPLICATE_API_TOKEN) { res.status(503).json({ error: 'AI not configured' }); return; }
+  if (!env.OPENAI_API_KEY) { res.status(503).json({ error: 'AI not configured' }); return; }
 
   const assistantQuota = await reserveSubscriptionQuota(dbUser.id, 'assistant');
   if (!assistantQuota.ok) {
@@ -539,11 +539,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     let createWorthy = false;
     let usedOpenAi = false;
 
-    // ── OpenAI path: native tool calling (flag-gated) ─────────────────────────
-    // When ASSISTANT_PROVIDER='openai', the model itself reasons and calls tools
-    // (search / create_post / schedule / stats / …) in one loop — no separate
-    // classifiers. On any failure we fall through to the Replicate path below.
-    if (env.ASSISTANT_PROVIDER === 'openai' && env.OPENAI_API_KEY) {
+    // ── Primary path: native tool calling ─────────────────────────────────────
+    // The model itself reasons and calls tools (search / create_post / schedule
+    // / stats / …) in one loop — no separate classifiers. This used to be gated
+    // behind ASSISTANT_PROVIDER='openai'; the flag is gone because a missing env
+    // var silently downgraded the assistant to the legacy classifier path.
+    // On failure we still fall through to that path below (also OpenAI now).
+    if (env.OPENAI_API_KEY) {
       const { tools, execute } = buildAssistantAgent({
         userId: dbUser.id, channelId, activeChannel: { id: activeChannel.id, handle: activeChannel.handle, name: activeChannel.name },
         allChannels: allChannels.map(c => ({ id: c.id, handle: c.handle, name: c.name })),
@@ -654,27 +656,12 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         : '';
       const prompt = `${convo ? convo + '\n\n' : ''}${searchBlock}${dataBlock}User: ${modelMessage}\n\nAssistant:`;
 
-      // Streaming wrapper that withholds a possible leading [[POST]] marker
-      // until confirmed or ruled out — the client never sees the token.
-      let prefixBuf = '';
-      let prefixDone = false;
-      const forward = (delta: string) => { if (!delta) return; streamedAny = true; sseSend({ type: 'chunk', text: delta }); };
-      const onDelta = (delta: string) => {
-        if (prefixDone) { forward(delta); return; }
-        prefixBuf += delta;
-        const lead = prefixBuf.replace(/^\s+/, '');
-        if (lead.startsWith(POST_MARKER)) {
-          createWorthy = true; prefixDone = true;
-          forward(lead.slice(POST_MARKER.length).replace(/^\s+/, ''));
-        } else if (lead.length >= POST_MARKER.length || !POST_MARKER.startsWith(lead)) {
-          prefixDone = true; forward(prefixBuf);
-        } // else: could still be a partial marker — keep buffering
-      };
-
-      const out = wantStream
-        ? await terraTextStream({ system: systemPrompt, prompt, maxTokens: 2048, effort, timeoutMs: 150_000 }, onDelta)
-        : await terraText({ system: systemPrompt, prompt, maxTokens: 2048, effort, timeoutMs: 120_000 });
-      if (wantStream && !prefixDone && prefixBuf && !prefixBuf.replace(/^\s+/, '').startsWith(POST_MARKER)) forward(prefixBuf);
+      // Non-streaming on purpose: the streaming transport was Replicate-only and
+      // is gone, and the [[POST]] marker gate it needed went with it. This path
+      // is a rare fallback; SSE still delivers the whole reply in one chunk
+      // below (`if (!streamedAny)`), so only the typing effect is lost. The
+      // marker is stripped from the finished text instead of mid-stream.
+      const out = await terraText({ system: systemPrompt, prompt, maxTokens: 2048, effort, timeoutMs: 120_000 });
       if (out) {
         createWorthy = createWorthy || /^\s*\[\[POST\]\]/.test(out);
         reply = out.replace(/^\s*\[\[POST\]\]\s*/, '');

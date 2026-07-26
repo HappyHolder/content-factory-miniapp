@@ -9,7 +9,7 @@
  */
 
 import { env } from '../env';
-import { replicateText } from './replicateText';
+import { primaryTextModel, terraText } from './assistantModel';
 import { stripDisabledHighlightMarkers } from './richPost';
 import { buildTemplateSlotFallback } from './templateSlotFallback';
 
@@ -484,24 +484,36 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
   return parseVariantsJson(raw, params.input, finishReason);
 }
 
-/** HIGH tier: Claude on Replicate (single prompt → JSON text). */
-async function generateWithClaude(params: GenerateParams): Promise<VariantDraft[]> {
+/**
+ * Post text: one prompt → JSON with both variants.
+ *
+ * ⚠️ Model change: this used to run Claude 4.5 Sonnet through Replicate, which
+ * made the product's core output — the post text itself — depend on the Replicate
+ * balance. It now runs the primary text model (terraText → direct OpenAI). Same
+ * prompts, so the structure is unchanged, but the writing voice comes from a
+ * different model. To go back to Claude, the honest route is the Anthropic API
+ * directly (ANTHROPIC_API_KEY) rather than renting it again.
+ *
+ * effort 'medium': writing two full post variants in the channel's voice is the
+ * one place in the pipeline where reasoning is clearly worth its cost.
+ */
+async function generatePostText(params: GenerateParams): Promise<VariantDraft[]> {
   const { systemPrompt, userPrompt } = buildVariantPrompts(params);
 
-  const raw = await replicateText({
-    model:        env.HIGH_TEXT_MODEL,
-    systemPrompt,
-    prompt:       userPrompt,
-    temperature:  0.7,
-    timeoutMs:    120_000,
+  const raw = await terraText({
+    system: systemPrompt,
+    prompt: userPrompt,
+    maxTokens: 8000,
+    effort: 'medium',
+    timeoutMs: 120_000,
   });
 
   if (!raw) {
-    console.error('[aiGenerator] Claude (Replicate) returned nothing — falling back to placeholder');
+    console.error('[aiGenerator] Primary text model returned nothing — falling back to placeholder');
     return buildPlaceholderVariants(params.input);
   }
 
-  return parseVariantsJson(raw, params.input, 'replicate');
+  return parseVariantsJson(raw, params.input, primaryTextModel());
 }
 
 // ─── Image prompt generation ─────────────────────────────────────────────────
@@ -648,7 +660,7 @@ export interface GenerateImagePromptParams {
 export async function generateImagePromptWithAI(
   params: GenerateImagePromptParams,
 ): Promise<string | null> {
-  if (!env.REPLICATE_API_TOKEN) return null;
+  if (!env.OPENAI_API_KEY) return null;
 
   const { title, excerpt, visualKit, artDirection, fullBleed, backgroundKind, hybridPrompt, bodyImage } = params;
   const styleDesc = buildVisualStyleDescription(visualKit);
@@ -725,13 +737,12 @@ export async function generateImagePromptWithAI(
 /** Runs image-prompt generation through the unified primary text model. */
 async function callImagePromptModel(systemPrompt: string, userPrompt: string): Promise<string | null> {
   try {
-    const result = await replicateText({
-      model: env.HIGH_TEXT_MODEL,
-      systemPrompt,
+    const result = await terraText({
+      system: systemPrompt,
       prompt: userPrompt,
       maxTokens: 150,
       timeoutMs: 20_000,
-      input: { max_completion_tokens: 150, reasoning_effort: 'low' },
+      effort: 'low',
     });
     return result?.trim() || null;
   } catch (err) {
@@ -866,7 +877,7 @@ async function fillSlotsViaDeepseek(systemPrompt: string, userPrompt: string): P
  *     post but IN THE CHANNEL'S VOICE and language.
  *
  * Provider-agnostic: uses DeepSeek when configured, otherwise Claude via
- * Replicate (HIGH_TEXT_MODEL). Returns the filled HTML, or null when there are
+ * the primary text model. Returns the filled HTML, or null when there are
  * no slots / no provider available / the call fails.
  */
 export async function fillTemplateSlots(
@@ -900,8 +911,8 @@ export async function fillTemplateSlots(
   };
 
   const hasDeepseek  = env.AI_PROVIDER === 'deepseek' && !!env.DEEPSEEK_API_KEY;
-  const hasReplicate = !!env.REPLICATE_API_TOKEN;
-  if (!hasDeepseek && !hasReplicate) {
+  const hasPrimaryModel = !!env.OPENAI_API_KEY;
+  if (!hasDeepseek && !hasPrimaryModel) {
     console.warn('[aiGenerator] Slot fill: no AI provider, using deterministic fallback');
     return applyValues({});
   }
@@ -972,16 +983,16 @@ export async function fillTemplateSlots(
     artDirectionLine +
     `\nReturn a JSON object with exactly these keys: ${slots.join(', ')}`;
 
-  // Provider-agnostic JSON completion: DeepSeek when configured, else Claude.
+  // Provider-agnostic JSON completion: DeepSeek when configured, else the
+  // primary text model.
   const rawJson = hasDeepseek
     ? await fillSlotsViaDeepseek(systemPrompt, userPrompt)
-    : await replicateText({
-        model:        env.HIGH_TEXT_MODEL,
-        systemPrompt: systemPrompt + '\n\nReturn ONLY the JSON object — no prose, no code fences.',
-        prompt:       userPrompt,
-        maxTokens:    800,
-        temperature:  0.5,
-        timeoutMs:    40_000,
+    : await terraText({
+        system: systemPrompt + '\n\nReturn ONLY the JSON object — no prose, no code fences.',
+        prompt: userPrompt,
+        maxTokens: 800,
+        timeoutMs: 40_000,
+        effort: 'low',
       });
   if (!rawJson) {
     console.warn('[aiGenerator] Slot fill: empty AI response, using deterministic fallback');
@@ -1320,6 +1331,6 @@ export async function classifyPostRubric(
  *   empty/invalid variants).
  */
 export async function generatePostVariants(params: GenerateParams): Promise<VariantDraft[]> {
-  if (!env.REPLICATE_API_TOKEN) throw new Error('Primary text model is not configured');
-  return generateWithClaude(params);
+  if (!env.OPENAI_API_KEY) throw new Error('Primary text model is not configured');
+  return generatePostText(params);
 }
