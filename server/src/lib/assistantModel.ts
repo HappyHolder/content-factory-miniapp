@@ -1,5 +1,5 @@
 import { env } from '../env';
-import { openAiText } from './openaiChat';
+import { openAiText, openAiTextResult, type OpenAiUsage } from './openaiChat';
 
 export type TerraEffort = 'low' | 'medium' | 'high';
 export interface TerraTextParams {
@@ -57,4 +57,26 @@ export function extractJsonObject(raw: string): Record<string, unknown> | null {
 export async function terraJson(p: Omit<TerraTextParams, 'verbosity'>): Promise<Record<string, unknown> | null> {
   const raw = await terraText({ ...p, verbosity: 'low' });
   return raw ? extractJsonObject(raw) : null;
+}
+
+export async function terraStructured<T>(p: TerraTextParams & {
+  schemaName: string;
+  schema: Record<string, unknown>;
+}): Promise<{ value: T; usage: OpenAiUsage } | null> {
+  if (!env.OPENAI_API_KEY) return null;
+  const result = await openAiTextResult({
+    system: p.system,
+    prompt: p.prompt,
+    effort: p.effort ?? 'low',
+    verbosity: p.verbosity ?? 'low',
+    maxTokens: p.maxTokens ?? 1024,
+    timeoutMs: p.timeoutMs ?? 90_000,
+    format: { type: 'json_schema', name: p.schemaName, schema: p.schema, strict: true },
+  });
+  if (!result) return null;
+  try {
+    return { value: JSON.parse(result.text) as T, usage: result.usage };
+  } catch {
+    return null;
+  }
 }

@@ -63,6 +63,25 @@ export interface OpenAiTextParams {
   verbosity?: 'low' | 'medium' | 'high';
   maxTokens?: number;
   timeoutMs?: number;
+  format?: {
+    type: 'json_schema';
+    name: string;
+    schema: Record<string, unknown>;
+    strict: true;
+  };
+}
+
+export interface OpenAiUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens: number;
+  reasoningTokens: number;
+}
+
+export interface OpenAiTextResult {
+  text: string;
+  usage: OpenAiUsage;
 }
 
 /** Rate limits and 5xx are transient; a bad key or a malformed request is not. */
@@ -72,7 +91,7 @@ const RETRY_FLOOR_MS = 4_000;
 const RETRY_BACKOFF_MS = 1_200;
 
 /** One Responses call. Returns the text, or a retry hint when it failed. */
-async function textOnce(p: OpenAiTextParams, deadline: number): Promise<{ text: string | null; retryable: boolean }> {
+async function textOnce(p: OpenAiTextParams, deadline: number): Promise<{ result: OpenAiTextResult | null; retryable: boolean }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1_000, deadline - Date.now()));
   try {
@@ -85,7 +104,7 @@ async function textOnce(p: OpenAiTextParams, deadline: number): Promise<{ text: 
         instructions: p.system,
         input: [{ role: 'user', content: p.prompt }],
         reasoning: { effort: p.effort ?? 'low' },
-        text: { verbosity: p.verbosity ?? 'low' },
+        text: { verbosity: p.verbosity ?? 'low', ...(p.format ? { format: p.format } : {}) },
         max_output_tokens: p.maxTokens ?? 1200,
         store: false,
       }),
@@ -93,9 +112,21 @@ async function textOnce(p: OpenAiTextParams, deadline: number): Promise<{ text: 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       console.warn(`[openAiText] HTTP ${res.status}: ${body.slice(0, 200)}`);
-      return { text: null, retryable: retryableStatus(res.status) };
+      return { result: null, retryable: retryableStatus(res.status) };
     }
-    const data = await res.json() as { output?: Item[]; output_text?: string; status?: string; incomplete_details?: unknown };
+    const data = await res.json() as {
+      output?: Item[];
+      output_text?: string;
+      status?: string;
+      incomplete_details?: unknown;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        total_tokens?: number;
+        input_tokens_details?: { cached_tokens?: number };
+        output_tokens_details?: { reasoning_tokens?: number };
+      };
+    };
     // `output_text` is a convenience field this model does not send — the item
     // walk below is what actually produces the text. Keep both.
     const text = typeof data.output_text === 'string' && data.output_text.trim()
@@ -103,13 +134,26 @@ async function textOnce(p: OpenAiTextParams, deadline: number): Promise<{ text: 
       : textOf(Array.isArray(data.output) ? data.output : []);
     if (!text.trim()) {
       console.warn(`[openAiText] empty output (status=${data.status ?? '?'} incomplete=${JSON.stringify(data.incomplete_details ?? null)})`);
-      return { text: null, retryable: false }; // a truncated/refused answer will not fix itself
+      return { result: null, retryable: false }; // a truncated/refused answer will not fix itself
     }
-    return { text: text.trim(), retryable: false };
+    const usage = data.usage;
+    return {
+      result: {
+        text: text.trim(),
+        usage: {
+          inputTokens: usage?.input_tokens ?? 0,
+          outputTokens: usage?.output_tokens ?? 0,
+          totalTokens: usage?.total_tokens ?? (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0),
+          cachedInputTokens: usage?.input_tokens_details?.cached_tokens ?? 0,
+          reasoningTokens: usage?.output_tokens_details?.reasoning_tokens ?? 0,
+        },
+      },
+      retryable: false,
+    };
   } catch (err) {
     // Network drop or our own timeout — worth one more try if the budget allows.
     console.warn('[openAiText] failed:', (err as Error).message);
-    return { text: null, retryable: true };
+    return { result: null, retryable: true };
   } finally {
     clearTimeout(timer);
   }
@@ -126,16 +170,20 @@ async function textOnce(p: OpenAiTextParams, deadline: number): Promise<{ text: 
  * both attempts fail — there is no second provider behind this any more.
  */
 export async function openAiText(p: OpenAiTextParams): Promise<string | null> {
+  return (await openAiTextResult(p))?.text ?? null;
+}
+
+export async function openAiTextResult(p: OpenAiTextParams): Promise<OpenAiTextResult | null> {
   if (!env.OPENAI_API_KEY) return null;
   const deadline = Date.now() + (p.timeoutMs ?? 60_000);
 
   const first = await textOnce(p, deadline);
-  if (first.text) return first.text;
+  if (first.result) return first.result;
   if (!first.retryable || deadline - Date.now() < RETRY_FLOOR_MS) return null;
 
   await new Promise(resolve => setTimeout(resolve, RETRY_BACKOFF_MS));
   console.warn('[openAiText] retrying once');
-  return (await textOnce(p, deadline)).text;
+  return (await textOnce(p, deadline)).result;
 }
 
 export interface OpenAiVisionParams {

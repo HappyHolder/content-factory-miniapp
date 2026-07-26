@@ -26,7 +26,7 @@ import { digestRetentionDate } from './dailyDigest';
 import { getEffectiveSubscription, refundSubscriptionQuota, reserveSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
 
 type TgAuthor={id:number;is_bot?:boolean;username?:string;first_name?:string;last_name?:string};
-type TgMessage={message_id:number;date?:number;chat:{id:number};from?:TgAuthor;text?:string;caption?:string;reply_to_message?:{message_id:number;date?:number;from?:TgAuthor;text?:string;caption?:string}};
+type TgMessage={message_id:number;date?:number;chat:{id:number};message_thread_id?:number;from?:TgAuthor;text?:string;caption?:string;reply_to_message?:{message_id:number;date?:number;from?:TgAuthor;text?:string;caption?:string}};
 type TgUpdate={update_id:number;message?:TgMessage;edited_message?:TgMessage};
 type Ctx={manager:any;config:CommunityManagerConfigData;community:any};
 const questionLike=(s:string)=>/[?？]/.test(s)||/(?:^|\s)(что|как|когда|где|почему|зачем|кто|можно ли|есть ли|подскажите|расскажите|what|how|when|where|why)\b/i.test(s.trim());
@@ -74,10 +74,18 @@ export async function acceptCommunityManagerUpdate(update:TgUpdate,executor:{typ
     await prisma.communityManagerParticipant.upsert({where:{communityManagerId_tgUserId:{communityManagerId:ctx.manager.id,tgUserId}},create:{communityManagerId:ctx.manager.id,tgUserId,username,firstName,lastName,displayName,messageCount:0,roles:[],expertise:[]},update:{...(username?{username}:{}),...(firstName?{firstName}:{}),...(lastName?{lastName}:{}),displayName}}).catch(()=>undefined);
     await prisma.communityManagerMessage.upsert({where:{communityManagerId_telegramMessageId:{communityManagerId:ctx.manager.id,telegramMessageId:reply.message_id}},create:{communityManagerId:ctx.manager.id,telegramUpdateId:communityManagerUpdateKey(executor.botId,update.update_id)+':reply:'+reply.message_id,telegramMessageId:reply.message_id,tgChatId:String(m.chat.id),tgUserId,replyToMessageId:null,text:replyText.slice(0,12000)||null,messageType:'CONTEXT',moderationStatus:'ALLOWED',status:'CONTEXT',createdAt:replyAt,expiresAt:new Date(Date.now()+30*86400_000)},update:{tgUserId,...(replyText?{text:replyText.slice(0,12000)}:{}),expiresAt:new Date(Date.now()+30*86400_000)}}).catch(()=>undefined);
   }
+  if(update.edited_message){
+    const digestCreatedAt=m.date?new Date(m.date*1000):new Date();
+    await Promise.all([
+      prisma.communityManagerMessage.updateMany({where:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id},data:{text:text.slice(0,12000),replyToMessageId:m.reply_to_message?.message_id,messageType:m.text?'TEXT':'CAPTION'}}),
+      prisma.communityManagerDigestMessage.upsert({where:{communityManagerId_telegramMessageId:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id}},create:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id,replyToMessageId:m.reply_to_message?.message_id,messageThreadId:m.message_thread_id,messageType:m.text?'TEXT':'CAPTION',tgUserId:String(m.from.id),text:text.slice(0,12000),createdAt:digestCreatedAt,expiresAt:digestRetentionDate(digestCreatedAt)},update:{replyToMessageId:m.reply_to_message?.message_id,messageThreadId:m.message_thread_id,messageType:m.text?'TEXT':'CAPTION',tgUserId:String(m.from.id),text:text.slice(0,12000),expiresAt:digestRetentionDate(digestCreatedAt)}}),
+    ]);
+    return'updated';
+  }
   try{
     const row=await prisma.communityManagerMessage.create({data:{communityManagerId:ctx.manager.id,telegramUpdateId:communityManagerUpdateKey(executor.botId,update.update_id),telegramMessageId:m.message_id,tgChatId:String(m.chat.id),tgUserId:String(m.from.id),replyToMessageId:m.reply_to_message?.message_id,text:text.slice(0,12000),messageType:m.text?'TEXT':'CAPTION',moderationStatus:ctx.community.moderator?.enabled?'PENDING':'ALLOWED',expiresAt:new Date(Date.now()+86400_000)}});
     const digestCreatedAt=m.date?new Date(m.date*1000):row.createdAt;
-    await prisma.communityManagerDigestMessage.upsert({where:{communityManagerId_telegramMessageId:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id}},create:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id,tgUserId:String(m.from.id),text:text.slice(0,12000),createdAt:digestCreatedAt,expiresAt:digestRetentionDate(digestCreatedAt)},update:{tgUserId:String(m.from.id),text:text.slice(0,12000),createdAt:digestCreatedAt,expiresAt:digestRetentionDate(digestCreatedAt)}}).catch(()=>undefined);
+    await prisma.communityManagerDigestMessage.upsert({where:{communityManagerId_telegramMessageId:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id}},create:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id,replyToMessageId:m.reply_to_message?.message_id,messageThreadId:m.message_thread_id,messageType:m.text?'TEXT':'CAPTION',tgUserId:String(m.from.id),text:text.slice(0,12000),createdAt:digestCreatedAt,expiresAt:digestRetentionDate(digestCreatedAt)},update:{replyToMessageId:m.reply_to_message?.message_id,messageThreadId:m.message_thread_id,messageType:m.text?'TEXT':'CAPTION',tgUserId:String(m.from.id),text:text.slice(0,12000),createdAt:digestCreatedAt,expiresAt:digestRetentionDate(digestCreatedAt)}}).catch(()=>undefined);
     await rememberParticipant(ctx.manager.id,m.from,text,ctx.config.personality.relationshipStyle).catch(()=>undefined);
     await prisma.$transaction([
       prisma.communityManagerJob.create({data:{communityManagerId:ctx.manager.id,messageId:row.id,runAfter:new Date(Date.now()+6000+(ctx.community.moderator?.enabled?1800:0))}}),

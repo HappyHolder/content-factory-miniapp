@@ -8,7 +8,7 @@ process.env['OPENAI_API_KEY'] = 'sk-test';
 process.env['OPENAI_CHAT_MODEL'] = 'gpt-5.6-terra';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { openAiText } = require('./openaiChat') as typeof import('./openaiChat');
+const { openAiText, openAiTextResult } = require('./openaiChat') as typeof import('./openaiChat');
 
 type Stub = { ok: boolean; status: number; json?: () => Promise<unknown>; text?: () => Promise<string> };
 const ok = (text: string): Stub => ({
@@ -79,4 +79,24 @@ test('a truncated answer returns null instead of burning a second call', async (
 test('text is read from output items — this model sends no output_text field', async () => {
   stubFetch([{ ok: true, status: 200, json: async () => ({ output: [{ type: 'reasoning' }, { type: 'message', content: [{ type: 'output_text', text: '  {"violation":false}  ' }] }] }) }]);
   assert.equal(await call(), '{"violation":false}');
+});
+test('structured output schema and usage are carried through Responses API', async () => {
+  let requestBody: Record<string, any> | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).fetch = async (_url: unknown, init: { body?: string }) => {
+    requestBody = JSON.parse(init.body ?? '{}');
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'completed',
+        output: [{ type: 'message', content: [{ type: 'output_text', text: '{"topics":[]}' }] }],
+        usage: { input_tokens: 120, output_tokens: 8, total_tokens: 128, input_tokens_details: { cached_tokens: 40 }, output_tokens_details: { reasoning_tokens: 3 } },
+      }),
+    };
+  };
+  const schema={type:'object',properties:{topics:{type:'array',items:{type:'string'}}},required:['topics'],additionalProperties:false};
+  const result=await openAiTextResult({system:'s',prompt:'p',format:{type:'json_schema',name:'digest',schema,strict:true}});
+  assert.deepEqual(requestBody?.['text']?.['format'],{type:'json_schema',name:'digest',schema,strict:true});
+  assert.deepEqual(result?.usage,{inputTokens:120,outputTokens:8,totalTokens:128,cachedInputTokens:40,reasoningTokens:3});
 });

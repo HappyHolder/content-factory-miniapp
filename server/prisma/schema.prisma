@@ -956,6 +956,9 @@ model CommunityManagerDigestMessage {
   id                 String           @id @default(cuid())
   communityManagerId String
   telegramMessageId  Int
+  replyToMessageId   Int?
+  messageThreadId    Int?
+  messageType        String           @default("TEXT")
   tgUserId           String?
   text               String
   createdAt          DateTime
@@ -964,6 +967,7 @@ model CommunityManagerDigestMessage {
 
   @@unique([communityManagerId, telegramMessageId])
   @@index([communityManagerId, createdAt])
+  @@index([communityManagerId, messageThreadId])
   @@index([expiresAt])
 }
 model CommunityManagerJob {
