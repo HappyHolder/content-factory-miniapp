@@ -46,3 +46,34 @@ export function personalityPrompt(config:CommunityManagerConfigData):string{
     'Non-configurable boundary: never bully, harass, threaten, dehumanize, use discriminatory slurs, encourage violence, sexual harassment or coordinated attacks. A sharp style changes wording, not this boundary.',
   ].filter(Boolean).join('\n');
 }
+
+/**
+ * The only part of a BrandKit the Community Manager has any use for: what the
+ * channel is about, for whom, and to what end.
+ *
+ * The whole kit used to be JSON.stringify'd into every prompt — ~9000 characters,
+ * of which visualKit (cover colours, fonts, templates, reference descriptions) is
+ * the overwhelming majority and says nothing about talking to people. The rest is
+ * post-writing craft: voiceProfile, postRules and signature describe how POSTS are
+ * written, while the CM is a chat participant with its own personality above, so
+ * feeding it those pushes replies toward post-like prose and risks a channel
+ * signature turning up at the end of a chat message.
+ *
+ * Project facts do not come from here — they arrive separately as TRUSTED PROJECT
+ * KNOWLEDGE and PROJECT SUPPORT CONTEXT.
+ */
+export function channelAboutContext(brandKit: unknown): string {
+  if (!brandKit || typeof brandKit !== 'object') return '';
+  const about = (brandKit as Record<string, unknown>)['channelAbout'];
+  if (!about || typeof about !== 'object' || Array.isArray(about)) return '';
+  const a = about as Record<string, unknown>;
+  const line = (label: string, key: string) => {
+    const value = a[key];
+    return typeof value === 'string' && value.trim() ? label + ': ' + value.trim().slice(0, 600) : '';
+  };
+  return [
+    line('Тема канала', 'topic'),
+    line('Аудитория', 'targetAudience'),
+    line('Цель контента', 'contentGoal'),
+  ].filter(Boolean).join('\n');
+}
