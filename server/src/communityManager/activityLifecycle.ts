@@ -4,10 +4,11 @@ import { sendBotMessage } from '../lib/telegramBot';
 import { parseCommunityManagerConfig } from './config';
 import { communityManagerExecutor } from './managedBot';
 import { personalityPrompt } from './personality';
+import { normalizeCommunityManagerPunctuation } from './conversationStyle';
 
 type State={endsAt?:string;reminderSent?:boolean;rewardDescription?:string;rewardMode?:string;[key:string]:unknown};
 const stateOf=(value:unknown):State=>value&&typeof value==='object'?value as State:{};
-const clean=(text:string)=>text.replace(/<[^>]+>/g,'').replace(/[*_#>]/g,'').replace(/\n{3,}/g,'\n\n').trim().slice(0,1000);
+const clean=(text:string)=>normalizeCommunityManagerPunctuation(text.replace(/<[^>]+>/g,'').replace(/[*_#>]/g,'').replace(/\n{3,}/g,'\n\n').trim()).slice(0,1000);
 
 async function generate(system:string,prompt:string){
   const text=await terraText({system,prompt,maxTokens:700,timeoutMs:45000,effort:'low',verbosity:'low'});return clean(text??'');

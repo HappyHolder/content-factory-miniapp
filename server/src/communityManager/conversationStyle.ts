@@ -18,6 +18,11 @@ export function allowConversationGreeting(currentMessage:string,hasRecentChat:bo
   return !hasRecentChat&&messageStartsWithGreeting(currentMessage);
 }
 
+/** Keep CM chat punctuation plain and human-looking regardless of model output. */
+export function normalizeCommunityManagerPunctuation(text:string){
+  return text.replace(/[\u2013\u2014]/g,'-');
+}
+
 export function sanitizeConversationReply(text:string,allowGreeting:boolean){
   let result=text.trim();
   if(!allowGreeting)result=result.replace(greeting,'');
@@ -25,7 +30,7 @@ export function sanitizeConversationReply(text:string,allowGreeting:boolean){
     previous=result;
     for(const pattern of cannedOpeners)result=result.replace(pattern,'').trimStart();
   }
-  return result.split(/(?<=[.!?])\s+/u).filter(sentence=>!supportCliches.some(pattern=>pattern.test(sentence))).join(' ').trim();
+  return normalizeCommunityManagerPunctuation(result.split(/(?<=[.!?])\s+/u).filter(sentence=>!supportCliches.some(pattern=>pattern.test(sentence))).join(' ').trim());
 }
 
 export function needsNaturalConversationRewrite(text:string){

@@ -6,6 +6,7 @@ import { sendChannelPost } from '../lib/telegramBot';
 import { stripDisabledHighlightMarkers } from '../lib/richPost';
 import { parseCommunityManagerConfig } from './config';
 import { communityManagerExecutor } from './managedBot';
+import { normalizeCommunityManagerPunctuation } from './conversationStyle';
 
 const RETENTION_DAYS=8;
 const MAX_MESSAGES=5000;
@@ -42,7 +43,7 @@ export function dailyDigestWindow(now:Date,timeZone:string,hour:number,minute:nu
 }
 export const digestRetentionDate=(from=new Date())=>new Date(from.getTime()+RETENTION_DAYS*86400_000);
 
-function cleanSummary(text:string){return stripDisabledHighlightMarkers(text).replace(/<[^>]+>/g,'').replace(/[*_#>]/g,'').replace(/\s+/g,' ').trim().slice(0,220)}
+function cleanSummary(text:string){return normalizeCommunityManagerPunctuation(stripDisabledHighlightMarkers(text).replace(/<[^>]+>/g,'').replace(/[*_#>]/g,'').replace(/\s+/g,' ').trim()).slice(0,220)}
 
 /** Builds deterministic conversation bursts. The model never chooses their start message. */
 export function buildDigestClusters(source:DigestSourceMessage[],limit=MAX_CLUSTERS):DigestCluster[]{

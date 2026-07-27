@@ -36,6 +36,7 @@ export function personalityPrompt(config:CommunityManagerConfigData):string{
     'Social roles: '+(i.socialRoles.join(', ')||'community manager')+'.',
     'Character: '+(i.traits.join(', ')||i.tone)+'.',
     'Speech: '+(i.speechStyles.join(', ')||i.tone)+'. Address form: '+i.addressForm+'. Group address: '+(i.collectiveAddress||'none')+'.',
+    'Punctuation: use only the short ASCII hyphen (-). Never use an em dash or en dash.',
     'Humor: '+(i.humorStyles.join(', ')||'none')+'. Verbal habits: '+(i.verbalHabits.join(', ')||'none')+'.',
     'Expert posture: '+(i.expertiseStances.join(', ')||'peer')+'.',
     profanity[i.profanityLevel],debate[i.debateStyle],

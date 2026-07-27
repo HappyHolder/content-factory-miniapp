@@ -15,7 +15,7 @@ import { routeSocialAction, type SocialDecision } from './socialRouter';
 import { channelAboutContext, personalityPrompt } from './personality';
 import { runActivity } from './activityRuntime';
 import type { CommunityActivityType } from './activityDirector';
-import { allowConversationGreeting, sanitizeConversationReply } from './conversationStyle';
+import { allowConversationGreeting, normalizeCommunityManagerPunctuation, sanitizeConversationReply } from './conversationStyle';
 import { documentChunks, rankKnowledge } from './knowledgeSearch';
 import { canRetryJob, retryDelayMs } from './jobPolicy';
 import { recordPulseMessage } from '../lib/communityPulse';
@@ -320,6 +320,7 @@ async function processJob(job:any){
       if(!grounding.ok)response='Точный путь сейчас не буду выдумывать. Скажи, что именно хочешь сделать — объясню по сути.';
     }
   }
+  response=normalizeCommunityManagerPunctuation(response);
   const responseMeta={...decisionMeta,addresseeRepaired,addresseeReason,supportGroundingRepaired,supportGroundingReason};
   if(!response){await done(job.id,'FAILED','empty');return}
   if(ctx.manager.mode==='OBSERVE'){await log(ctx,m,'SILENT',effectiveIntent,decision.confidence,'Observe mode',start,response,sources,out,undefined,undefined,responseMeta);await done(job.id,'COMPLETED');return}
@@ -365,5 +366,5 @@ export async function previewCommunityManagerPersonality(managerId:string,raw:un
   const config=parseCommunityManagerConfig(raw),system=personalityPrompt(config)+'\nReturn ONLY JSON with five short natural Russian Telegram replies: {"answer":"reply to a beginner asking what prediction markets are","disagreement":"disagree with a regular member without becoming generic","criticism":"respond when a participant criticizes your previous answer","familiar":"reply to a familiar regular after a successful earlier exchange","conflict":"follow a moderator after two people continued insulting each other"}. Show the selected personality, reaction policy and relationship style while keeping hard safety boundaries. No greetings, self-introduction, support filler, headings or source links.';
   const out=await ai(system,'Community: '+manager.community.channel.name);
   const j=jsonObject(out.text);if(!j)throw new Error('Invalid personality preview');
-  return{examples:{answer:String(j.answer||'').slice(0,700),disagreement:String(j.disagreement||'').slice(0,700),criticism:String(j.criticism||'').slice(0,700),familiar:String(j.familiar||'').slice(0,700),conflict:String(j.conflict||'').slice(0,700)}};
+  return{examples:{answer:normalizeCommunityManagerPunctuation(String(j.answer||'')).slice(0,700),disagreement:normalizeCommunityManagerPunctuation(String(j.disagreement||'')).slice(0,700),criticism:normalizeCommunityManagerPunctuation(String(j.criticism||'')).slice(0,700),familiar:normalizeCommunityManagerPunctuation(String(j.familiar||'')).slice(0,700),conflict:normalizeCommunityManagerPunctuation(String(j.conflict||'')).slice(0,700)}};
 }
