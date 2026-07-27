@@ -11,6 +11,7 @@ import { createInlineShare } from '../lib/inlineShare';
 import { blocksToRichHtml, normalizePostBlocks, type PostBlock } from '../lib/richPost';
 import { generateRichBlocks } from '../lib/richPostGenerator';
 import { isWithinEditWindow } from '../lib/postRetention';
+import { queuePublishedPostContentSupport } from '../communityManager/contentRelease';
 
 /** Returns the variant's structured blocks if present and non-empty, else null. */
 function variantBlocks(v: { blocks?: unknown }): PostBlock[] | null {
@@ -667,6 +668,8 @@ router.post('/publish', async (req: Request, res: Response): Promise<void> => {
   }
 
   // ── 12. Return updated post fields ───────────────────────────────────────
+  await queuePublishedPostContentSupport(postId).catch(err=>console.error('[posts/publish] CM content release queue failed:',(err as Error).message));
+
   res.json({
     post: {
       id:          postId,

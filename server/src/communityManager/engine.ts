@@ -23,10 +23,11 @@ import { markExpertMentioned, relevantExpert, rememberCmExchange, rememberPartic
 import { consolidateEpisodes, parseEpisodes } from './memoryPolicy';
 import { communityManagerUpdateKey, isProductContinuation } from './conversationRouting';
 import { digestRetentionDate } from './dailyDigest';
+import { cancelSilentContentRelease, captureAutomaticChannelPost } from './contentRelease';
 import { getEffectiveSubscription, refundSubscriptionQuota, reserveSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
 
 type TgAuthor={id:number;is_bot?:boolean;username?:string;first_name?:string;last_name?:string};
-type TgMessage={message_id:number;date?:number;chat:{id:number};message_thread_id?:number;from?:TgAuthor;text?:string;caption?:string;reply_to_message?:{message_id:number;date?:number;from?:TgAuthor;text?:string;caption?:string}};
+type TgMessage={message_id:number;date?:number;chat:{id:number};message_thread_id?:number;is_automatic_forward?:boolean;sender_chat?:{id:number};forward_from_message_id?:number;forward_origin?:{type?:string;chat?:{id:number};message_id?:number};from?:TgAuthor;text?:string;caption?:string;reply_to_message?:{message_id:number;date?:number;from?:TgAuthor;text?:string;caption?:string}};
 type TgUpdate={update_id:number;message?:TgMessage;edited_message?:TgMessage};
 type Ctx={manager:any;config:CommunityManagerConfigData;community:any};
 const questionLike=(s:string)=>/[?？]/.test(s)||/(?:^|\s)(что|как|когда|где|почему|зачем|кто|можно ли|есть ли|подскажите|расскажите|what|how|when|where|why)\b/i.test(s.trim());
@@ -63,8 +64,19 @@ async function published(chatId:string,executorType?:'SHARED'|'CUSTOM',community
 export async function acceptCommunityManagerUpdate(update:TgUpdate,executor:{type:'SHARED'|'CUSTOM';botId:number;communityId?:string}={type:'SHARED',botId:getBotIdFromToken(env.COMMUNITY_MANAGER_BOT_TOKEN)}){
   if(!Number.isInteger(update.update_id))return'ignored';
   const m=update.message??update.edited_message,text=(m?.text??m?.caption??'').trim();
-  if(!m?.from||m.from.is_bot||!text||text.startsWith('/'))return'ignored';
+  if(!m||!text||text.startsWith('/'))return'ignored';
+  if(m.is_automatic_forward){
+    const ctx=await published(String(m.chat.id),executor.type,executor.communityId);if(!ctx)return'ignored';
+    const channelMessageId=m.forward_origin?.message_id??m.forward_from_message_id,sourceChatId=m.forward_origin?.chat?.id??m.sender_chat?.id;
+    if(!channelMessageId||!sourceChatId||(ctx.community.channel.tgChatId&&String(sourceChatId)!==ctx.community.channel.tgChatId))return'ignored';
+    const publishedAt=m.date?new Date(m.date*1000):new Date();
+    await captureAutomaticChannelPost(ctx.manager.id,{channelId:ctx.community.channelId,channelMessageId,discussionChatId:String(m.chat.id),discussionMessageId:m.message_id,text,publishedAt});
+    await prisma.communityManagerMessage.upsert({where:{communityManagerId_telegramMessageId:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id}},create:{communityManagerId:ctx.manager.id,telegramUpdateId:communityManagerUpdateKey(executor.botId,update.update_id)+':channel:'+m.message_id,telegramMessageId:m.message_id,tgChatId:String(m.chat.id),tgUserId:null,replyToMessageId:null,text:text.slice(0,12000),messageType:'CHANNEL_POST',moderationStatus:'ALLOWED',status:'CONTEXT',createdAt:publishedAt,expiresAt:new Date(Date.now()+8*86400_000)},update:{text:text.slice(0,12000),expiresAt:new Date(Date.now()+8*86400_000)}}).catch(()=>undefined);
+    return'content_forward';
+  }
+  if(!m.from||m.from.is_bot)return'ignored';
   const ctx=await published(String(m.chat.id),executor.type,executor.communityId);if(!ctx)return'ignored';
+  await cancelSilentContentRelease(ctx.manager.id,{replyToMessageId:m.reply_to_message?.message_id,messageThreadId:m.message_thread_id});
   // Pulse analytics: CM sees the chat even when Moderator is off. The recorder
   // claims each message id, so overlapping sources never double-count.
   if(!update.edited_message)void recordPulseMessage({communityId:ctx.community.id,tgUserId:String(m.from.id),telegramMessageId:m.message_id,isReply:Boolean(m.reply_to_message),at:m.date?new Date(m.date*1000):new Date()}).catch(()=>undefined);

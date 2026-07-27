@@ -55,13 +55,6 @@ async function contentSignal(manager:any,types:CommunityActivityType[],recent:an
   const already=(postId:string,phase:string)=>recent.some(row=>{const result=resultOf(row.result),failedBackoff=row.status==='FAILED'&&now.getTime()-row.createdAt.getTime()<60*60_000;return result.postId===postId&&result.phase===phase&&(['RUNNING','ACTIVE','COMPLETED'].includes(row.status)||failedBackoff)});
   const upcoming=await prisma.generatedPost.findFirst({where:{channelId:manager.community.channelId,status:'SCHEDULED',scheduledAt:{gte:new Date(now.getTime()+45*60_000),lte:new Date(now.getTime()+3*3600_000)}},orderBy:{scheduledAt:'asc'},select:{id:true,title:true}});
   if(upcoming&&!already(upcoming.id,'teaser')&&stableChance(upcoming.id,'teaser',.45))return{type:'CONTENT_TEASER' as const,post:upcoming,phase:'teaser'};
-  const published=await prisma.generatedPost.findFirst({where:{channelId:manager.community.channelId,status:'PUBLISHED',publishedAt:{gte:new Date(now.getTime()-2*3600_000),lte:now}},orderBy:{publishedAt:'desc'},select:{id:true,title:true,publishedAt:true}});
-  if(!published)return null;
-  if(!already(published.id,'release')&&stableChance(published.id,'release',.65))return{type:'CONTENT_RELEASE' as const,post:published,phase:'release'};
-  if(!already(published.id,'followup')&&published.publishedAt&&now.getTime()-published.publishedAt.getTime()>25*60_000){
-    const messages=await prisma.communityManagerMessage.count({where:{communityManagerId:manager.id,createdAt:{gte:published.publishedAt}}});
-    if(messages>=2&&stableChance(published.id,'followup',.6))return{type:'CONTENT_FOLLOWUP' as const,post:published,phase:'followup'};
-  }
   return null;
 }
 

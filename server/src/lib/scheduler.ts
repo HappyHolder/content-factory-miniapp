@@ -25,6 +25,7 @@ import { deleteObject, purgeOldFiles } from './storage';
 import { rollupAllCommunities, purgePulseClaims } from './communityPulse';
 import { POST_EDIT_WINDOW_MS } from './postRetention';
 import { normalizePostBlocks, type PostBlock } from './richPost';
+import { queuePublishedPostContentSupport } from '../communityManager/contentRelease';
 
 // ─── In-flight guard ─────────────────────────────────────────────────────────
 // Prevents two concurrent sweeps (e.g. a slow sweep + the next setInterval tick)
@@ -156,6 +157,7 @@ async function publishDuePosts(): Promise<void> {
         },
       });
       console.log(`[scheduler] Post ${post.id} published at ${publishedAt.toISOString()}`);
+      await queuePublishedPostContentSupport(post.id).catch(error=>console.error('[scheduler] CM content release queue failed',(error as Error).message));
     } catch (err) {
       console.error(`[scheduler] Post ${post.id}: DB update failed — message was sent to Telegram:`, (err as Error).message);
     }
