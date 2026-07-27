@@ -5,6 +5,8 @@ import { runActivity } from './activityRuntime';
 import { advanceActiveActivities } from './activityLifecycle';
 import { chooseActivityTopic } from './activityPolicy';
 import { runDueDailyDigest } from './dailyDigest';
+import { processSilentContentReleases } from './contentRelease';
+import { initiativeAllowed } from './conversationCoordinator';
 
 const CHECK_INTERVAL_MS=7*60_000;
 let sweeping=false;
@@ -18,8 +20,8 @@ export const initiativeScheduleBase=(silenceFrom:Date,now:Date,intensity:'quiet'
   return now.getTime()-silenceFrom.getTime()>max*60_000?now:silenceFrom;
 };
 export const ignoredActivityBackoff=(streak:number,intensity:'quiet'|'balanced'|'active',now:Date)=>{
-  if(streak<2)return null;
-  const base=streak>=4?72:streak===3?36:12;
+  if(streak<1)return null;
+  const base=streak>=4?72:streak===3?36:streak===2?18:6;
   const factor=intensity==='quiet'?2:intensity==='active'?.75:1;
   return new Date(now.getTime()+base*factor*3600_000);
 };
@@ -46,7 +48,7 @@ function enabledTypes(config:ReturnType<typeof parseCommunityManagerConfig>):Com
   if(config.activities.hotNewsEnabled&&config.research.dailyLimit>0&&config.research.mode!=='off'&&(config.research.sourcePolicy==='open'||config.research.allowedDomains.length>0))types.push('HOT_NEWS');
   if(config.activities.digestEnabled)types.push('DIGEST');
   if(config.activities.predictionEnabled)types.push('PREDICTION');
-  if(config.activities.contentSupportEnabled)types.push('CONTENT_TEASER','CONTENT_RELEASE','CONTENT_FOLLOWUP');
+  if(config.activities.contentSupportEnabled)types.push('CONTENT_TEASER','CONTENT_RELEASE');
   return types;
 }
 
@@ -74,7 +76,7 @@ async function considerManager(manager:any,now:Date){
     if(result.engaged)break;
     ignoredStreak++;
   }
-  if(content&&ignoredStreak<2){await runActivity(manager.id,content.type,content.post.title,{automatic:true,reason:'content_lifecycle',postId:content.post.id,phase:content.phase,ignoredStreak});return}
+  if(content&&ignoredStreak<2&&await initiativeAllowed(manager.id,content.post.title??content.type,now)){await runActivity(manager.id,content.type,content.post.title,{automatic:true,origin:'CONTENT',reason:'content_lifecycle',postId:content.post.id,phase:content.phase,ignoredStreak});return}
 
   const lastHuman=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id},orderBy:{createdAt:'desc'},select:{createdAt:true}}),silenceFrom=lastHuman?.createdAt??manager.updatedAt;
   const latestAutomaticAt=recent.find(item=>resultOf(item.result).automatic&&item.sentAt)?.sentAt;
@@ -94,11 +96,11 @@ async function considerManager(manager:any,now:Date){
   const type=chooseActivity({enabled:types,history:recent.map(x=>{const result=resultOf(x.result);return{type:x.type,engaged:result.engaged,evaluated:result.evaluated}}),pulse:{energy:messages===0?'silent':messages<6?'low':'active',tension:Boolean(state.pendingModeratorAt&&now.getTime()-state.pendingModeratorAt.getTime()<20*60_000),openQuestions:Array.isArray(state.openQuestions)&&state.openQuestions.length>0,participants,messages,researchAvailable:config.research.mode!=='off'&&config.research.dailyLimit>0}});
   if(backoff&&backoff>now)return;
   const topic=chooseActivityTopic(config.activities.topics,recent.map(item=>item.topic));
-  if(type)await runActivity(manager.id,type,topic,{automatic:true,reason:'activity_director_'+config.activities.intensity,ignoredStreak});
+  if(type&&await initiativeAllowed(manager.id,topic??type,now))await runActivity(manager.id,type,topic,{automatic:true,reason:'activity_director_'+config.activities.intensity,ignoredStreak});
 }
 
 export async function sweepCommunityActivities(now=new Date()){
   if(sweeping)return;sweeping=true;
-  try{await advanceActiveActivities(now);await evaluateFinishedActivities(now);const managers=await prisma.communityManager.findMany({where:{enabled:true,publishedVersion:{not:null}},include:{community:{include:{moderatorChat:true,channel:true}}}});for(const manager of managers){await runDueDailyDigest(manager.id,now).catch(async error=>{await prisma.communityManager.update({where:{id:manager.id},data:{lastError:error instanceof Error?error.message.slice(0,500):'Daily digest failed'}}).catch(()=>undefined)});await considerManager(manager,now).catch(async error=>{await prisma.communityManager.update({where:{id:manager.id},data:{lastError:error instanceof Error?error.message.slice(0,500):'Activity scheduler failed'}}).catch(()=>undefined)})}}finally{sweeping=false}
+  try{await advanceActiveActivities(now);await evaluateFinishedActivities(now);await processSilentContentReleases(now);const managers=await prisma.communityManager.findMany({where:{enabled:true,publishedVersion:{not:null}},include:{community:{include:{moderatorChat:true,channel:true}}}});for(const manager of managers){await runDueDailyDigest(manager.id,now).catch(async error=>{await prisma.communityManager.update({where:{id:manager.id},data:{lastError:error instanceof Error?error.message.slice(0,500):'Daily digest failed'}}).catch(()=>undefined)});await considerManager(manager,now).catch(async error=>{await prisma.communityManager.update({where:{id:manager.id},data:{lastError:error instanceof Error?error.message.slice(0,500):'Activity scheduler failed'}}).catch(()=>undefined)})}}finally{sweeping=false}
 }
 export function startCommunityActivityScheduler(){if(timer)return;const tick=()=>void sweepCommunityActivities().catch(error=>console.error('[community-activity]',error instanceof Error?error.message:error));setTimeout(tick,20_000+Math.floor(Math.random()*40_000)).unref();timer=setInterval(tick,CHECK_INTERVAL_MS);timer.unref();console.log('[community-activity] Activity director started - checking every 7 minutes')}

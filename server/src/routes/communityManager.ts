@@ -131,12 +131,15 @@ router.patch('/:id/participants/:participantId',async(req,res)=>{
   const current=await prisma.communityManagerParticipant.findFirst({where:{id:req.params.participantId,communityManagerId:c.manager.id}});
   if(!current){res.status(404).json({error:'Участник не найден'});return}
   const list=(value:unknown,max:number)=>Array.isArray(value)?[...new Set(value.flatMap(item=>typeof item==='string'&&item.trim()?[item.trim().slice(0,80)]:[]))].slice(0,max):undefined;
-  const relationship=['NEW','ACTIVE','REGULAR','FRIEND','EXPERT'].includes(String(req.body?.relationship))?String(req.body.relationship):undefined;
+  const requestedRelationship=['NEW','ACTIVE','REGULAR','FRIEND'].includes(String(req.body?.relationship))?String(req.body.relationship):undefined;
   const expertConfirmed=typeof req.body?.expertConfirmed==='boolean'?req.body.expertConfirmed:undefined;
   const roles=list(req.body?.roles,8),expertise=list(req.body?.expertise,12);
+  const relationshipOverride=requestedRelationship==='FRIEND'?'FRIEND':requestedRelationship?null:current.relationshipOverride;
+  const nextExpert=expertConfirmed??current.expertConfirmed;
+  const nextRelationship=nextExpert?'EXPERT':relationshipOverride??current.autoRelationship;
   const participant=await prisma.communityManagerParticipant.update({where:{id:current.id},data:{
-    ...(relationship?{relationship}:{}),
-    ...(expertConfirmed!==undefined?{expertConfirmed,relationship:expertConfirmed?'EXPERT':relationship??(current.relationship==='EXPERT'?'REGULAR':current.relationship)}:{}),
+    relationship:nextRelationship,relationshipOverride,
+    ...(expertConfirmed!==undefined?{expertConfirmed}:{}),
     ...(typeof req.body?.mentionEnabled==='boolean'?{mentionEnabled:req.body.mentionEnabled}:{}),
     ...(roles?{roles}:{}),...(expertise?{expertise}:{}),
   }});

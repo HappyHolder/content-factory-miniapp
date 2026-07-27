@@ -1,7 +1,7 @@
 export type CommunityActivityType=
   |'DISCUSSION'|'POLL'|'QUIZ'|'LIGHT'|'HOT_NEWS'|'DIGEST'
   |'PREDICTION'|'CHALLENGE'|'CONTEST'
-  |'CONTENT_TEASER'|'CONTENT_RELEASE'|'CONTENT_FOLLOWUP';
+  |'CONTENT_TEASER'|'CONTENT_RELEASE';
 
 export type ActivityPulse={
   energy:'silent'|'low'|'active';
@@ -17,7 +17,7 @@ export type ActivityPulse={
 
 export type ActivityHistoryItem={type:string;engaged?:boolean;evaluated?:boolean};
 
-const CONTENT_TYPES=new Set<CommunityActivityType>(['CONTENT_TEASER','CONTENT_RELEASE','CONTENT_FOLLOWUP']);
+const CONTENT_TYPES=new Set<CommunityActivityType>(['CONTENT_TEASER','CONTENT_RELEASE']);
 
 export function intensityWindow(intensity:'quiet'|'balanced'|'active'){
   if(intensity==='quiet')return{min:180,max:360};
@@ -42,7 +42,6 @@ export function chooseActivity(input:{enabled:CommunityActivityType[];history:Ac
   if(pulse.tension)return null;
   if(pulse.upcomingPost&&enabled.includes('CONTENT_TEASER'))return'CONTENT_TEASER';
   if(pulse.publishedPost&&enabled.includes('CONTENT_RELEASE'))return'CONTENT_RELEASE';
-  if(pulse.publishedPostDiscussed&&enabled.includes('CONTENT_FOLLOWUP'))return'CONTENT_FOLLOWUP';
   if(pulse.energy==='active')return null;
   const candidates=enabled.filter(type=>!CONTENT_TYPES.has(type)&&type!=='CONTEST'&&type!=='CHALLENGE');
   if(!candidates.length)return null;

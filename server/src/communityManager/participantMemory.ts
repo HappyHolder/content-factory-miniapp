@@ -7,13 +7,12 @@ const clean=(value:unknown,max=120)=>typeof value==='string'?value.trim().slice(
 const dayKey=(date=new Date())=>date.toISOString().slice(0,10);
 const stringList=(value:unknown,max=20)=>Array.isArray(value)?value.flatMap(item=>typeof item==='string'&&item.trim()?[item.trim().slice(0,80)]:[]).slice(0,max):[];
 
-function relationship(messageCount:number,activeDays:number,cmExchanges:number,current:string){
-  if(current==='FRIEND'||current==='EXPERT')return current;
-  if(cmExchanges>=5&&activeDays>=2)return'FRIEND';
+function autoRelationship(messageCount:number,activeDays:number){
   if(activeDays>=3&&messageCount>=8)return'REGULAR';
   if(messageCount>=3)return'ACTIVE';
   return'NEW';
 }
+const effectiveRelationship=(automatic:string,override?:string|null,expert=false)=>expert?'EXPERT':override??automatic;
 
 export async function rememberParticipant(communityManagerId:string,author:TelegramAuthor,text:string,style:RelationshipStyle){
   const tgUserId=String(author.id),existing=await prisma.communityManagerParticipant.findUnique({where:{communityManagerId_tgUserId:{communityManagerId,tgUserId}}});
@@ -21,19 +20,19 @@ export async function rememberParticipant(communityManagerId:string,author:Teleg
   const username=clean(author.username,64).replace(/^@/,'')||null;
   const firstName=clean(author.first_name,80)||null,lastName=clean(author.last_name,80)||null;
   const displayName=[firstName,lastName].filter(Boolean).join(' ')||username||('Участник '+tgUserId);
-  const nextCount=(existing?.messageCount??0)+1,nextRelationship=relationship(nextCount,days.length,existing?.cmExchangeCount??0,existing?.relationship??'NEW');
+  const nextCount=(existing?.messageCount??0)+1,nextAutoRelationship=autoRelationship(nextCount,days.length),nextRelationship=effectiveRelationship(nextAutoRelationship,(existing as any)?.relationshipOverride,existing?.expertConfirmed);
   const optedOut=/\b(?:не\s+тегай|не\s+упоминай|не\s+зови\s+меня)\b/iu.test(text);
   return prisma.communityManagerParticipant.upsert({
     where:{communityManagerId_tgUserId:{communityManagerId,tgUserId}},
-    create:{communityManagerId,tgUserId,username,firstName,lastName,displayName,messageCount:1,activeDayKeys:days,relationship:'NEW',relationshipState:evolveRelationshipState(DEFAULT_RELATIONSHIP_STATE,style,{message:true}),mentionEnabled:!optedOut,roles:[],expertise:[]} as any,
-    update:{username,firstName,lastName,displayName,messageCount:{increment:1},activeDayKeys:days,relationship:nextRelationship,relationshipState:evolveRelationshipState((existing as any)?.relationshipState,style,{message:true}),lastSeenAt:new Date(),...(optedOut?{mentionEnabled:false}:{})} as any,
+    create:{communityManagerId,tgUserId,username,firstName,lastName,displayName,messageCount:1,activeDayKeys:days,relationship:'NEW',autoRelationship:'NEW',relationshipState:evolveRelationshipState(DEFAULT_RELATIONSHIP_STATE,style,{message:true}),mentionEnabled:!optedOut,roles:[],expertise:[]} as any,
+    update:{username,firstName,lastName,displayName,messageCount:{increment:1},activeDayKeys:days,relationship:nextRelationship,autoRelationship:nextAutoRelationship,relationshipState:evolveRelationshipState((existing as any)?.relationshipState,style,{message:true}),lastSeenAt:new Date(),...(optedOut?{mentionEnabled:false}:{})} as any,
   });
 }
 
 export async function rememberCmExchange(communityManagerId:string,tgUserId:string,style:RelationshipStyle,event:{positive?:boolean;conflict?:boolean;repair?:boolean}={}){
   const row=await prisma.communityManagerParticipant.findUnique({where:{communityManagerId_tgUserId:{communityManagerId,tgUserId}}});if(!row)return;
   const count=row.cmExchangeCount+1,days=stringList(row.activeDayKeys,30);
-  await prisma.communityManagerParticipant.update({where:{id:row.id},data:{cmExchangeCount:count,lastCmExchangeAt:new Date(),relationship:relationship(row.messageCount,days.length,count,row.relationship),relationshipState:evolveRelationshipState((row as any).relationshipState,style,{exchange:true,...event})} as any});
+  await prisma.communityManagerParticipant.update({where:{id:row.id},data:{cmExchangeCount:count,lastCmExchangeAt:new Date(),relationship:effectiveRelationship((row as any).autoRelationship??autoRelationship(row.messageCount,days.length),(row as any).relationshipOverride,row.expertConfirmed),relationshipState:evolveRelationshipState((row as any).relationshipState,style,{exchange:true,...event})} as any});
 }
 
 export async function relevantExpert(communityManagerId:string,topic:string){

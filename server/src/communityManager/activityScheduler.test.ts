@@ -16,7 +16,7 @@ test('stale blocked schedules restart from now without a deployment burst',()=>{
 
 test('two ignored initiatives create a long pause even in active mode',()=>{
   const sentAt=new Date('2026-07-19T10:00:00.000Z');
-  assert.equal(ignoredActivityBackoff(2,'active',sentAt)?.toISOString(),'2026-07-19T19:00:00.000Z');
+  assert.equal(ignoredActivityBackoff(2,'active',sentAt)?.toISOString(),'2026-07-19T23:30:00.000Z');
 });
 
 test('continued silence grows the pause instead of producing a message chain',()=>{
@@ -25,6 +25,7 @@ test('continued silence grows the pause instead of producing a message chain',()
   assert.equal(ignoredActivityBackoff(4,'quiet',sentAt)?.toISOString(),'2026-07-25T10:00:00.000Z');
 });
 
-test('one ignored initiative still permits one varied human check-in',()=>{
-  assert.equal(ignoredActivityBackoff(1,'active',new Date()),null);
+test('one ignored initiative backs off instead of producing a check-in chain',()=>{
+  const sentAt=new Date('2026-07-19T10:00:00.000Z');
+  assert.equal(ignoredActivityBackoff(1,'active',sentAt)?.toISOString(),'2026-07-19T14:30:00.000Z');
 });

@@ -20,11 +20,11 @@ export function allowConversationGreeting(currentMessage:string,hasRecentChat:bo
 
 /** Keep CM chat punctuation plain and human-looking regardless of model output. */
 export function normalizeCommunityManagerPunctuation(text:string){
-  return text.replace(/[\u2013\u2014]/g,'-');
+  return text.replace(/\\n/g,'\n').replace(/[\u2013\u2014]/g,'-');
 }
 
 export function sanitizeConversationReply(text:string,allowGreeting:boolean){
-  let result=text.trim();
+  let result=text.replace(/\\n/g,'\n').trim();
   if(!allowGreeting)result=result.replace(greeting,'');
   for(let previous='';result&&previous!==result;){
     previous=result;

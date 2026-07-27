@@ -15,6 +15,12 @@ export type SocialDecision={
   topic:string;
   valueAdd:string;
   moderatorFollowup:boolean;
+  speechAct?:'question'|'request'|'argument'|'acknowledgement'|'closure'|'abuse'|'other';
+  expectsReply?:boolean;
+  conversationComplete?:boolean;
+  sameSegment?:boolean;
+  newContribution?:string;
+  possibleClaims?:Array<{kind:'ROLE'|'EXPERTISE'|'PREFERENCE'|'FACT';value:string;confidence:number}>;
   usage:{input:number;output:number};
 };
 
@@ -48,7 +54,11 @@ export function routeSocialAction(input:{
 
   const addressed=input.telegramDirect||input.socialAddress;
   if(addressed){
-    return{action:'REPLY',shouldSpeak:true,priority:true,replyToCurrent:true,reason:'addressed_to_cm'};
+    if(decision.speechAct==='abuse')return{action:'SILENT',shouldSpeak:false,priority:false,replyToCurrent:false,reason:'direct_abuse'};
+    if(decision.speechAct==='acknowledgement'&&!(decision.newContribution??'').trim())return{action:'REACT',shouldSpeak:true,priority:true,replyToCurrent:true,reason:'direct_acknowledgement'};
+    if(decision.speechAct==='closure'||(!decision.respond&&!decision.expectsReply))return{action:'SILENT',shouldSpeak:false,priority:false,replyToCurrent:false,reason:'direct_conversation_complete'};
+    if(decision.respond&&(decision.expectsReply||input.hasQuestion||Boolean((decision.newContribution??decision.valueAdd).trim())))return{action:'REPLY',shouldSpeak:true,priority:true,replyToCurrent:true,reason:'addressed_to_cm_with_value'};
+    return{action:'SILENT',shouldSpeak:false,priority:false,replyToCurrent:false,reason:'direct_without_value'};
   }
   if(input.addressedToOtherHuman&&input.hasQuestion){
     return{action:'SILENT',shouldSpeak:false,priority:false,replyToCurrent:false,reason:'question_addressed_to_human'};

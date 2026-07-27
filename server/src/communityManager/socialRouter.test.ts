@@ -6,9 +6,9 @@ import { routeSocialAction, type SocialDecision } from './socialRouter';
 const decision=(patch:Partial<SocialDecision>={}):SocialDecision=>({intent:'conversation',respond:true,research:false,confidence:.8,reason:'useful',engagementLevel:'contribute',conversationScore:.7,topic:'market',valueAdd:'specific angle',moderatorFollowup:false,usage:{input:0,output:0},...patch});
 const config=(patch:any={})=>({...DEFAULT_CM_CONFIG,replies:{...DEFAULT_CM_CONFIG.replies,ambientConversation:true,thematicConversation:true,participationLevel:'selective' as const,...patch}});
 
-test('direct address always gets a targeted reply',()=>{
-  const route=routeSocialAction({config:config(),decision:decision({respond:false,engagementLevel:'ignore'}),telegramDirect:false,socialAddress:true,productContext:false,recentModerator:false,cooldownFree:false,hasQuestion:false});
-  assert.equal(route.action,'REPLY');assert.equal(route.replyToCurrent,true);assert.equal(route.priority,true);
+test('direct closure is not forced into another CM reply',()=>{
+  const route=routeSocialAction({config:config(),decision:decision({respond:false,engagementLevel:'ignore',speechAct:'closure',conversationComplete:true,expectsReply:false,newContribution:''}),telegramDirect:false,socialAddress:true,productContext:false,recentModerator:false,cooldownFree:false,hasQuestion:false});
+  assert.equal(route.action,'SILENT');
 });
 
 test('useful thematic contribution does not require magic message length or participant count',()=>{
@@ -44,5 +44,16 @@ test('question explicitly replied to another human is never answered on their be
 
 test('explicit CM mention still wins inside a human reply thread',()=>{
   const route=routeSocialAction({config:config(),decision:decision(),telegramDirect:true,socialAddress:false,addressedToOtherHuman:true,productContext:false,recentModerator:false,cooldownFree:true,hasQuestion:true});
-  assert.equal(route.action,'REPLY');assert.equal(route.reason,'addressed_to_cm');
+  assert.equal(route.action,'REPLY');assert.equal(route.reason,'addressed_to_cm_with_value');
+});
+
+
+test('direct acknowledgement becomes a reaction without ending substantive dialogue globally',()=>{
+  const route=routeSocialAction({config:config(),decision:decision({respond:false,engagementLevel:'acknowledge',speechAct:'acknowledgement',expectsReply:false,newContribution:''}),telegramDirect:true,socialAddress:false,productContext:false,recentModerator:false,cooldownFree:false,hasQuestion:false});
+  assert.equal(route.action,'REACT');
+});
+
+test('a new substantive turn can continue a long direct dialogue',()=>{
+  const route=routeSocialAction({config:config(),decision:decision({respond:true,engagementLevel:'contribute',speechAct:'argument',expectsReply:true,newContribution:'new counterargument'}),telegramDirect:true,socialAddress:false,productContext:false,recentModerator:false,cooldownFree:false,hasQuestion:false});
+  assert.equal(route.action,'REPLY');
 });

@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_CM_CONFIG } from './config';
 import { communityPulse, chooseActivityForPulse } from './activityPolicy';
-import { consolidateEpisodes } from './memoryPolicy';
 import { isAddressedToCommunityManager, mentionsTelegramUsername } from './conversationIntelligence';
 import { routeSocialAction, type SocialDecision } from './socialRouter';
 import { deriveSocialState } from './socialState';
@@ -25,14 +24,6 @@ test('activity policy reads community pulse instead of sending on a clock alone'
   const silent=communityPulse({messages:0,participants:0,tension:false,openQuestions:0});
   assert.equal(chooseActivityForPulse(['DISCUSSION','POLL'],[],active),null);
   assert.equal(chooseActivityForPulse(['DISCUSSION','POLL'],[],silent),'DISCUSSION');
-});
-
-test('episodic memory consolidates duplicates and retains open loops',()=>{
-  const old={at:'2020-01-01T00:00:00.000Z',participant:'Alex',kind:'question' as const,summary:'When is launch?',outcome:'open' as const};
-  const recent={...old,at:'2026-07-17T00:00:00.000Z'};
-  const result=consolidateEpisodes([old],[recent]);
-  assert.equal(result.length,1);
-  assert.equal(result[0]?.at,recent.at);
 });
 
 

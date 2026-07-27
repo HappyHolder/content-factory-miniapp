@@ -27,7 +27,6 @@ import { resumeGeneratingPlans } from './lib/contentWorker';
 import { rateLimit } from './lib/rateLimit';
 import { startCommunityManagerWorker } from './communityManager/engine';
 import { startCommunityActivityScheduler } from './communityManager/activityScheduler';
-import { startSilentContentReleaseWorker } from './communityManager/contentRelease';
 import { startCommunityCoreRuntime } from './communityCore/engine';
 
 const app = express();
@@ -106,7 +105,6 @@ app.listen(env.PORT, () => {
   startScheduler();
   startCommunityManagerWorker();
   startCommunityActivityScheduler();
-  startSilentContentReleaseWorker();
   startCommunityCoreRuntime().catch(err => console.error('[community-core] boot failed:', (err as Error).message));
   // Resume any content-manager plans interrupted by a restart.
   resumeGeneratingPlans().catch(err =>
