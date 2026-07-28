@@ -41,8 +41,16 @@ async function hydrateRoots(managerId:string,period:DigestSourceMessage[]){
   const roots=await prisma.communityManagerMessage.findMany({where:{communityManagerId:managerId,telegramMessageId:{in:rootIds},text:{not:null}},select:{telegramMessageId:true,replyToMessageId:true,messageThreadId:true,messageType:true,tgUserId:true,text:true,createdAt:true}});
   return[...roots.map(row=>({...row,text:row.text??''})),...period];
 }
-async function claim(managerId:string,dateKey:string,scheduledAt:Date){const dedupeKey='daily-digest:'+managerId+':'+dateKey;try{return await prisma.communityManagerActivity.create({data:{communityManagerId:managerId,type:'DAILY_DIGEST',topic:dateKey,dedupeKey,scheduledAt,status:'RUNNING',result:{automatic:true,evaluated:true,reason:'daily_digest',dateKey}}})}catch(error){if(!(error instanceof Prisma.PrismaClientKnownRequestError)||error.code!=='P2002')throw error;const existing=await prisma.communityManagerActivity.findUnique({where:{dedupeKey}});if(!existing||existing.status!=='FAILED'||existing.updatedAt>new Date(Date.now()-5*60_000))return null;const retry=await prisma.communityManagerActivity.updateMany({where:{id:existing.id,status:'FAILED',updatedAt:existing.updatedAt},data:{status:'RUNNING',lastError:null}});return retry.count?{...existing,status:'RUNNING'}:null}}
-
+async function claim(managerId:string,dateKey:string,scheduledAt:Date){
+  const dedupeKey='daily-digest:'+managerId+':'+dateKey,existing=await prisma.communityManagerActivity.findUnique({where:{dedupeKey}});
+  if(existing){
+    if(existing.status!=='FAILED'||existing.updatedAt>new Date(Date.now()-5*60_000))return null;
+    const retry=await prisma.communityManagerActivity.updateMany({where:{id:existing.id,status:'FAILED',updatedAt:existing.updatedAt},data:{status:'RUNNING',lastError:null}});
+    return retry.count?{...existing,status:'RUNNING'}:null;
+  }
+  try{return await prisma.communityManagerActivity.create({data:{communityManagerId:managerId,type:'DAILY_DIGEST',topic:dateKey,dedupeKey,scheduledAt,status:'RUNNING',result:{automatic:true,evaluated:true,reason:'daily_digest',dateKey}}})}
+  catch(error){if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002')return null;throw error}
+}
 export async function runDueDailyDigest(managerId:string,now=new Date()){
   const manager=await prisma.communityManager.findUnique({where:{id:managerId},include:{community:{include:{moderatorChat:true,channel:true}}}});if(!manager?.enabled||!manager.publishedVersion||!manager.community.moderatorChat)return null;
   const row=await prisma.communityManagerConfig.findUnique({where:{communityManagerId_version:{communityManagerId:manager.id,version:manager.publishedVersion}}});if(!row)return null;const config=parseCommunityManagerConfig(row.config);if(!config.activities.dailyDigestEnabled)return null;
