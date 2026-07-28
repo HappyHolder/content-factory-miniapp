@@ -47,7 +47,7 @@ function enabledTypes(config:ReturnType<typeof parseCommunityManagerConfig>):Com
   if(config.activities.hotNewsEnabled&&config.research.dailyLimit>0&&config.research.mode!=='off'&&(config.research.sourcePolicy==='open'||config.research.allowedDomains.length>0))types.push('HOT_NEWS');
   if(config.activities.digestEnabled)types.push('DIGEST');
   if(config.activities.predictionEnabled)types.push('PREDICTION');
-  if(config.activities.contentSupportEnabled)types.push('CONTENT_TEASER','CONTENT_RELEASE');
+  if(config.activities.contentSupportEnabled)types.push('CONTENT_TEASER');
   return types;
 }
 

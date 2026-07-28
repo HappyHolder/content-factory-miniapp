@@ -6,9 +6,10 @@ import { communityManagerExecutor } from './managedBot';
 import { normalizeCommunityManagerPunctuation } from './conversationStyle';
 import { getEffectiveSubscription, reserveSubscriptionQuota, refundSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
 import { isRewardActivity, type CommunityActivityType } from './activityDirector';
-import { runCommunityManagerAgent } from './agentRuntime';
+import { runCommunityManagerAgent, type CommunityAgentEvent } from './agentRuntime';
 import { activitySessionKey, conversationSessionKey } from './agentSession';
 import { appendCmThesis } from './conversationCoordinator';
+import { reviewContentComment } from './contentCommentPolicy';
 
 type ActivityMeta={activityId?:string;automatic?:boolean;origin?:'MANUAL'|'DIRECTOR'|'CONTENT';context?:Record<string,unknown>;reason?:string;postId?:string;phase?:string;ignoredStreak?:number;postText?:string;sourceUrl?:string;replyToMessageId?:number;threadId?:string;segmentId?:string};
 
@@ -33,14 +34,36 @@ export async function runActivity(managerId:string,type:CommunityActivityType,to
     let postText=meta.postText??'',sourceUrl=meta.sourceUrl??'';
     if(meta.postId){const post=await prisma.generatedPost.findUnique({where:{id:meta.postId},include:{variants:{select:{id:true,text:true}}}});if(post){postText=post.variants.find(item=>item.id===post.selectedVariantId)?.text??post.variants[0]?.text??postText;sourceUrl=post.sourceUrl??sourceUrl}}
     const sessionKey=meta.threadId&&meta.segmentId?conversationSessionKey(meta.threadId,meta.segmentId):activitySessionKey(type,activity.id);
-    const eventKind=type==='CONTENT_RELEASE'?'CONTENT_POST':meta.automatic?'INITIATIVE':'MANUAL_ACTIVITY';
-    const result=await runCommunityManagerAgent({managerId:manager.id,communityId:manager.community.id,channelId:manager.community.channelId,channelName:manager.community.channel.name,chatId:manager.community.moderatorChat.tgChatId,config,sessionKey,threadId:meta.threadId,segmentId:meta.segmentId,event:{kind:eventKind,dedupeKey:'activity:'+manager.id+':'+activity.id,activityId:activity.id,activityType:type,topic,postText:postText.slice(0,12000),sourceUrl,replyTargetMessageId:meta.replyToMessageId}});
+    const eventKind:CommunityAgentEvent['kind']=type==='CONTENT_RELEASE'?'CONTENT_POST':meta.automatic?'INITIATIVE':'MANUAL_ACTIVITY';
+    const baseEvent={kind:eventKind,dedupeKey:'activity:'+manager.id+':'+activity.id,activityId:activity.id,activityType:type,topic,postText:postText.slice(0,12000),sourceUrl,replyTargetMessageId:meta.replyToMessageId};
+    let result=await runCommunityManagerAgent({managerId:manager.id,communityId:manager.community.id,channelId:manager.community.channelId,channelName:manager.community.channel.name,chatId:manager.community.moderatorChat.tgChatId,config,sessionKey,threadId:meta.threadId,segmentId:meta.segmentId,event:baseEvent});
+    let qualityIssues:string[]=[];
+    if(type==='CONTENT_RELEASE'&&result.decision.action==='comment'){
+      let review=reviewContentComment({decision:result.decision,postText,replyTargetMessageId:meta.replyToMessageId,sources:result.sources.length});
+      if(!review.approved){
+        result=await runCommunityManagerAgent({managerId:manager.id,communityId:manager.community.id,channelId:manager.community.channelId,channelName:manager.community.channel.name,chatId:manager.community.moderatorChat.tgChatId,config,sessionKey,threadId:meta.threadId,segmentId:meta.segmentId,event:{...baseEvent,dedupeKey:baseEvent.dedupeKey+':quality-revision',activityContext:{qualityIssues:review.issues,previousEditorialPlan:result.decision.editorialPlan}}});
+        review=reviewContentComment({decision:result.decision,postText,replyTargetMessageId:meta.replyToMessageId,sources:result.sources.length});
+      }
+      qualityIssues=review.issues;
+    }
     const decision=result.decision;
+    if(type==='CONTENT_RELEASE'&&qualityIssues.length){
+      const reason='Content comment rejected: '+qualityIssues.join(', ');
+      await prisma.$transaction([
+        prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'CANCELLED',lastError:reason.slice(0,500),result:{...(meta.context??{}),automatic:Boolean(meta.automatic),evaluated:true,reason,agentEventId:result.eventId,qualityIssues}}}),
+        prisma.communityManagerAction.create({data:{communityManagerId:manager.id,threadId:meta.threadId,segmentId:meta.segmentId,decision:'SILENT',intent:'content_quality_rejected',reason:reason.slice(0,500),sources:result.sources as any,model:primaryTextModel(),promptVersion:'community-agent-v1',inputTokens:result.inputTokens,outputTokens:result.outputTokens,metadata:{agentEventId:result.eventId,action:decision.action,references:decision.references,qualityIssues}}}),
+      ]);
+      return{activityId:activity.id,status:'CANCELLED'};
+    }
     if(decision.action==='no_action'||decision.action==='react'&&!meta.replyToMessageId){
       await prisma.$transaction([
         prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'CANCELLED',lastError:decision.reason,result:{...(meta.context??{}),automatic:Boolean(meta.automatic),evaluated:true,reason:decision.reason,agentEventId:result.eventId}}}),
         prisma.communityManagerAction.create({data:{communityManagerId:manager.id,threadId:meta.threadId,segmentId:meta.segmentId,decision:'SILENT',intent:decision.intent,reason:decision.reason,sources:result.sources as any,model:primaryTextModel(),promptVersion:'community-agent-v1',inputTokens:result.inputTokens,outputTokens:result.outputTokens,metadata:{agentEventId:result.eventId,action:decision.action,references:decision.references}}}),
       ]);return{activityId:activity.id,status:'CANCELLED'};
+    }
+    if(type==='CONTENT_RELEASE'&&meta.activityId){
+      const sendClaim=await prisma.communityManagerActivity.updateMany({where:{id:activity.id,status:'RUNNING'},data:{status:'SENDING'}});
+      if(!sendClaim.count)return{activityId:activity.id,status:'CANCELLED'};
     }
     const quota=await reserveSubscriptionQuota(manager.community.channel.userId,'communityManagerActions');if(!quota.ok)throw new Error('Community Manager monthly action limit reached');reserved=true;
     const executor=await communityManagerExecutor(manager.community.id),chatId=manager.community.moderatorChat.tgChatId;

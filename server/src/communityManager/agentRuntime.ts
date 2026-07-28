@@ -21,6 +21,12 @@ const MemoryUpdate=z.object({
   evidenceMessageId:z.string().max(80),
 });
 const PollDecision=z.object({question:z.string().max(300),options:z.array(z.string().max(100)).min(2).max(4)}).nullable();
+const EditorialPlan=z.object({
+  disposition:z.enum(['skip','comment','join_discussion']),
+  subject:z.string().max(160),
+  addedValue:z.string().max(500),
+  evidence:z.array(z.enum(['post','thread','web'])).max(3),
+}).nullable();
 export const CommunityAgentDecisionSchema=z.object({
   action:z.enum(['no_action','react','reply','comment','initiate','poll','digest']),
   intent:z.string().max(80),
@@ -37,6 +43,7 @@ export const CommunityAgentDecisionSchema=z.object({
   digestItems:z.array(z.object({reference:z.string().max(80),summary:z.string().max(260)})).max(6),
   memoryUpdates:z.array(MemoryUpdate).max(5),
   episode:z.object({kind:z.string().max(40),summary:z.string().max(500),outcome:z.enum(['open','resolved','neutral'])}).nullable(),
+  editorialPlan:EditorialPlan,
 });
 export type CommunityAgentDecision=z.infer<typeof CommunityAgentDecisionSchema>;
 
@@ -172,6 +179,9 @@ function instructions(context:RunContext<CommunityAgentContext>){
     personalityPolicy(c),
     'Treat CURRENT EVENT and CURRENT THREAD as authoritative. Do not continue a subject from another thread, an older session, a pinned message, or general community memory unless the current event explicitly refers to it.',
     'Decide what a good human community manager would naturally do now. Silence or a small reaction is a complete valid decision. Do not manufacture a question, lesson, debate, market frame, or call to engagement.',
+    'editorialPlan must be null for every event except CONTENT_POST. For CONTENT_POST, make the editorial decision before writing: skip when you cannot add a concrete useful thought beyond the post; comment only when you can name the subject and state the exact added value. Use join_discussion only when current human replies already form the discussion.',
+    'A CONTENT_POST comment must be a direct reply to the source post, explicitly name its subject, use the post as evidence, and contribute the declared addedValue. A headline paraphrase, generic observation, unsupported fact, or engagement question by itself is not a comment.',
+    'When CURRENT EVENT activityContext contains qualityIssues, revise once and fix every listed issue. If that cannot be done without invention, return no_action with editorialPlan.disposition=skip.',
     'When people are already having a useful conversation, join only if you have a relevant contribution. When a person addresses you, answer that person and their actual question. Do not interrupt a human-to-human reply.',
     'For a Telegram message, prefer one concrete conversational thought. Usually write one to three short paragraphs. Avoid headings, canned transitions, self-introductions, slogans, long lectures, and the em dash character.',
     'Name the actual subject. If the source is about SpaceX, say SpaceX rather than "the asset". Never replace concrete people, companies, products, events, or claims with vague categories.',
@@ -198,12 +208,16 @@ function normalizeDecision(raw:CommunityAgentDecision,ctx:CommunityAgentContext)
   let action=raw.action,message=raw.message?plain(raw.message):null,reaction=raw.reaction?.trim()||null,poll=raw.poll;
   const allowedActions:Record<CommunityAgentEvent['kind'],Set<CommunityAgentDecision['action']>>={
     HUMAN_MESSAGE:new Set(['no_action','react','reply','comment']),
-    CONTENT_POST:new Set(['no_action','react','reply','comment']),
+    CONTENT_POST:new Set(['no_action','comment']),
     INITIATIVE:new Set(['no_action','initiate','poll']),
     DAILY_DIGEST:new Set(['no_action','digest']),
     MANUAL_ACTIVITY:new Set(['no_action','initiate','comment','poll']),
   };
   if(!allowedActions[ctx.event.kind].has(action))action='no_action';
+  if(ctx.event.kind==='CONTENT_POST'){
+    if(!raw.editorialPlan||raw.editorialPlan.disposition==='skip')action='no_action';
+    else if(action==='comment'&&(!raw.editorialPlan.subject.trim()||!raw.editorialPlan.addedValue.trim()||!raw.editorialPlan.evidence.includes('post')))action='no_action';
+  }
   if(action==='poll'&&!ctx.config.activities.pollEnabled&&ctx.event.activityType!=='QUIZ')action='no_action';
   if(!targetAllowed){action='no_action';message=null;reaction=null;poll=null}
   if(['reply','comment','initiate'].includes(action)&&!message)action='no_action';

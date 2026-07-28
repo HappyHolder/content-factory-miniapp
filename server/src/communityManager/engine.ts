@@ -18,7 +18,7 @@ import { rememberCmExchange, rememberParticipant } from './participantMemory';
 import { communityManagerUpdateKey } from './conversationRouting';
 import { digestRetentionDate } from './dailyDigest';
 import { applyConversationAnalysis, appendCmThesis, appendHumanThesis, conversationStillCurrent, recordEpisode, recordParticipantClaims, resolveConversationLocation } from './conversationCoordinator';
-import { cancelSilentContentRelease, captureAutomaticChannelPost } from './contentRelease';
+import { automaticChannelMirror, cancelSilentContentRelease, captureAutomaticChannelPost } from './contentRelease';
 import { getEffectiveSubscription, refundSubscriptionQuota, reserveSubscriptionQuota, TIER_LIMITS } from '../lib/subscriptionLimits';
 import { runCommunityManagerAgent } from './agentRuntime';
 import { conversationSessionKey } from './agentSession';
@@ -43,16 +43,21 @@ async function published(chatId:string,executorType?:'SHARED'|'CUSTOM',community
 export async function acceptCommunityManagerUpdate(update:TgUpdate,executor:{type:'SHARED'|'CUSTOM';botId:number;communityId?:string}={type:'SHARED',botId:getBotIdFromToken(env.COMMUNITY_MANAGER_BOT_TOKEN)}){
   if(!Number.isInteger(update.update_id))return'ignored';
   const m=update.message??update.edited_message,text=(m?.text??m?.caption??'').trim();
-  if(!m||!text||text.startsWith('/'))return'ignored';
-  if(m.is_automatic_forward){
+  if(!m)return'ignored';
+  const mirror=automaticChannelMirror(m);
+  if(mirror){
     const ctx=await published(String(m.chat.id),executor.type,executor.communityId);if(!ctx)return'ignored';
-    const channelMessageId=m.forward_origin?.message_id??m.forward_from_message_id,sourceChatId=m.forward_origin?.chat?.id??m.sender_chat?.id;
-    if(!channelMessageId||!sourceChatId||(ctx.community.channel.tgChatId&&String(sourceChatId)!==ctx.community.channel.tgChatId))return'ignored';
+    if(ctx.community.channel.tgChatId&&String(mirror.sourceChatId)!==ctx.community.channel.tgChatId)return'ignored';
     const publishedAt=m.date?new Date(m.date*1000):new Date();
-    await captureAutomaticChannelPost(ctx.manager.id,{channelId:ctx.community.channelId,channelMessageId,discussionChatId:String(m.chat.id),discussionMessageId:m.message_id,text,publishedAt});
+    await captureAutomaticChannelPost(ctx.manager.id,{channelId:ctx.community.channelId,channelMessageId:mirror.channelMessageId,discussionChatId:String(m.chat.id),discussionMessageId:mirror.discussionMessageId,text,publishedAt});
     await prisma.communityManagerMessage.upsert({where:{communityManagerId_telegramMessageId:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id}},create:{communityManagerId:ctx.manager.id,telegramUpdateId:communityManagerUpdateKey(executor.botId,update.update_id)+':channel:'+m.message_id,telegramMessageId:m.message_id,tgChatId:String(m.chat.id),tgUserId:null,replyToMessageId:null,messageThreadId:m.message_thread_id??m.message_id,text:text.slice(0,12000),messageType:'CHANNEL_POST',moderationStatus:'ALLOWED',status:'CONTEXT',createdAt:publishedAt,expiresAt:new Date(Date.now()+8*86400_000)},update:{text:text.slice(0,12000),messageThreadId:m.message_thread_id??m.message_id,expiresAt:new Date(Date.now()+8*86400_000)}}).catch(()=>undefined);
     return'content_forward';
   }
+  if(m.is_automatic_forward){
+    console.warn('[community-manager/content-forward] Telegram omitted channel origin',{botId:executor.botId,updateId:update.update_id,chatId:m.chat.id,messageId:m.message_id});
+    return'unresolved_content_forward';
+  }
+  if(!text||text.startsWith('/'))return'ignored';
   if(!m.from||m.from.is_bot)return'ignored';
   const ctx=await published(String(m.chat.id),executor.type,executor.communityId);if(!ctx)return'ignored';
   await cancelSilentContentRelease(ctx.manager.id,{replyToMessageId:m.reply_to_message?.message_id,messageThreadId:m.message_thread_id});
