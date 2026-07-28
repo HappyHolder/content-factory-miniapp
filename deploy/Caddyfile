@@ -33,6 +33,9 @@
 	# SPA: serve the static build, fall back to index.html for client-side routes.
 	handle {
 		root * /srv
+		# Telegram WebView aggressively keeps the previous SPA. Revalidate on every open;
+		# hashed assets still return 304 when unchanged.
+		header Cache-Control "no-cache, must-revalidate"
 		try_files {path} /index.html
 		file_server
 	}

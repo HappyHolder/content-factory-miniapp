@@ -14,7 +14,9 @@ import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContent } from '../lib/visionExtractor';
 import { completeManagedBot, type ManagedBotUpdate } from '../moderator/managedBotService';
 import { completeManagedCommunityBot } from '../communityManager/managedBot';
-import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, parseChannelCallback, type BotChannelSummary } from '../lib/botQuickActions';
+import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, parseChannelCallback, versionedMiniAppUrl, type BotChannelSummary } from '../lib/botQuickActions';
+
+const MINI_APP_RELEASE_URL=versionedMiniAppUrl(env.MINI_APP_URL,Date.now().toString(36));
 
 // ─── /start welcome ─────────────────────────────────────────────────────────
 const WELCOME_TEXT =
@@ -51,7 +53,7 @@ function findWelcomeImage(): string | null {
  * persistent channel/app keyboard. Falls back to a plain text message if no image file.
  */
 async function sendWelcome(chatId: number, activeChannel: BotChannelSummary | null): Promise<void> {
-  const keyboard = buildQuickActionsKeyboard(activeChannel, env.MINI_APP_URL);
+  const keyboard = buildQuickActionsKeyboard(activeChannel, MINI_APP_RELEASE_URL);
   try {
     const imagePath = findWelcomeImage();
     if (imagePath) {
@@ -221,16 +223,16 @@ async function sendChannelPicker(chatId: number, telegramId: string): Promise<vo
   try {
     const context = await loadBotChannelContext(telegramId);
     if (!context) {
-      await sendBotMessage(chatId, 'Сначала открой Publium, чтобы подключить аккаунт.', env.TELEGRAM_BOT_TOKEN, buildQuickActionsKeyboard(null, env.MINI_APP_URL));
+      await sendBotMessage(chatId, 'Сначала открой Publium, чтобы подключить аккаунт.', env.TELEGRAM_BOT_TOKEN, buildQuickActionsKeyboard(null, MINI_APP_RELEASE_URL));
       return;
     }
     if (!context.activeChannel) {
-      await sendBotMessage(chatId, 'Сначала подключи Telegram-канал в Publium.', env.TELEGRAM_BOT_TOKEN, buildQuickActionsKeyboard(null, env.MINI_APP_URL));
+      await sendBotMessage(chatId, 'Сначала подключи Telegram-канал в Publium.', env.TELEGRAM_BOT_TOKEN, buildQuickActionsKeyboard(null, MINI_APP_RELEASE_URL));
       return;
     }
     const activeLabel = botChannelLabel(context.activeChannel);
     if (context.channels.length === 1) {
-      await sendBotMessage(chatId, `Активный канал: ${activeLabel}. Других подключённых каналов пока нет.`, env.TELEGRAM_BOT_TOKEN, buildQuickActionsKeyboard(context.activeChannel, env.MINI_APP_URL));
+      await sendBotMessage(chatId, `Активный канал: ${activeLabel}. Других подключённых каналов пока нет.`, env.TELEGRAM_BOT_TOKEN, buildQuickActionsKeyboard(context.activeChannel, MINI_APP_RELEASE_URL));
       return;
     }
     await sendBotMessage(
@@ -272,7 +274,7 @@ async function handleChannelCallback(query: TgCallbackQuery): Promise<void> {
       chatId,
       `Активный канал: ${label}. Следующий материал будет обработан для него.`,
       env.TELEGRAM_BOT_TOKEN,
-      buildQuickActionsKeyboard(channel, env.MINI_APP_URL),
+      buildQuickActionsKeyboard(channel, MINI_APP_RELEASE_URL),
     );
   } catch (error) {
     console.error('[bot/webhook] channel switch failed:', (error as Error).message);
@@ -282,8 +284,8 @@ async function handleChannelCallback(query: TgCallbackQuery): Promise<void> {
 
 /** An "Open the app" Web App button, or undefined when MINI_APP_URL is unset. */
 function openAppKeyboard(label = '🚀 Открыть приложение'): TelegramWebAppKeyboard | undefined {
-  return env.MINI_APP_URL
-    ? { inline_keyboard: [[{ text: label, web_app: { url: env.MINI_APP_URL } }]] }
+  return MINI_APP_RELEASE_URL
+    ? { inline_keyboard: [[{ text: label, web_app: { url: MINI_APP_RELEASE_URL } }]] }
     : undefined;
 }
 
@@ -733,7 +735,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       chatId,
       `Принял. Готовлю пост для ${targetLabel}.`,
       env.TELEGRAM_BOT_TOKEN,
-      buildQuickActionsKeyboard(targetChannel, env.MINI_APP_URL),
+      buildQuickActionsKeyboard(targetChannel, MINI_APP_RELEASE_URL),
     ).catch(error => console.error('[bot/webhook] source acknowledgement failed:', (error as Error).message));
 
     const subscription = await getEffectiveSubscription(dbUser.id);

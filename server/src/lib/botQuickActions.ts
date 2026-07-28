@@ -9,6 +9,11 @@ export interface BotChannelSummary {
 const CHANNEL_CALLBACK_PREFIX = 'channel:';
 const CHANNEL_BUTTON_PREFIX = 'Канал';
 
+export function versionedMiniAppUrl(base:string|undefined,release:string):string|undefined{
+  if(!base)return undefined;
+  try{const url=new URL(base);url.searchParams.set('app_release',release);return url.toString()}catch{return base}
+}
+
 export function botChannelLabel(channel: BotChannelSummary): string {
   return channel.handle ? `@${channel.handle.replace(/^@/, '')}` : channel.name;
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, parseChannelCallback } from './botQuickActions';
+import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, parseChannelCallback, versionedMiniAppUrl } from './botQuickActions';
 
 const channels = [
   { id: 'channel-one', name: 'First channel', handle: 'first' },
@@ -35,4 +35,8 @@ test('recognizes channel keyboard text and parses safe callbacks', () => {
   assert.equal(parseChannelCallback('channel:channel-two'), 'channel-two');
   assert.equal(parseChannelCallback('post:channel-two'), null);
   assert.equal(botChannelLabel({ id: 'x', name: 'X', handle: '@double' }), '@double');
+});
+test('versions the Telegram Web App URL without changing its route or existing query',()=>{
+  assert.equal(versionedMiniAppUrl('https://publium.ru/app?source=bot','release-42'),'https://publium.ru/app?source=bot&app_release=release-42');
+  assert.equal(versionedMiniAppUrl(undefined,'release-42'),undefined);
 });
