@@ -98,3 +98,13 @@ test('digest body renders checked links and no synthetic conclusion',()=>{
   assert.equal(body,'• Обсудили ИИ-модератора.\n↳ https://t.me/c/777/101');
   assert.doesNotMatch(body,/Незакрытый вопрос|полезный итог/i);
 });
+test('a channel source post remains the first digest link for replies on the next day',()=>{
+  const clusters=buildDigestClusters([
+    message(900,0,{messageType:'CHANNEL_POST',tgUserId:null,text:'SpaceX fell 51 percent after the listing',createdAt:new Date('2026-07-27T23:58:00.000Z'),messageThreadId:900}),
+    message(901,1,{tgUserId:'alice',text:'The launch valuation was too high',replyToMessageId:900,messageThreadId:900,createdAt:new Date('2026-07-28T00:01:00.000Z')}),
+    message(902,2,{tgUserId:'bob',text:'Cash flow matters more than the headline price',replyToMessageId:901,messageThreadId:900,createdAt:new Date('2026-07-28T00:02:00.000Z')}),
+  ]);
+  assert.equal(clusters.length,1);
+  assert.equal(clusters[0].firstMessageId,900);
+  assert.equal(buildDigestBody([{summary:'SpaceX: участники спорили об оценке на листинге и роли денежного потока.',firstMessageId:clusters[0].firstMessageId}],{tgChatId:'-100777'}),'• SpaceX: участники спорили об оценке на листинге и роли денежного потока.\n↳ https://t.me/c/777/900');
+});

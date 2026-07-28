@@ -44,4 +44,9 @@ export async function relevantExpert(communityManagerId:string,topic:string){
 }
 
 export async function markExpertMentioned(id:string){await prisma.communityManagerParticipant.update({where:{id},data:{lastMentionedAt:new Date()}})}
-export const participantPublic=(row:any)=>({id:row.id,tgUserId:row.tgUserId,username:row.username,displayName:row.displayName,relationship:row.relationship,relationshipState:row.relationshipState,roles:stringList(row.roles),expertise:stringList(row.expertise),messageCount:row.messageCount,cmExchangeCount:row.cmExchangeCount,expertConfirmed:row.expertConfirmed,mentionEnabled:row.mentionEnabled,lastSeenAt:row.lastSeenAt,lastCmExchangeAt:row.lastCmExchangeAt,lastMentionedAt:row.lastMentionedAt});
+export const participantPublic=(row:any)=>{
+  const claims=Array.isArray(row.claims)?row.claims.flatMap((claim:any)=>typeof claim?.displayValue==='string'?[{kind:String(claim.kind),value:claim.displayValue,status:String(claim.status),confidence:Number(claim.confidence)}]:[]):[];
+  const roles=[...new Set([...stringList(row.roles),...claims.filter((claim:any)=>claim.kind==='ROLE').map((claim:any)=>claim.value)])].slice(0,8);
+  const expertise=[...new Set([...stringList(row.expertise),...claims.filter((claim:any)=>claim.kind==='EXPERTISE').map((claim:any)=>claim.value)])].slice(0,12);
+  return{id:row.id,tgUserId:row.tgUserId,username:row.username,displayName:row.displayName,relationship:row.relationship,relationshipState:row.relationshipState,roles,expertise,memories:claims,messageCount:row.messageCount,cmExchangeCount:row.cmExchangeCount,expertConfirmed:row.expertConfirmed,mentionEnabled:row.mentionEnabled,lastSeenAt:row.lastSeenAt,lastCmExchangeAt:row.lastCmExchangeAt,lastMentionedAt:row.lastMentionedAt};
+};

@@ -3,7 +3,6 @@ import { isQuietHour, parseCommunityManagerConfig } from './config';
 import { chooseActivity, intensityWindow, type CommunityActivityType } from './activityDirector';
 import { runActivity } from './activityRuntime';
 import { advanceActiveActivities } from './activityLifecycle';
-import { chooseActivityTopic } from './activityPolicy';
 import { runDueDailyDigest } from './dailyDigest';
 import { processSilentContentReleases } from './contentRelease';
 import { initiativeAllowed } from './conversationCoordinator';
@@ -95,8 +94,7 @@ async function considerManager(manager:any,now:Date){
   const pulseSince=new Date(now.getTime()-2*3600_000),pulseMessages=await prisma.communityManagerMessage.findMany({where:{communityManagerId:manager.id,createdAt:{gte:pulseSince}},select:{tgUserId:true}}),messages=pulseMessages.length,participants=new Set(pulseMessages.map(x=>x.tgUserId).filter(Boolean)).size;
   const type=chooseActivity({enabled:types,history:recent.map(x=>{const result=resultOf(x.result);return{type:x.type,engaged:result.engaged,evaluated:result.evaluated}}),pulse:{energy:messages===0?'silent':messages<6?'low':'active',tension:Boolean(state.pendingModeratorAt&&now.getTime()-state.pendingModeratorAt.getTime()<20*60_000),openQuestions:Array.isArray(state.openQuestions)&&state.openQuestions.length>0,participants,messages,researchAvailable:config.research.mode!=='off'&&config.research.dailyLimit>0}});
   if(backoff&&backoff>now)return;
-  const topic=chooseActivityTopic(config.activities.topics,recent.map(item=>item.topic));
-  if(type&&await initiativeAllowed(manager.id,topic??type,now))await runActivity(manager.id,type,topic,{automatic:true,reason:'activity_director_'+config.activities.intensity,ignoredStreak});
+  if(type&&await initiativeAllowed(manager.id,'scheduled-opportunity',now))await runActivity(manager.id,type,undefined,{automatic:true,reason:'scheduled_opportunity_'+config.activities.intensity,ignoredStreak});
 }
 
 export async function sweepCommunityActivities(now=new Date()){

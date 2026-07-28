@@ -861,6 +861,8 @@ model CommunityManager {
   conversationSegments CommunityManagerSegment[]
   participantClaims    CommunityManagerParticipantClaim[]
   episodes             CommunityManagerEpisode[]
+  agentSessions        CommunityManagerAgentSession[]
+  agentEvents          CommunityManagerAgentEvent[]
 }
 
 model CommunityManagerParticipant {
@@ -1179,6 +1181,69 @@ model CommunityManagerEpisode {
   @@index([threadId, segmentId, createdAt])
 }
 
+model CommunityManagerAgentSession {
+  id                 String                             @id @default(cuid())
+  communityManagerId String
+  sessionKey         String
+  threadId           String?
+  segmentId          String?
+  status             String                             @default("ACTIVE")
+  runtimeVersion     String                             @default("community-agent-v1")
+  summary            String                             @default("")
+  lastEventAt        DateTime                           @default(now())
+  createdAt          DateTime                           @default(now())
+  updatedAt          DateTime                           @updatedAt
+  communityManager   CommunityManager                   @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+  items              CommunityManagerAgentSessionItem[]
+  events             CommunityManagerAgentEvent[]
+
+  @@unique([communityManagerId, sessionKey])
+  @@index([communityManagerId, status, lastEventAt])
+  @@index([threadId, segmentId])
+}
+
+model CommunityManagerAgentSessionItem {
+  id        BigInt                       @id @default(autoincrement())
+  sessionId String
+  item      Json
+  createdAt DateTime                     @default(now())
+  session   CommunityManagerAgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, id])
+}
+
+model CommunityManagerAgentEvent {
+  id                 String                        @id @default(cuid())
+  communityManagerId String
+  sessionId          String?
+  dedupeKey          String?                       @unique
+  kind               String
+  sourceMessageId    String?
+  activityId         String?
+  threadId           String?
+  segmentId          String?
+  status             String                        @default("RECEIVED")
+  runtimeVersion     String                        @default("community-agent-v1")
+  payload            Json
+  decision           Json?
+  references         Json?
+  model              String?
+  inputTokens        Int                           @default(0)
+  outputTokens       Int                           @default(0)
+  totalTokens        Int                           @default(0)
+  researchCalls      Int                           @default(0)
+  error              String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+  communityManager   CommunityManager              @relation(fields: [communityManagerId], references: [id], onDelete: Cascade)
+  session            CommunityManagerAgentSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([communityManagerId, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([status, createdAt])
+}
 // ─── Community Core: autonomous AI personalities on owner's Telegram accounts ──
 // A Persona is a real Telegram user account, connected once via phone login, that
 // lives in the channel's discussion group as a believable human. Fully isolated

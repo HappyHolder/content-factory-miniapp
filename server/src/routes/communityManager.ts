@@ -122,7 +122,7 @@ router.get('/:id/actions',async(req,res)=>{
 });
 router.get('/:id/participants',async(req,res)=>{
   let c;try{c=await owned(req,req.params.id)}catch(e){fail(res,e);return}
-  const participants=await prisma.communityManagerParticipant.findMany({where:{communityManagerId:c.manager.id},orderBy:[{expertConfirmed:'desc'},{lastSeenAt:'desc'}],take:200});
+  const participants=await prisma.communityManagerParticipant.findMany({where:{communityManagerId:c.manager.id},include:{claims:{where:{OR:[{status:'CONFIRMED'},{confidence:{gte:.9}}]},orderBy:{updatedAt:'desc'},take:20}},orderBy:[{expertConfirmed:'desc'},{lastSeenAt:'desc'}],take:200});
   res.json({participants:participants.map(participantPublic)});
 });
 
