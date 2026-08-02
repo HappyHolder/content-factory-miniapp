@@ -43,11 +43,11 @@ export class PrismaCommunityManagerSession implements Session {
 export const conversationSessionKey=(threadId:string,segmentId:string)=>`conversation:${threadId}:${segmentId}`;
 export const activitySessionKey=(kind:string,key:string)=>`activity:${kind}:${key}`;
 
-export async function openCommunityManagerSession(input:{managerId:string;sessionKey:string;threadId?:string;segmentId?:string}){
+export async function openCommunityManagerSession(input:{managerId:string;sessionKey:string;threadId?:string;segmentId?:string;summary?:string}){
   const row=await prisma.communityManagerAgentSession.upsert({
     where:{communityManagerId_sessionKey:{communityManagerId:input.managerId,sessionKey:input.sessionKey}},
-    create:{communityManagerId:input.managerId,sessionKey:input.sessionKey,threadId:input.threadId,segmentId:input.segmentId},
-    update:{threadId:input.threadId,segmentId:input.segmentId,status:'ACTIVE',lastEventAt:new Date()},
+    create:{communityManagerId:input.managerId,sessionKey:input.sessionKey,threadId:input.threadId,segmentId:input.segmentId,summary:input.summary??''},
+    update:{threadId:input.threadId,segmentId:input.segmentId,summary:input.summary??'',status:'ACTIVE',lastEventAt:new Date()},
   });
   return{row,session:new PrismaCommunityManagerSession(row.id)};
 }

@@ -1156,7 +1156,7 @@ model CommunityManagerParticipantClaimEvidence {
   excerpt   String
   createdAt DateTime                         @default(now())
   claim     CommunityManagerParticipantClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  message   CommunityManagerMessage          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message   CommunityManagerMessage?         @relation(fields: [messageId], references: [id], onDelete: SetNull)
 
   @@unique([claimId, messageId])
   @@index([messageId])

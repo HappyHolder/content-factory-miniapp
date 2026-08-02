@@ -87,7 +87,7 @@ router.post('/:id/pause',async(req,res)=>{
   const mode='AUTOPILOT';
   if(enabled&&!c.manager.publishedVersion){res.status(409).json({error:'Сначала примените настройки'});return}
   const manager=await prisma.communityManager.update({where:{id:c.manager.id},data:{enabled,mode,status:enabled?'ACTIVE':'PAUSED'}});
-  if(!enabled)await prisma.communityManagerJob.updateMany({where:{communityManagerId:manager.id,status:{in:['PENDING','RETRY_WAIT','CLAIMED']}},data:{status:'CANCELLED'}});
+  if(!enabled)await prisma.$transaction([prisma.communityManagerJob.updateMany({where:{communityManagerId:manager.id,status:{in:['PENDING','RETRY_WAIT','CLAIMED']}},data:{status:'CANCELLED',leaseUntil:null}}),prisma.communityManagerActivity.updateMany({where:{communityManagerId:manager.id,status:{in:['WAITING','PROCESSING','RUNNING','SENDING','ACTIVE']}},data:{status:'CANCELLED',lastError:'Community Manager paused'}})]);
   res.json({manager:publicManager(manager)});
 });
 

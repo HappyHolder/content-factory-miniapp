@@ -33,7 +33,7 @@ async function evaluateFinishedActivities(now:Date){
     const manager=await prisma.communityManager.findUnique({where:{id:activity.communityManagerId},select:{publishedVersion:true}});if(!manager?.publishedVersion)continue;
     const row=await prisma.communityManagerConfig.findUnique({where:{communityManagerId_version:{communityManagerId:activity.communityManagerId,version:manager.publishedVersion}}});if(!row)continue;
     const config=parseCommunityManagerConfig(row.config),windowEnd=new Date(activity.sentAt.getTime()+config.activities.responseWindowMinutes*60_000);if(windowEnd>now)continue;
-    const messages=await prisma.communityManagerMessage.findMany({where:{communityManagerId:activity.communityManagerId,createdAt:{gt:activity.sentAt,lte:windowEnd}},select:{tgUserId:true}}),participants=new Set(messages.map(x=>x.tgUserId).filter(Boolean));
+    const messages=await prisma.communityManagerMessage.findMany({where:{communityManagerId:activity.communityManagerId,tgUserId:{not:null},status:{not:'CONTEXT'},createdAt:{gt:activity.sentAt,lte:windowEnd},...(activity.threadId?{threadId:activity.threadId}:{})},select:{tgUserId:true}}),participants=new Set(messages.map(x=>x.tgUserId).filter(Boolean));
     await prisma.communityManagerActivity.update({where:{id:activity.id},data:{result:{...result,evaluated:true,engaged:messages.length>0,messageCount:messages.length,participantCount:participants.size,evaluatedAt:now.toISOString()}}});
   }
 }
@@ -62,39 +62,42 @@ async function contentSignal(manager:any,types:CommunityActivityType[],recent:an
 async function considerManager(manager:any,now:Date){
   if(!manager.publishedVersion||!manager.community.moderatorChat)return;
   const row=await prisma.communityManagerConfig.findUnique({where:{communityManagerId_version:{communityManagerId:manager.id,version:manager.publishedVersion}}});if(!row)return;
-  const config=parseCommunityManagerConfig(row.config);if(!config.activities.enabled||config.activities.requireApproval||isQuietHour(config,now))return;
-  const types=enabledTypes(config);if(!types.length)return;
-  const weekAgo=new Date(now.getTime()-7*86400_000),recent=await prisma.communityManagerActivity.findMany({where:{communityManagerId:manager.id,createdAt:{gte:weekAgo}},orderBy:{createdAt:'desc'},take:40});
+  const config=parseCommunityManagerConfig(row.config);if(isQuietHour(config,now))return;
+  const weekAgo=new Date(now.getTime()-7*86400_000),recent=await prisma.communityManagerActivity.findMany({where:{communityManagerId:manager.id,createdAt:{gte:weekAgo}},orderBy:{createdAt:'desc'},take:80});
+  let state=await prisma.communityManagerConversationState.findUnique({where:{communityManagerId:manager.id}});
 
+  const moderatorAt=state?.pendingModeratorAt,moderatorMessageId=state?.pendingModeratorMessageId,moderatorText=state?.pendingModeratorText;
+  if(config.replies.moderatorFollowups&&moderatorAt&&moderatorMessageId&&moderatorText&&now.getTime()-moderatorAt.getTime()<20*60_000){
+    const continued=await prisma.communityManagerMessage.count({where:{communityManagerId:manager.id,tgUserId:{not:null},status:{not:'CONTEXT'},createdAt:{gt:moderatorAt}}}),already=recent.some(item=>resultOf(item.result).reason==='moderator_followup'&&item.createdAt>moderatorAt);
+    if(continued>=2&&!already){const source=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id,telegramMessageId:moderatorMessageId},select:{threadId:true,segmentId:true}});await runActivity(manager.id,'DISCUSSION',moderatorText,{automatic:true,reason:'moderator_followup',replyToMessageId:moderatorMessageId,threadId:source?.threadId??undefined,segmentId:source?.segmentId??undefined,context:{moderatorFollowup:true}});await prisma.communityManagerConversationState.update({where:{communityManagerId:manager.id},data:{pendingModeratorAt:null,pendingModeratorMessageId:null,pendingModeratorText:null}});return}
+  }
+
+  if(config.replies.replyToUnansweredQuestion){
+    const cutoff=new Date(now.getTime()-config.replies.unansweredAfterMinutes*60_000),segments=await prisma.communityManagerSegment.findMany({where:{communityManagerId:manager.id,status:'ACTIVE',lastMeaningfulTurnAt:{lte:cutoff}},orderBy:{lastMeaningfulTurnAt:'desc'},take:30,select:{id:true,threadId:true,topicKey:true,summary:true,openQuestions:true,lastMeaningfulTurnAt:true,thread:{select:{telegramRootMessageId:true}}}}),unanswered=segments.find(item=>Array.isArray(item.openQuestions)&&item.openQuestions.length>0);
+    if(unanswered&&!recent.some(item=>item.segmentId===unanswered.id&&resultOf(item.result).reason==='unanswered_question'&&item.createdAt>unanswered.lastMeaningfulTurnAt)){
+      const latest=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id,segmentId:unanswered.id,tgUserId:{not:null},status:{not:'CONTEXT'}},orderBy:{createdAt:'desc'},select:{telegramMessageId:true}}),question=String((unanswered.openQuestions as unknown[])[0]??unanswered.summary);
+      if(latest) {await runActivity(manager.id,'DISCUSSION',question,{automatic:true,reason:'unanswered_question',replyToMessageId:latest.telegramMessageId,threadId:unanswered.threadId,segmentId:unanswered.id,context:{unansweredQuestion:true}});return}
+    }
+  }
+
+  if(!config.activities.enabled||config.activities.requireApproval)return;
+  const types=enabledTypes(config);if(!types.length)return;
   const content=await contentSignal(manager,types,recent,now);
   let ignoredStreak=0;
-  for(const item of recent){
-    const result=resultOf(item.result);
-    if(!result.automatic)continue;
-    if(!result.evaluated)break;
-    if(result.engaged)break;
-    ignoredStreak++;
-  }
+  for(const item of recent){const result=resultOf(item.result);if(!result.automatic)continue;if(!result.evaluated||result.engaged)break;ignoredStreak++}
   if(content&&ignoredStreak<2&&await initiativeAllowed(manager.id,content.post.title??content.type,now)){await runActivity(manager.id,content.type,content.post.title,{automatic:true,origin:'CONTENT',reason:'content_lifecycle',postId:content.post.id,phase:content.phase,ignoredStreak});return}
 
-  const lastHuman=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id},orderBy:{createdAt:'desc'},select:{createdAt:true}}),silenceFrom=lastHuman?.createdAt??manager.updatedAt;
-  const latestAutomaticAt=recent.find(item=>resultOf(item.result).automatic&&item.sentAt)?.sentAt;
-  if(lastHuman?.createdAt&&latestAutomaticAt&&lastHuman.createdAt>latestAutomaticAt)ignoredStreak=0;
-  let state=await prisma.communityManagerConversationState.findUnique({where:{communityManagerId:manager.id}});
-  if(!state?.nextInitiativeAt||state.nextInitiativeAt<=silenceFrom){
-    const base=initiativeScheduleBase(silenceFrom,now,config.activities.intensity),target=nextDate(config.activities.intensity,base);
-    state=await prisma.communityManagerConversationState.upsert({where:{communityManagerId:manager.id},create:{communityManagerId:manager.id,lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target},update:{lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target}});
-  }
+  const lastHuman=await prisma.communityManagerMessage.findFirst({where:{communityManagerId:manager.id,tgUserId:{not:null},status:{not:'CONTEXT'}},orderBy:{createdAt:'desc'},select:{createdAt:true}}),silenceFrom=lastHuman?.createdAt??manager.updatedAt;
+  const latestAutomaticAt=recent.find(item=>resultOf(item.result).automatic&&item.sentAt)?.sentAt;if(lastHuman?.createdAt&&latestAutomaticAt&&lastHuman.createdAt>latestAutomaticAt)ignoredStreak=0;
+  if(!state?.nextInitiativeAt||state.nextInitiativeAt<=silenceFrom){const base=initiativeScheduleBase(silenceFrom,now,config.activities.intensity),target=nextDate(config.activities.intensity,base);state=await prisma.communityManagerConversationState.upsert({where:{communityManagerId:manager.id},create:{communityManagerId:manager.id,lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target},update:{lastHumanAt:lastHuman?.createdAt,nextInitiativeAt:target}})}
   if(!state.nextInitiativeAt||state.nextInitiativeAt>now)return;
-  const lastIgnoredAt=recent.find(item=>{const result=resultOf(item.result);return result.automatic&&result.evaluated&&!result.engaged})?.sentAt??now;
-  const backoff=ignoredActivityBackoff(ignoredStreak,config.activities.intensity,lastIgnoredAt);
-  const nextInitiativeAt=backoff&&backoff>now?backoff:nextDate(config.activities.intensity,ignoredStreak===1?new Date(now.getTime()+intensityWindow(config.activities.intensity).max*60_000):now);
-  const claim=await prisma.communityManagerConversationState.updateMany({where:{communityManagerId:manager.id,nextInitiativeAt:state.nextInitiativeAt},data:{nextInitiativeAt}});
-  if(claim.count!==1)return;
-  const pulseSince=new Date(now.getTime()-2*3600_000),pulseMessages=await prisma.communityManagerMessage.findMany({where:{communityManagerId:manager.id,createdAt:{gte:pulseSince}},select:{tgUserId:true}}),messages=pulseMessages.length,participants=new Set(pulseMessages.map(x=>x.tgUserId).filter(Boolean)).size;
-  const type=chooseActivity({enabled:types,history:recent.map(x=>{const result=resultOf(x.result);return{type:x.type,engaged:result.engaged,evaluated:result.evaluated}}),pulse:{energy:messages===0?'silent':messages<6?'low':'active',tension:Boolean(state.pendingModeratorAt&&now.getTime()-state.pendingModeratorAt.getTime()<20*60_000),openQuestions:Array.isArray(state.openQuestions)&&state.openQuestions.length>0,participants,messages,researchAvailable:config.research.mode!=='off'&&config.research.dailyLimit>0}});
+  const lastIgnoredAt=recent.find(item=>{const result=resultOf(item.result);return result.automatic&&result.evaluated&&!result.engaged})?.sentAt??now,backoff=ignoredActivityBackoff(ignoredStreak,config.activities.intensity,lastIgnoredAt),nextInitiativeAt=backoff&&backoff>now?backoff:nextDate(config.activities.intensity,ignoredStreak===1?new Date(now.getTime()+intensityWindow(config.activities.intensity).max*60_000):now);
+  const claim=await prisma.communityManagerConversationState.updateMany({where:{communityManagerId:manager.id,nextInitiativeAt:state.nextInitiativeAt},data:{nextInitiativeAt}});if(claim.count!==1)return;
+  const pulseSince=new Date(now.getTime()-2*3600_000),[pulseMessages,openSegments]=await Promise.all([prisma.communityManagerMessage.findMany({where:{communityManagerId:manager.id,tgUserId:{not:null},status:{not:'CONTEXT'},createdAt:{gte:pulseSince}},select:{tgUserId:true}}),prisma.communityManagerSegment.findMany({where:{communityManagerId:manager.id,status:'ACTIVE'},select:{openQuestions:true,topicKey:true,summary:true},orderBy:{updatedAt:'desc'},take:30})]),messages=pulseMessages.length,participants=new Set(pulseMessages.map(x=>x.tgUserId).filter(Boolean)).size,hasOpenQuestions=openSegments.some(item=>Array.isArray(item.openQuestions)&&item.openQuestions.length>0);
+  const type=chooseActivity({enabled:types,history:recent.map(item=>{const result=resultOf(item.result);return{type:item.type,engaged:result.engaged,evaluated:result.evaluated}}),pulse:{energy:messages===0?'silent':messages<6?'low':'active',tension:Boolean(state.pendingModeratorAt&&now.getTime()-state.pendingModeratorAt.getTime()<20*60_000),openQuestions:hasOpenQuestions,participants,messages,researchAvailable:config.research.mode!=='off'&&config.research.dailyLimit>0}});
   if(backoff&&backoff>now)return;
-  if(type&&await initiativeAllowed(manager.id,'scheduled-opportunity',now))await runActivity(manager.id,type,undefined,{automatic:true,reason:'scheduled_opportunity_'+config.activities.intensity,ignoredStreak});
+  const configuredTopic=config.activities.topics.length?config.activities.topics[recent.length%config.activities.topics.length]:openSegments.find(item=>item.topicKey!=='conversation')?.summary||openSegments.find(item=>item.topicKey!=='conversation')?.topicKey||manager.community.channel.name;
+  if(type&&configuredTopic&&await initiativeAllowed(manager.id,configuredTopic,now))await runActivity(manager.id,type,configuredTopic,{automatic:true,reason:'scheduled_opportunity_'+config.activities.intensity,ignoredStreak});
 }
 
 export async function sweepCommunityActivities(now=new Date()){

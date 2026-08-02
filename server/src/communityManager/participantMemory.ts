@@ -44,6 +44,11 @@ export async function relevantExpert(communityManagerId:string,topic:string){
 }
 
 export async function markExpertMentioned(id:string){await prisma.communityManagerParticipant.update({where:{id},data:{lastMentionedAt:new Date()}})}
+
+export async function markMentionedExperts(communityManagerId:string,text:string){
+  const usernames=(text.match(/@[A-Za-z0-9_]{5,32}/g)??[]).map(value=>value.slice(1).toLowerCase());if(!usernames.length)return;
+  await prisma.communityManagerParticipant.updateMany({where:{communityManagerId,expertConfirmed:true,mentionEnabled:true,username:{in:usernames,mode:'insensitive'}},data:{lastMentionedAt:new Date()}});
+}
 export const participantPublic=(row:any)=>{
   const claims=Array.isArray(row.claims)?row.claims.flatMap((claim:any)=>typeof claim?.displayValue==='string'?[{kind:String(claim.kind),value:claim.displayValue,status:String(claim.status),confidence:Number(claim.confidence)}]:[]):[];
   const roles=[...new Set([...stringList(row.roles),...claims.filter((claim:any)=>claim.kind==='ROLE').map((claim:any)=>claim.value)])].slice(0,8);

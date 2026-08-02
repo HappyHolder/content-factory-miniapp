@@ -76,6 +76,8 @@ export async function cancelSilentContentRelease(managerId:string,message:{reply
   return true;
 }
 
+async function contentCommentAllowed(managerId:string,now:Date){const [recent,fresh]=await Promise.all([prisma.communityManagerActivity.count({where:{communityManagerId:managerId,type:'CONTENT_RELEASE',status:'COMPLETED',sentAt:{gte:new Date(now.getTime()-24*3600_000)}}}),prisma.communityManagerActivity.findFirst({where:{communityManagerId:managerId,type:'CONTENT_RELEASE',status:'COMPLETED',sentAt:{gte:new Date(now.getTime()-4*3600_000)}},select:{id:true}})]);return recent<3&&!fresh}
+
 export async function processSilentContentReleases(now=new Date()){
   for(let index=0;index<10;index++){
     const release=await prisma.communityManagerActivity.findFirst({where:{type:'CONTENT_RELEASE',origin:'CONTENT',status:'WAITING',scheduledAt:{lte:now}},orderBy:{scheduledAt:'asc'}});
@@ -86,6 +88,7 @@ export async function processSilentContentReleases(now=new Date()){
       const config=await publishedConfig(release.communityManagerId);
       if(!config){await prisma.communityManagerActivity.update({where:{id:release.id},data:{status:'CANCELLED',lastError:'Content support disabled'}});continue}
       if(isQuietHour(config,now)){await prisma.communityManagerActivity.update({where:{id:release.id},data:{status:'WAITING',scheduledAt:new Date(now.getTime()+15*60_000)}});continue}
+      if(!await contentCommentAllowed(release.communityManagerId,now)){await prisma.communityManagerActivity.update({where:{id:release.id},data:{status:'CANCELLED',lastError:'Content comment frequency gate'}});continue}
       if(!result.discussionMessageId||!result.discussionChatId){
         const publishedAt=result.publishedAt?new Date(result.publishedAt):release.createdAt;
         if(now<contentRootDeadlineAt(publishedAt,config.activities.contentSilenceMinutes)){

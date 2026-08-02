@@ -36,9 +36,9 @@ export async function applyConversationAnalysis(managerId:string,messageId:strin
   let segmentId=location.segmentId,segmentVersion=location.segmentVersion;
   if(change){
     await prisma.communityManagerSegment.updateMany({where:{id:location.segmentId,status:'ACTIVE'},data:{status:'RESOLVED',version:{increment:1}}});
-    const segment=await prisma.communityManagerSegment.create({data:{communityManagerId:managerId,threadId:location.threadId,topicKey,summary:clean(analysis.newContribution||topicKey,500),lastMeaningfulTurnAt:at}});segmentId=segment.id;segmentVersion=segment.version;
+    const segment=await prisma.communityManagerSegment.create({data:{communityManagerId:managerId,threadId:location.threadId,topicKey,summary:clean(analysis.newContribution||topicKey,500),openQuestions:analysis.expectsReply?[clean(analysis.newContribution,300)]:[],lastMeaningfulTurnAt:at}});segmentId=segment.id;segmentVersion=segment.version;
   }else{
-    const segment=await prisma.communityManagerSegment.update({where:{id:location.segmentId},data:{topicKey,...(analysis.newContribution?{summary:clean(analysis.newContribution,500)}:{}),lastMeaningfulTurnAt:at,version:{increment:1},...(analysis.conversationComplete?{status:'RESOLVED'}:{})}});segmentVersion=segment.version;
+    const segment=await prisma.communityManagerSegment.update({where:{id:location.segmentId},data:{topicKey,...(analysis.newContribution?{summary:clean(analysis.newContribution,500)}:{}),openQuestions:analysis.conversationComplete?[]:analysis.expectsReply?[clean(analysis.newContribution,300)]:[],lastMeaningfulTurnAt:at,version:{increment:1},...(analysis.conversationComplete?{status:'RESOLVED'}:{})}});segmentVersion=segment.version;
   }
   await prisma.communityManagerMessage.update({where:{id:messageId},data:{segmentId}});
   const thread=await prisma.communityManagerThread.update({where:{id:location.threadId},data:{lastHumanAt:at,status:analysis.conversationComplete?'IDLE':'ACTIVE',version:{increment:1}}});
@@ -74,7 +74,7 @@ export async function recordEpisode(input:{managerId:string;participantId?:strin
 async function appendThesis(location:ConversationLocation,author:string,text:string){const value=clean(text,500);if(!value)return;const row=await prisma.communityManagerSegment.findUnique({where:{id:location.segmentId},select:{thesisLedger:true}}),list=Array.isArray(row?.thesisLedger)?row.thesisLedger:[];await prisma.communityManagerSegment.update({where:{id:location.segmentId},data:{thesisLedger:[...list,{author:clean(author,100),text:value,at:new Date().toISOString()}].slice(-30)}})}
 export const appendCmThesis=(location:ConversationLocation,text:string)=>appendThesis(location,'CM',text);
 export const appendHumanThesis=(location:ConversationLocation,author:string,text:string)=>appendThesis(location,author,text);
-export async function conversationStillCurrent(location:ConversationLocation){const row=await prisma.communityManagerSegment.findUnique({where:{id:location.segmentId},select:{version:true,status:true}});return Boolean(row&&row.status==='ACTIVE'&&row.version===location.segmentVersion)}
+export async function conversationStillCurrent(location:ConversationLocation){const row=await prisma.communityManagerSegment.findUnique({where:{id:location.segmentId},select:{version:true,status:true}});return Boolean(row&&row.version===location.segmentVersion)}
 
 export async function initiativeAllowed(managerId:string,topicKey:string,now=new Date()){
   const activeSince=new Date(now.getTime()-30*60_000),duplicateSince=new Date(now.getTime()-24*3600_000),normalized=normalizeTopicKey(topicKey);

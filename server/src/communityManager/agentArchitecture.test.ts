@@ -62,3 +62,11 @@ test('content comment policy requires the exact discussion root and researched e
   assert.ok(review.issues.includes('missing_discussion_root'));
   assert.ok(review.issues.includes('web_claims_without_research'));
 });
+
+
+test("quiz decisions carry Telegram\'s quiz contract",()=>{
+  const base={action:'poll',intent:'quiz',targetMessageId:null,message:null,reaction:null,reason:'fact check',topicKey:'ton',sameConversation:true,expectsReply:false,conversationComplete:false,references:[],digestItems:[],memoryUpdates:[],episode:null,editorialPlan:null};
+  const quiz=CommunityAgentDecisionSchema.parse({...base,poll:{question:'What is TON?',options:['A','B'],type:'quiz',correctOptionIndex:1,explanation:'B is correct'}});
+  assert.equal(quiz.poll?.type,'quiz');
+  assert.throws(()=>CommunityAgentDecisionSchema.parse({...base,poll:{question:'Broken',options:['A','B']}}));
+});
