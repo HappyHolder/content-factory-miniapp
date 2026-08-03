@@ -1,16 +1,15 @@
 # coverEngineV2
 
-Second cover engine, built next to the production `coverBuilder`.
-
-It is intentionally not imported by `draftGenerator`, `posts`, or the bot. The
-current production engine keeps running until this module is explicitly wired in.
+Primary modular cover engine. Production calls it through `coverEngineRouter` from
+draft generation, post regeneration and bot flows. The legacy `coverBuilder`
+remains only for `ai_html` covers that have no uploaded HTML template.
 
 ## Boundaries
 
-- Uses the same existing model/render adapters:
-  - DeepSeek helpers from `aiGenerator`
-  - Replicate image generation from `imageGenerator`
-  - Claude/HTML helpers from `claudeHtmlGenerator`
+- Uses the production model/render adapters:
+  - direct OpenAI text helpers from `aiGenerator` / `assistantModel`
+  - direct OpenAI image generation from `imageGenerator`
+  - HTML planning helpers from `claudeHtmlGenerator`
   - Playwright/Satori renderers
 - Does not mutate posts or database rows.
 - Supports `dryRunCoverV2` to inspect routing and prompt plans without external
@@ -38,7 +37,8 @@ current production engine keeps running until this module is explicitly wired in
 - `satori_fallback`  
   Final internal fallback when V2 rendering does not produce a cover.
 
-## Activation
+## Routing
 
-Do not activate this module by changing old shared prompt helpers. Wire it in
-only through an explicit router/call site when the product decision is made.
+All activation decisions belong in `coverEngineRouter.ts`. Do not call the legacy
+and V2 engines directly from product routes; keeping the choice in one router
+preserves consistent behavior across Create, bot drafts and regeneration.

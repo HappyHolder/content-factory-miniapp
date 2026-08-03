@@ -12,6 +12,7 @@ import { isPaidTier, grantSubscription, pricingFor } from '../lib/payments';
 import { grantStylePurchase } from '../lib/styles';
 import { fetchArticle } from '../lib/urlContentExtractor';
 import { extractImageContent } from '../lib/visionExtractor';
+import { runWebhookBackgroundTask } from '../lib/webhookBackground';
 import { completeManagedBot, type ManagedBotUpdate } from '../moderator/managedBotService';
 import { completeManagedCommunityBot } from '../communityManager/managedBot';
 import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, parseChannelCallback, versionedMiniAppUrl, type BotChannelSummary } from '../lib/botQuickActions';
@@ -729,7 +730,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
   res.status(200).json({ ok: true });
 
   // ── 8. Generate draft and notify user asynchronously ─────────────────────
-  (async () => {
+  runWebhookBackgroundTask(async () => {
     const targetLabel = botChannelLabel(targetChannel);
     await sendBotMessage(
       chatId,
@@ -795,7 +796,9 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       console.error('[bot/webhook] Draft generation failed:', (error as Error).message);
     }
     await sendDraftNotification(chatId, draft);
-  })();
+  }, error => {
+    console.error('[bot/webhook] background task failed:', (error as Error).message);
+  });
 });
 
 export default router;

@@ -52,10 +52,15 @@ const emptyHours = (): number[] => Array.from({ length: 24 }, () => 0);
  * writer claims it — otherwise an active chat would count 2–3× per message.
  */
 export async function recordPulseMessage(input: { communityId: string; tgUserId: string; telegramMessageId: number; isReply: boolean; at?: Date }): Promise<void> {
-  // Claim the message; a duplicate key means another source already counted it.
-  try {
-    await prisma.pulseMessageClaim.create({ data: { communityId: input.communityId, telegramMessageId: input.telegramMessageId } });
-  } catch { return; }
+  // Claim the message without using an expected duplicate as an exception.
+  // Moderator, CM and Community Core can observe the same Telegram message;
+  // createMany + skipDuplicates keeps the first writer and leaves production
+  // error logs for actual database failures.
+  const claim = await prisma.pulseMessageClaim.createMany({
+    data: [{ communityId: input.communityId, telegramMessageId: input.telegramMessageId }],
+    skipDuplicates: true,
+  });
+  if (claim.count === 0) return;
 
   const at = input.at ?? new Date();
   const day = pulseDayKey(at);

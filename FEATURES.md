@@ -1,7 +1,8 @@
-# Publium — Feature Inventory (v1.2)
+# Publium — Feature Inventory (current production)
 
-- **Community + Moderator v1** — отдельный экран сообщества, визуальные блоки Welcome, CAPTCHA, Anti-spam, Content Filters, триггеры, санкции, ручные команды, журнал, пауза и fail-open AI-модерация Terra.
-- **Персональный AI Moderator** — собственное имя, username и аватар бота-исполнителя; отдельные webhook/secret и зашифрованный токен. Стандартный `@PubliumModerBot` остаётся доступен без персонализации.
+- **Community workspace** — Moderator, unified Community Manager, Community Core personas and Pulse analytics share one channel-level entry point.
+- **Moderator** — Welcome, CAPTCHA, anti-spam, content filters, triggers, sanctions, manual commands, journal and fail-open AI moderation.
+- **Managed executors** — Moderator and Community Manager can use shared bots or encrypted personal Telegram bots with their own webhook secrets.
 
 Living catalog of everything Publium does. Grouped by area; each item notes the
 main backing endpoint(s) / module(s). Use this as the source of truth for release
@@ -38,6 +39,13 @@ publishes or schedules it to the user's channel.
 - **AI-модерация Terra** — классификация отдельных сообщений и контекстные вмешательства в затяжной оффтопик, политику, конфликт, травлю и рекламу; симулятор и trial-квота.
 - **Журнал** — последние решения и отмена warn/mute/ban; общая пауза Moderator.
 - **Контекстная помощь** — bottom-sheet инструкции, примеры и рекомендации для всех блоков и бота-исполнителя.
+
+## 2.2 Community Manager, Community Core & Pulse
+- **Unified Community Manager runtime** — one structured agent handles human messages, post comments, initiatives, manual activities and daily digests.
+- **Conversation graph** — exact Telegram threads and semantic segments, with evidence-backed participant claims and episodic memory.
+- **Activities** — discussions, polls, quizzes, light formats, hot news, digests, predictions and controlled content support with cooldown/backoff.
+- **Community Core personas** — configurable AI personalities on connected Telegram user accounts, with independent memory, relationships and pacing.
+- **Pulse analytics** — activity, engagement, retention, cohorts, joins/leaves and moderation signals, deduplicated across all chat observers.
 
 ## 3. Content creation — Create tab (`CreateScreen`)
 - **AI generation** from a single input: free text, a pasted link (article auto-extracted via `fetchArticle`), or a screenshot (vision-extracted via `extractImageContentFromUrl`). `POST /api/posts/generate`.
@@ -100,8 +108,8 @@ publishes or schedules it to the user's channel.
 - **Bot webhook** — messages to `@Publiumbot` auto-draft a post for the active channel. `POST /api/bot/webhook`.
 - **OG preview page** — renders a cover as a large Telegram link-preview card. `GET /api/og`.
 - **Storage** — cover/media uploads with cleanup on post delete.
-- **Models** — DeepSeek (LOW) / Claude 4.5 Sonnet (HIGH) for text; Flux / gpt-image-2 for covers; gpt-4o-mini vision; all via Replicate. Serper/Tavily for search.
+- **Models** — direct OpenAI for text/agents, vision, transcription and standard covers; Replicate only for extreme-ratio panoramas; Serper/Tavily for web search.
 
 ---
 
-_Last updated: 2026-07-13 (v1.2)._
+_Last updated: 2026-08-03._

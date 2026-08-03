@@ -33,13 +33,18 @@ The AI applies the user's Channel Style (voice, tone, emoji rules, link kit, vis
 
 ## Scope
 
-**3 screens via bottom nav:**
+**5 tabs via bottom nav:**
 
-- **Posts** — New / Scheduled / Published tabs. Open any post to edit variants, preview banner, manage link buttons, publish or schedule.
-- **Create** — AI input surface. Paste a link, idea, or text. Select channel. Hit Generate. Result lands in Posts → New.
-- **Profile** — Account, credits, connected channels, and Channel Style per channel.
+- **Posts** — New / Scheduled / Archive tabs. Edit rich blocks, covers and buttons, then publish, republish or schedule.
+- **Create** — generate a post from text, a link or an image, or start with an empty rich post.
+- **AI** — streaming assistant, web research, Create handoff and multi-post content plans.
+- **Styles** — browse, purchase and apply cover packs.
+- **Profile** — account, subscription, connected channels and per-channel Brand Kit.
 
-**Channel Style (inside Profile → channel → Channel Style):**
+Each connected channel also opens a **Community** workspace with Moderator,
+Community Manager, Community Core personas and Pulse analytics.
+
+**Brand Kit (inside Profile → channel → Brand Kit):**
 
 - Voice Profile — language, address style, tone, post length, emoji density, word lists
 - Emoji Pack — custom Telegram emoji pack link, strict mode, allowed emoji whitelist
@@ -61,12 +66,12 @@ app runs end to end against a real database, Telegram bot, AI, and payments.
 | Database | Self-hosted **PostgreSQL** (Docker), Prisma migrations applied (`server/prisma/migrations/`) |
 | Storage | Local filesystem served at `/uploads` by Caddy (`server/src/lib/storage.ts`) |
 | Auth | Real — Telegram `initData` HMAC validation on every request (`server/src/lib/telegram.ts`) |
-| AI text | DeepSeek (`AI_PROVIDER=deepseek`) with a deterministic placeholder fallback |
-| AI images | Replicate → stored locally |
+| AI text | Direct OpenAI Responses API; model selected by `OPENAI_CHAT_MODEL` (default `gpt-5.6-terra`) |
+| AI images | Direct OpenAI Images API (default `gpt-image-2`); Replicate remains only for extreme-ratio panoramas |
 | Telegram bot | Live `@Publiumbot` — `/start`, auto-draft from messages, payment webhooks |
 | Publishing | Real Telegram Bot API send (`POST /api/posts/publish`) |
 | Scheduling | In-process 60s poller auto-publishes due posts (`server/src/lib/scheduler.ts`) |
-| Payments | Telegram Stars (XTR) + TON via TonConnect (shown as “Gram” in the UI); promo codes; tiers Blogger / Business / Agency |
+| Payments | Telegram Stars (XTR) + TON via TonConnect; promo codes; tiers Free / Starter / Creator / Studio Pro |
 
 In a plain browser (no Telegram `initData`) the app still runs in **mock mode** with
 `src/data/mockData.ts`, so the UI is developable without Telegram.
@@ -87,6 +92,9 @@ in Telegram mode `AppContext` hydrates from `/api/auth/telegram` and `/api/posts
 - **Framer Motion 11** — page transitions, accordion, tab indicators, nav active state
 - **lucide-react** — icons
 - **date-fns** — date formatting
+- **Express 4** + **Prisma 5** + **PostgreSQL 16** — API and persistence
+- **OpenAI Responses/Images APIs** — text, agent, vision, transcription and cover generation
+- **Playwright/Chromium** — server-side HTML cover rendering
 
 ## Visual design
 

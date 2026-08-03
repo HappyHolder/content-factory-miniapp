@@ -11,9 +11,28 @@ For the full always-current capability list, see [FEATURES.md](FEATURES.md).
 
 ---
 
-## [Unreleased] — toward 1.3
+## [Unreleased] — toward 1.5
 
-No unreleased changes yet.
+### Changed
+- Telegram auto-draft work is deferred to the next event-loop turn after the webhook acknowledgement, with rejected background tasks always logged.
+- Pulse deduplication now skips expected duplicate claims without emitting Prisma error logs.
+- Prisma schema now matches the nullable evidence message reference already deployed by the Community Manager runtime migration.
+
+### Tests
+- Added regression coverage for deferred webhook background work and rejection handling.
+- Added a frontend smoke gate for the production build and core mock-mode navigation.
+
+---
+
+## [1.4.0] — 2026-07-23
+
+Community Core release: AI personas on connected Telegram accounts, unified channel community workspace, shared role knowledge, participant memory, Community Pulse analytics and the expanded Community Manager runtime.
+
+---
+
+## [1.3.0] — 2026-07-15
+
+Community Manager production release plus panorama generation, richer post formats, research controls, participant memory and terminology/security refinements after v1.2.1. Full notes: [docs/release-v1.3.0.md](docs/release-v1.3.0.md).
 
 ---
 

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:frontend": "npm run build && node scripts/smoke-frontend.mjs"
   },
   "dependencies": {
     "@ton/core": "^0.63.1",
