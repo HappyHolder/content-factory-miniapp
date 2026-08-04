@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, parseChannelCallback, versionedMiniAppUrl } from './botQuickActions';
+import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, isOpenAppButtonText, parseChannelCallback, versionedMiniAppUrl } from './botQuickActions';
 
 const channels = [
   { id: 'channel-one', name: 'First channel', handle: 'first' },
@@ -11,7 +11,7 @@ test('builds the two-button persistent keyboard', () => {
   assert.deepEqual(buildQuickActionsKeyboard(channels[0]!, 'https://publium.ru'), {
     keyboard: [[
       { text: 'Канал · @first' },
-      { text: 'Открыть Publium', web_app: { url: 'https://publium.ru' } },
+      { text: 'Открыть Publium' },
     ]],
     resize_keyboard: true,
     is_persistent: true,
@@ -33,6 +33,8 @@ test('recognizes channel keyboard text and parses safe callbacks', () => {
   assert.equal(isChannelButtonText('Канал'), true);
   assert.equal(isChannelButtonText('/channel'), true);
   assert.equal(isChannelButtonText('сырой материал'), false);
+  assert.equal(isOpenAppButtonText('Открыть Publium'), true);
+  assert.equal(isOpenAppButtonText('Открыть приложение'), false);
   assert.equal(parseChannelCallback('channel:channel-two'), 'channel-two');
   assert.equal(parseChannelCallback('post:channel-two'), null);
   assert.equal(botChannelLabel({ id: 'x', name: 'X', handle: '@double' }), '@double');

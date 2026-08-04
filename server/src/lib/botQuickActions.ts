@@ -23,6 +23,10 @@ export function isChannelButtonText(text: string): boolean {
   return value === '/channel' || value === '/channels' || value === CHANNEL_BUTTON_PREFIX || value.startsWith(`${CHANNEL_BUTTON_PREFIX} · `);
 }
 
+export function isOpenAppButtonText(text: string): boolean {
+  return text.trim() === 'Открыть Publium';
+}
+
 export function buildQuickActionsKeyboard(
   activeChannel: BotChannelSummary | null,
   miniAppUrl: string | undefined,
@@ -31,7 +35,10 @@ export function buildQuickActionsKeyboard(
     ? `${CHANNEL_BUTTON_PREFIX} · ${botChannelLabel(activeChannel)}`
     : CHANNEL_BUTTON_PREFIX;
   const row: TelegramReplyKeyboard['keyboard'][number] = [{ text: channelText }];
-  if (miniAppUrl) row.push({ text: 'Открыть Publium', web_app: { url: miniAppUrl } });
+  // A reply-keyboard Web App is a Telegram SimpleWebView: its initData is empty
+  // by design. Send plain text here; the webhook responds with an inline Web App
+  // button, which launches the authenticated WebView flow.
+  if (miniAppUrl) row.push({ text: 'Открыть Publium' });
   return {
     keyboard: [row],
     resize_keyboard: true,

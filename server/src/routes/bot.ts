@@ -15,7 +15,7 @@ import { extractImageContent } from '../lib/visionExtractor';
 import { runWebhookBackgroundTask } from '../lib/webhookBackground';
 import { completeManagedBot, type ManagedBotUpdate } from '../moderator/managedBotService';
 import { completeManagedCommunityBot } from '../communityManager/managedBot';
-import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, parseChannelCallback, versionedMiniAppUrl, type BotChannelSummary } from '../lib/botQuickActions';
+import { botChannelLabel, buildChannelPickerKeyboard, buildQuickActionsKeyboard, isChannelButtonText, isOpenAppButtonText, parseChannelCallback, versionedMiniAppUrl, type BotChannelSummary } from '../lib/botQuickActions';
 
 const MINI_APP_RELEASE_URL=versionedMiniAppUrl(env.MINI_APP_URL,Date.now().toString(36));
 
@@ -608,6 +608,17 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 
   if (isChannelButtonText(sourceText)) {
     await sendChannelPicker(chatId, telegramId);
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  if (isOpenAppButtonText(sourceText)) {
+    await sendBotMessage(
+      chatId,
+      'Открой Publium кнопкой ниже.',
+      env.TELEGRAM_BOT_TOKEN,
+      openAppKeyboard('Открыть Publium'),
+    );
     res.status(200).json({ ok: true });
     return;
   }
