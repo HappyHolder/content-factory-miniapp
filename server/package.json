@@ -7,8 +7,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "prisma generate && node scripts/clean-dist.mjs && tsc",
-    "test": "npm run test:lib && npm run test:community-manager",
+    "test": "npm run test:lib && npm run test:moderator && npm run test:community-manager",
     "test:lib": "tsx --test src/lib/*.test.ts",
+    "test:moderator": "tsx --test src/moderator/*.test.ts",
     "test:community-manager": "tsx --test src/communityManager/*.test.ts",
     "start": "node dist/index.js",
     "test:security": "npm run build && node scripts/security-smoke.mjs",
