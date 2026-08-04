@@ -261,8 +261,10 @@ function AppContent() {
     return (
       <div className="flex flex-col h-full bg-[#070708] items-center justify-center px-8">
         <div className="text-center space-y-2">
-          <p className="text-[14px] font-semibold text-white">Could not connect</p>
-          <p className="text-[12px] text-[#55555D] leading-relaxed">Close and reopen the app to try again.</p>
+          <p className="text-[14px] font-semibold text-white">Откройте Publium через Telegram</p>
+          <p className="text-[12px] text-[#777780] leading-relaxed">
+            Закройте это окно и снова откройте приложение кнопкой в официальном боте Publium.
+          </p>
         </div>
       </div>
     )

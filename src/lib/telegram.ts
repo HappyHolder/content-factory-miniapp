@@ -39,6 +39,41 @@ export function getTelegramInitData(): string | null {
 }
 
 /**
+ * Mock data is a development aid, never a production fallback. A production
+ * preview may opt in only on localhost with ?mock=1 (used by the smoke test).
+ */
+export function isTelegramMockModeAllowed(): boolean {
+  if (import.meta.env.DEV) return true
+  try {
+    const host = window.location.hostname.toLowerCase()
+    const local = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+    return local && new URLSearchParams(window.location.search).get('mock') === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Telegram normally exposes initData before the application bundle runs, but
+ * slower clients can initialise the SDK a little later. Wait briefly before
+ * treating the launch as unauthenticated.
+ */
+export async function waitForTelegramInitData(
+  timeoutMs = 1_500,
+  intervalMs = 50,
+): Promise<string | null> {
+  const immediate = getTelegramInitData()
+  if (immediate) return immediate
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, intervalMs))
+    const initData = getTelegramInitData()
+    if (initData) return initData
+  }
+  return null
+}
+
+/**
  * Returns the current Telegram user's numeric id (as a string), or null outside
  * Telegram. Used to tag TON payments with a comment so the backend can bind a
  * deposit to the paying account.

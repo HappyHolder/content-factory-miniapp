@@ -258,14 +258,77 @@ function extractJsonObject(raw: string): string {
   return s;
 }
 
+type ProtectedToken = { value: string; index: number; end: number };
+
+const LATIN_TOKEN = /@[A-Za-z][A-Za-z0-9_]{2,31}|\$[A-Z][A-Z0-9]{1,9}|\b[A-Za-z][A-Za-z0-9+#._-]*\b/g;
+
+function looksLikeProtectedLatinToken(value: string): boolean {
+  const bare = value.replace(/^[@$]/, '');
+  return value.startsWith('@')
+    || value.startsWith('$')
+    || /\d/.test(bare)
+    || /^[A-Z]{2,}[A-Za-z0-9+#._-]*$/.test(bare)
+    || /^[A-Z][a-z]+$/.test(bare)
+    || /^[A-Za-z]*[a-z][A-Z][A-Za-z0-9+#._-]*$/.test(bare);
+}
+
+/**
+ * Finds exact Latin-script names in a mainly Russian source. These are not
+ * translations: they are immutable source tokens such as OpenAI, ChatGPT, TON,
+ * LayerZero, GPT-5, Telegram Mini Apps, @username and $TICKER.
+ */
+export function extractProtectedSourceTerms(input: string): string[] {
+  const cyrillicCount = (input.match(/[А-Яа-яЁё]/g) ?? []).length;
+  const latinCount = (input.match(/[A-Za-z]/g) ?? []).length;
+  if (cyrillicCount < 20 || cyrillicCount < latinCount) return [];
+
+  const searchable = input
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, ' ');
+  const tokens: ProtectedToken[] = [...searchable.matchAll(LATIN_TOKEN)]
+    .flatMap(match => {
+      const value = match[0];
+      const index = match.index ?? -1;
+      return index >= 0 && looksLikeProtectedLatinToken(value)
+        ? [{ value, index, end: index + value.length }]
+        : [];
+    });
+
+  const terms: string[] = [];
+  let group: ProtectedToken[] = [];
+  const flush = () => {
+    if (!group.length) return;
+    terms.push(group.map(token => token.value).join(' '));
+    group = [];
+  };
+  for (const token of tokens) {
+    const previous = group.at(-1);
+    const separator = previous ? searchable.slice(previous.end, token.index) : '';
+    if (previous && group.length < 4 && /^\s+$/.test(separator)) group.push(token);
+    else {
+      flush();
+      group.push(token);
+    }
+  }
+  flush();
+  return [...new Set(terms)].filter(term => term.length <= 80).slice(0, 50);
+}
+
+function missingProtectedTerms(variants: VariantDraft[], protectedTerms: string[]): string[] {
+  return protectedTerms.filter(term => variants.some(variant => !variant.text.includes(term)));
+}
+
 /** Builds the system + user prompts for variant generation (shared by all transports). */
-function buildVariantPrompts(params: GenerateParams): { systemPrompt: string; userPrompt: string } {
+export function buildVariantPrompts(params: GenerateParams): { systemPrompt: string; userPrompt: string; protectedTerms: string[] } {
   const { input, sourceType, channel, brandKit } = params;
 
   const { context, language, addressStyle, signatureBlock, signatureUsage, customNote, examplePosts } =
     buildStyleContext(brandKit);
 
   const channelLabel = channel.handle ? `@${channel.handle}` : channel.name;
+  const protectedTerms = language === 'RU' || language === 'BI'
+    ? extractProtectedSourceTerms(input)
+    : [];
 
   // ── System prompt: Channel Style as hard rules ────────────────────────────
   // Critical constraints (language, address style, signature) are placed in the
@@ -286,8 +349,9 @@ function buildVariantPrompts(params: GenerateParams): { systemPrompt: string; us
   // Language hard constraint
   if (language === 'RU') {
     systemParts.push(
-      'Write ENTIRELY in Russian. Every single word must be in Russian — ' +
-      'not a single word of English or any other language.'
+      'Write the prose in Russian, but preserve source-language proper nouns exactly as written. ' +
+      'Never translate, transliterate, respell, or change the case of brand names, product names, company names, ' +
+      'people names, technical terms, tickers, handles, model names, and other Latin-script identifiers from the source.'
     );
   } else if (language === 'EN') {
     systemParts.push('Write ENTIRELY in English.');
@@ -299,6 +363,13 @@ function buildVariantPrompts(params: GenerateParams): { systemPrompt: string; us
       'Format the "text" field of every variant EXACTLY as:\n' +
       '<full Russian post>\n\n———\n\n<full English post>\n' +
       'Use exactly "———" as the separator between the two languages. Do NOT prefix the versions with language labels like "RU:"/"EN:".'
+    );
+  }
+
+  if (protectedTerms.length > 0) {
+    systemParts.push(
+      'The following source terms are immutable. Include every one in EVERY variant exactly as written, ' +
+      'with the same Latin spelling and letter case:\n' + protectedTerms.map(term => `- ${term}`).join('\n')
     );
   }
 
@@ -371,11 +442,14 @@ function buildVariantPrompts(params: GenerateParams): { systemPrompt: string; us
     userParts.push(`=== Channel Style Profile ===\n${context}`);
   }
 
+  if (protectedTerms.length > 0) {
+    userParts.push(`=== Preserve exactly in both variants ===\n${protectedTerms.join('\n')}`);
+  }
   userParts.push(`=== Content to transform into 2 post variants ===\n${input}`);
 
   const userPrompt = userParts.join('\n\n');
 
-  return { systemPrompt, userPrompt };
+  return { systemPrompt, userPrompt, protectedTerms };
 }
 
 /**
@@ -498,7 +572,7 @@ async function generateWithDeepSeek(params: GenerateParams): Promise<VariantDraf
  * one place in the pipeline where reasoning is clearly worth its cost.
  */
 async function generatePostText(params: GenerateParams): Promise<VariantDraft[]> {
-  const { systemPrompt, userPrompt } = buildVariantPrompts(params);
+  const { systemPrompt, userPrompt, protectedTerms } = buildVariantPrompts(params);
 
   const raw = await terraText({
     system: systemPrompt,
@@ -513,7 +587,24 @@ async function generatePostText(params: GenerateParams): Promise<VariantDraft[]>
     return buildPlaceholderVariants(params.input);
   }
 
-  return parseVariantsJson(raw, params.input, primaryTextModel());
+  const variants = parseVariantsJson(raw, params.input, primaryTextModel());
+  const missing = missingProtectedTerms(variants, protectedTerms);
+  if (missing.length === 0) return variants;
+
+  console.warn(`[aiGenerator] Retrying post text because ${missing.length} protected source term(s) changed or disappeared`);
+  const repairedRaw = await terraText({
+    system: systemPrompt + '\n\nCORRECTION PASS: preserve every immutable source term exactly in both variants.',
+    prompt:
+      userPrompt +
+      '\n\n=== Previous invalid output ===\n' + JSON.stringify({ variants }) +
+      '\n\nRewrite both variants. The previous output changed or omitted immutable source terms.',
+    maxTokens: 8000,
+    effort: 'medium',
+    timeoutMs: 120_000,
+  });
+  if (!repairedRaw) return variants;
+  const repaired = parseVariantsJson(repairedRaw, params.input, primaryTextModel());
+  return missingProtectedTerms(repaired, protectedTerms).length === 0 ? repaired : variants;
 }
 
 // ─── Image prompt generation ─────────────────────────────────────────────────

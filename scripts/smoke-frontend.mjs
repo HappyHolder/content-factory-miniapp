@@ -62,7 +62,7 @@ try {
     if (request.url().startsWith(BASE_URL)) runtimeErrors.push(`Request failed: ${request.url()} ${request.failure()?.errorText ?? ''}`)
   })
 
-  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+  await page.goto(`${BASE_URL}/?mock=1`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
   await page.waitForFunction(() => document.body.innerText.includes('Посты'), { timeout: 15_000 })
   for (const label of ['Посты', 'Создать', 'AI', 'Стили', 'Профиль']) await bodyIncludes(page, label)
   for (const label of ['Новые', 'Отложка', 'Архив']) await bodyIncludes(page, label)
@@ -78,7 +78,16 @@ try {
   if (horizontalOverflow) throw new Error('Mobile layout has horizontal overflow')
   if (runtimeErrors.length) throw new Error(['Browser runtime errors:', ...runtimeErrors].join('\n'))
 
+  const unauthenticatedPage = await browser.newPage()
+  await unauthenticatedPage.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 })
+  await unauthenticatedPage.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+  await bodyIncludes(unauthenticatedPage, 'Откройте Publium через Telegram')
+  const leakedMockData = await unauthenticatedPage.evaluate(() => document.body.innerText.includes('Посты'))
+  if (leakedMockData) throw new Error('Production launch without Telegram initData exposed mock data')
+  await unauthenticatedPage.close()
+
   console.log('Frontend smoke passed: Posts → Create → Profile (390x844, mock mode)')
+  console.log('Frontend auth gate passed: production launch without initData exposes no mock data')
 } catch (error) {
   if (previewOutput.trim()) console.error(previewOutput.trim())
   throw error

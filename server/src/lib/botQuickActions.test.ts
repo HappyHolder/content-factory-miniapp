@@ -10,7 +10,7 @@ const channels = [
 test('builds the two-button persistent keyboard', () => {
   assert.deepEqual(buildQuickActionsKeyboard(channels[0]!, 'https://publium.ru'), {
     keyboard: [[
-      { text: 'Канал · @first' },
+      { text: 'Канал' },
       { text: 'Открыть Publium', web_app: { url: 'https://publium.ru' } },
     ]],
     resize_keyboard: true,
@@ -30,6 +30,7 @@ test('marks only the active channel in the picker', () => {
 
 test('recognizes channel keyboard text and parses safe callbacks', () => {
   assert.equal(isChannelButtonText('Канал · @first'), true);
+  assert.equal(isChannelButtonText('Канал'), true);
   assert.equal(isChannelButtonText('/channel'), true);
   assert.equal(isChannelButtonText('сырой материал'), false);
   assert.equal(parseChannelCallback('channel:channel-two'), 'channel-two');

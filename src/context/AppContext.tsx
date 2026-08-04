@@ -11,7 +11,7 @@ import {
   setStoredLanguage,
   createTranslator,
 } from '@/i18n'
-import { getTelegramInitData, notifyTelegramReady } from '@/lib/telegram'
+import { getTelegramInitData, isTelegramMockModeAllowed, notifyTelegramReady, waitForTelegramInitData } from '@/lib/telegram'
 import { API_BASE } from '@/lib/api'
 import { normalizePostBlocks } from '@/lib/postBlockNormalizer'
 
@@ -177,15 +177,17 @@ function mapListPost(p: ListApiPost): GeneratedPost {
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  // Detect Telegram mode synchronously before the first render.
-  // getTelegramInitData() reads window.Telegram.WebApp.initData which is set
-  // by the SDK script tag before any React code runs — safe to call here.
+  const mockModeAllowed = isTelegramMockModeAllowed()
+  const initialInitData = getTelegramInitData()
+
+  // Production starts behind an auth gate even when Telegram is still
+  // initialising. Mock data is available only in explicit local development.
   const [authStatus, setAuthStatus] = useState<AuthStatus>(() =>
-    getTelegramInitData() ? 'checking' : 'mock'
+    initialInitData ? 'checking' : mockModeAllowed ? 'mock' : 'checking'
   )
 
   const [state, setState] = useState<AppState>(() => {
-    if (getTelegramInitData()) {
+    if (initialInitData || !mockModeAllowed) {
       // Telegram mode — start with an empty shell so no mock data is ever
       // rendered while POST /api/auth/telegram is in-flight.
       postService.init([])
@@ -199,7 +201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         activeChannelId: '',
       }
     }
-    // Dev / plain-browser mode — use mock data as today
+    // Explicit local development mode.
     postService.init(mockInitialState.posts)
     brandKitService.init(mockInitialState.brandKits)
     channelService.init(mockInitialState.channels)
@@ -224,7 +226,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ── Telegram auth + persisted posts bootstrap ────────────────────────────
   // Fires once at mount. Calls ready() so Telegram shows the app immediately.
   //
-  // Dev / browser mode (no initData):
+  // Local mock mode (no initData):
   //   → authStatus stays 'mock'; mock state shown immediately; no fetch.
   //
   // Telegram mode (initData present), auth succeeds:
@@ -236,8 +238,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   //   → authStatus → 'failed'; minimal error screen shown; app stays stable.
   useEffect(() => {
     notifyTelegramReady()
-    const initData = getTelegramInitData()
-    if (!initData) return  // dev / plain-browser mode — authStatus stays 'mock'
+    let cancelled = false
+    if (mockModeAllowed && !getTelegramInitData()) return
 
     interface TelegramAuthResponse {
       user: {
@@ -265,6 +267,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Async IIFE — lets us await auth then posts sequentially while keeping
     // the useEffect callback itself synchronous (React requirement).
     ;(async () => {
+      const initData = await waitForTelegramInitData()
+      if (cancelled) return
+      if (!initData) {
+        setAuthStatus('failed')
+        return
+      }
+
       // ── Step 1: Telegram auth ─────────────────────────────────────────
       let authData: TelegramAuthResponse | null = null
       try {
@@ -378,7 +387,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }))
       setAuthStatus('authenticated')
     })()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { cancelled = true }
+  }, [mockModeAllowed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Visibility-change refresh ─────────────────────────────────────────────
   // When the Telegram Mini App panel is reopened after being hidden, re-fetch
