@@ -86,8 +86,53 @@ try {
   if (leakedMockData) throw new Error('Production launch without Telegram initData exposed mock data')
   await unauthenticatedPage.close()
 
+  const launchFallbackPage = await browser.newPage()
+  await launchFallbackPage.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 })
+  await launchFallbackPage.evaluateOnNewDocument(() => {
+    localStorage.setItem('cf_onboarded', '1')
+    localStorage.setItem('content-factory-language', 'ru')
+  })
+  await launchFallbackPage.setRequestInterception(true)
+  const fallbackInitData = 'query_id=fallback-query&user=%7B%22id%22%3A5473066892%7D&auth_date=1&hash=test'
+  let capturedInitData = null
+  launchFallbackPage.on('request', request => {
+    const url = new URL(request.url())
+    if (url.hostname === 'telegram.org' && url.pathname.endsWith('/telegram-web-app.js')) {
+      void request.respond({ status: 200, contentType: 'application/javascript', body: '' })
+      return
+    }
+    if (url.pathname === '/api/auth/telegram') {
+      capturedInitData = JSON.parse(request.postData() ?? '{}').initData ?? null
+      void request.respond({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: { id: 'user-1', name: 'Test', telegramId: '5473066892', username: 'test', activeChannelId: null },
+          channels: [],
+          brandKits: [],
+          subscription: null,
+        }),
+      })
+      return
+    }
+    if (url.pathname === '/api/posts/list') {
+      void request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts: [] }) })
+      return
+    }
+    void request.continue()
+  })
+  await launchFallbackPage.goto(
+    `${BASE_URL}/#tgWebAppData=${encodeURIComponent(fallbackInitData)}&tgWebAppVersion=9.0`,
+    { waitUntil: 'domcontentloaded', timeout: 30_000 },
+  )
+  const fallbackDeadline = Date.now() + 10_000
+  while (capturedInitData === null && Date.now() < fallbackDeadline) await sleep(50)
+  if (capturedInitData !== fallbackInitData) throw new Error('Telegram launch tgWebAppData fallback was not used for auth')
+  await launchFallbackPage.close()
+
   console.log('Frontend smoke passed: Posts → Create → Profile (390x844, mock mode)')
   console.log('Frontend auth gate passed: production launch without initData exposes no mock data')
+  console.log('Frontend Telegram launch fallback passed: tgWebAppData reaches auth without SDK assistance')
 } catch (error) {
   if (previewOutput.trim()) console.error(previewOutput.trim())
   throw error

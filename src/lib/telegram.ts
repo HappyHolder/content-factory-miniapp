@@ -27,12 +27,23 @@ function getWebApp(): TelegramWebApp | undefined {
   return (window as unknown as TelegramGlobal).Telegram?.WebApp
 }
 
+function telegramLaunchParameter(name: string): string | null {
+  try {
+    const searchValue = new URLSearchParams(window.location.search).get(name)
+    if (searchValue) return searchValue
+    const hash = window.location.hash.replace(/^#/, '')
+    return new URLSearchParams(hash).get(name)
+  } catch {
+    return null
+  }
+}
+
 /**
  * Returns the raw initData string provided by Telegram, or null when running
  * outside the Telegram Mini App environment (e.g. plain browser dev mode).
  */
 export function getTelegramInitData(): string | null {
-  const initData = getWebApp()?.initData
+  const initData = getWebApp()?.initData || telegramLaunchParameter('tgWebAppData')
   return typeof initData === 'string' && initData.trim().length > 0
     ? initData
     : null

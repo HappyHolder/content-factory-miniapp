@@ -24,14 +24,13 @@ export function isChannelButtonText(text: string): boolean {
 }
 
 export function buildQuickActionsKeyboard(
-  _activeChannel: BotChannelSummary | null,
+  activeChannel: BotChannelSummary | null,
   miniAppUrl: string | undefined,
 ): TelegramReplyKeyboard {
-  // Telegram clients keep persistent reply keyboards until the bot sends a new
-  // one. Embedding the active channel here therefore leaves a stale label when
-  // the user switches channels inside the Mini App. Keep this action stable and
-  // show the current channel in the picker, which is loaded from the DB on tap.
-  const row: TelegramReplyKeyboard['keyboard'][number] = [{ text: CHANNEL_BUTTON_PREFIX }];
+  const channelText = activeChannel
+    ? `${CHANNEL_BUTTON_PREFIX} · ${botChannelLabel(activeChannel)}`
+    : CHANNEL_BUTTON_PREFIX;
+  const row: TelegramReplyKeyboard['keyboard'][number] = [{ text: channelText }];
   if (miniAppUrl) row.push({ text: 'Открыть Publium', web_app: { url: miniAppUrl } });
   return {
     keyboard: [row],

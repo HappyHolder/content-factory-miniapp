@@ -4,8 +4,11 @@ import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
 import { getEffectiveSubscription, serializeSubscription } from '../lib/subscriptionLimits';
 import { issueModeratorSession } from '../lib/moderatorSession';
+import { sendBotMessage } from '../lib/telegramBot';
+import { botChannelLabel, buildQuickActionsKeyboard, versionedMiniAppUrl } from '../lib/botQuickActions';
 
 const router = Router();
+const MINI_APP_RELEASE_URL = versionedMiniAppUrl(env.MINI_APP_URL, Date.now().toString(36));
 
 // ─── POST /api/auth/telegram ──────────────────────────────────────────────────
 // Validates Telegram Mini App initData, upserts User by telegramId.
@@ -163,13 +166,21 @@ router.post('/active-channel', async (req: Request, res: Response): Promise<void
   // Verify the channel belongs to this user
   const channel = await prisma.channel.findUnique({
     where:  { id: channelId },
-    select: { userId: true },
+    select: { id: true, userId: true, name: true, handle: true },
   }).catch(() => null);
   if (!channel || channel.userId !== dbUser.id) {
     res.status(403).json({ error: 'Channel not found or access denied' }); return;
   }
 
   await prisma.user.update({ where: { id: dbUser.id }, data: { activeChannelId: channelId } });
+  await sendBotMessage(
+    telegramId,
+    `Активный канал: ${botChannelLabel(channel)}.`,
+    env.TELEGRAM_BOT_TOKEN,
+    buildQuickActionsKeyboard(channel, MINI_APP_RELEASE_URL),
+  ).catch(error => {
+    console.error('[auth/active-channel] keyboard refresh failed:', error instanceof Error ? error.message : String(error));
+  });
   res.json({ ok: true });
 });
 
