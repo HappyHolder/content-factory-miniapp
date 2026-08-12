@@ -1057,7 +1057,19 @@ function BlockEditor({ b, allowGrid4, onChange, onReplace, onAddGalleryPhoto, on
 
               {(b.panorama?.sourceUrl || b.urls.length > 0) && (
                 <section className="space-y-3 rounded-[10px] border border-white/[0.07] bg-white/[0.02] p-3">
-                  <div className="flex items-center justify-between gap-2"><p className="text-[12px] font-semibold text-white">Готовый результат</p><span className="text-[9px] text-[#22C55E]">{b.urls.length} частей</span></div>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[12px] font-semibold text-white">Готовый результат</p>
+                    <div className="text-right">
+                      <span className="block text-[9px] text-[#22C55E]">{b.urls.length} частей</span>
+                      <span className="mt-0.5 block text-[8px] text-[#71717A]">
+                        {b.matrix4
+                          ? '4096×4096'
+                          : b.panorama?.orientation === 'vertical'
+                            ? `1080×${1080 * b.urls.length}`
+                            : `${1080 * b.urls.length}×1080`}
+                      </span>
+                    </div>
+                  </div>
                   {b.panorama?.sourceUrl && (
                     <div className="space-y-1.5"><p className="text-[10px] text-[#71717A]">Исходное изображение</p><img src={b.panorama.sourceUrl} alt="Исходная панорама" className={cn('w-full rounded-[8px] border border-white/[0.07] bg-black/20 object-contain', b.panorama.orientation === 'vertical' ? 'max-h-52' : 'max-h-36')} /></div>
                   )}
@@ -1066,7 +1078,7 @@ function BlockEditor({ b, allowGrid4, onChange, onReplace, onAddGalleryPhoto, on
                     {b.matrix4 ? (
                       <div className="grid grid-cols-4 gap-px overflow-hidden rounded-[8px] bg-black">{b.matrix4.flat().map((u, i) => <img key={`${u}-${i}`} src={u} alt={`Часть ${i + 1}`} className="aspect-square w-full object-cover" />)}</div>
                     ) : (
-                      <div className="flex gap-1.5 overflow-x-auto pb-1">{b.urls.map((u, i) => <div key={`${u}-${i}`} className="relative w-[74px] shrink-0 overflow-hidden rounded-[7px] border border-white/[0.07]"><img src={u} alt={`Часть ${i + 1}`} className="aspect-square w-full object-cover" /><span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[8px] text-white">{i + 1}</span></div>)}</div>
+                      <div className="flex gap-1.5 overflow-x-auto pb-1">{b.urls.map((u, i) => <div key={`${u}-${i}`} className="relative flex aspect-square w-[74px] shrink-0 items-center justify-center overflow-hidden rounded-[7px] border border-white/[0.07] bg-black"><img src={u} alt={`Часть ${i + 1}, 1080 на 1080`} loading="lazy" className="h-full w-full object-contain" /><span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[8px] text-white">{i + 1}</span></div>)}</div>
                     )}
                   </div>
                 </section>

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { putObject, deleteObject } from '../lib/storage';
-import { buildGrid4ReferenceImage, generateGrid4BaseImage, generateGrid4FromReference, generatePanoramaImage, sliceGrid4Image, sliceImage } from '../lib/panoramaGenerator';
+import { buildGrid4ReferenceImage, buildPanoramaRatioGuide, generateGrid4BaseImage, generateGrid4FromReference, generatePanoramaImage, getPanoramaGenerationPlan, normalizePanoramaSource, scanPanoramaForText, sliceGrid4Image, sliceImage } from '../lib/panoramaGenerator';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -1013,14 +1013,15 @@ router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Req
       count = orientation === 'vertical' ? Math.round(H / W) : Math.round(W / H);
     }
 
-    const slices = await sliceImage(file.buffer, orientation, count);
+    const normalized = await normalizePanoramaSource(file.buffer, orientation, count, 1080, false);
+    const slices = await sliceImage(normalized, orientation, count);
     if (!slices.length) { res.status(400).json({ error: 'Slice failed' }); return; }
     const urls = await Promise.all(slices.map((buf, i) =>
       putObject(`posts/panorama/${dbUser.id}-${Date.now()}-${i}.png`, buf, { contentType: 'image/png' }).then(o => o.url)));
 
     const source = await putObject(
       `posts/panorama/source/${dbUser.id}-${Date.now()}-upload.png`,
-      await sharp(file.buffer).png().toBuffer(),
+      normalized,
       { contentType: 'image/png' },
     );
     res.json({ urls, sourceUrl: source.url, layout: orientation === 'vertical' ? 'stack' : 'slideshow', count: slices.length });
@@ -1031,9 +1032,8 @@ router.post('/slice-panorama', uploadMiddleware.single('image'), async (req: Req
 });
 
 // ─── POST /api/posts/generate-panorama ───────────────────────────────────────
-// Generates ONE long panorama via nano-banana-2 (prompt + orientation), then
-// slices it into `count` pieces. 'horizontal' → 4:1/8:1 → slideshow carousel;
-// 'vertical' → 1:4/1:8 → stacked. Does NOT touch the DB.
+// Generates ONE complete panorama, then slices it into exact 1080x1080 pieces.
+// 2-3 pieces use direct OpenAI Images; 4-8 use Replicate. Grid4 stays separate.
 // Request: JSON { initData, postId, prompt, orientation?, count? }
 // Response 200: { urls: string[], sourceUrl: string, layout: 'slideshow' | 'stack', count }
 router.post('/generate-panorama', async (req: Request, res: Response): Promise<void> => {
@@ -1075,16 +1075,10 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
   let count = parseInt(String((req.body as { count?: unknown }).count ?? ''), 10);
   if (!Number.isFinite(count)) count = 4;
   count = Math.min(Math.max(count, 2), 8);
-  // Grid uses a 1:1 4K source; one-dimensional panoramas keep extreme ratios.
-  const aspectRatio = orientation === 'grid4'
-    ? '1:1'
-    : orientation === 'vertical'
-      ? (count > 4 ? '1:8' : '1:4')
-      : (count > 4 ? '8:1' : '4:1');
-
+  let ratioGuideUrl: string | null = null;
   try {
     const brief = prompt.slice(0, 1200);
-    let image: Buffer | null;
+    let image: Buffer | null = null;
 
     if (orientation === 'grid4') {
       const baseImage = await generateGrid4BaseImage(brief, visualKit);
@@ -1107,7 +1101,64 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
         await deleteObject(referenceObject.url);
       }
     } else {
-      image = await generatePanoramaImage(brief, aspectRatio, orientation, count, visualKit);
+      const plan = getPanoramaGenerationPlan(orientation, count);
+      if (plan.needsRatioGuide) {
+        const guide = await buildPanoramaRatioGuide(orientation, count);
+        const guideObject = await putObject(
+          `posts/panorama/work/${dbUser.id}-${Date.now()}-ratio-guide.png`,
+          guide,
+          { contentType: 'image/png' },
+        );
+        ratioGuideUrl = guideObject.url;
+      }
+
+      let failureReason = 'generation_failed';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const generated = await generatePanoramaImage(brief, orientation, count, visualKit, {
+          ratioGuideUrl: ratioGuideUrl ?? undefined,
+          textRetry: attempt > 0,
+        });
+        if (!generated) break;
+
+        let normalized: Buffer;
+        try {
+          normalized = await normalizePanoramaSource(generated, orientation, count, 1080, true);
+        } catch (err) {
+          failureReason = 'wrong_ratio';
+          console.warn(`[posts/generate-panorama] rejected ${plan.provider} output:`, (err as Error).message);
+          if (attempt === 0) continue;
+          break;
+        }
+
+        const textScan = await scanPanoramaForText(normalized, orientation, count);
+        if (!textScan.checked) {
+          failureReason = 'text_check_unavailable';
+          console.warn('[posts/generate-panorama] text QA unavailable; rejecting unverified output');
+          break;
+        }
+        if (textScan.hasText) {
+          failureReason = 'text_detected';
+          console.warn(`[posts/generate-panorama] rejected text-bearing output: ${textScan.detectedText || 'unreadable writing'}`);
+          if (attempt === 0) continue;
+          break;
+        }
+
+        image = normalized;
+        failureReason = '';
+        break;
+      }
+
+      if (!image) {
+        const error = failureReason === 'text_detected'
+          ? 'Нейросеть добавила надписи. Результат отклонён, попробуйте ещё раз.'
+          : failureReason === 'wrong_ratio'
+            ? 'Нейросеть вернула неправильный формат панорамы. Попробуйте ещё раз.'
+            : failureReason === 'text_check_unavailable'
+              ? 'Не удалось проверить изображение на надписи. Попробуйте ещё раз.'
+              : 'Генерация не удалась. Попробуйте ещё раз.';
+        res.status(502).json({ error });
+        return;
+      }
     }
 
     if (!image) { res.status(502).json({ error: 'Генерация не удалась. Попробуйте ещё раз.' }); return; }
@@ -1154,6 +1205,7 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
     console.error('[posts/generate-panorama] failed:', (err as Error).message);
     res.status(500).json({ error: 'Не удалось сгенерировать панораму. Попробуйте ещё раз.' });
   } finally {
+    if (ratioGuideUrl) await deleteObject(ratioGuideUrl);
     if (!visualCommitted) await refundSubscriptionQuota(dbUser.id, 'visual');
   }
 });

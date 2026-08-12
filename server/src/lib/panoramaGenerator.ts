@@ -1,15 +1,13 @@
 /**
  * panoramaGenerator.ts
  *
- * The ONLY place nano-banana-2 (Google Gemini 3.1 Flash Image) is used, and the
- * ONLY thing left in the product that talks to Replicate at all.
+ * Regular 2-3-part panoramas use direct OpenAI Images. This file is also the
+ * only place nano-banana-2 (Google Gemini 3.1 Flash Image) and Replicate remain:
+ * long 4-8-part panoramas plus the experimental 4x4 grid.
  *
- * It stays because it is the one model that renders true extreme ratios (1:4 /
- * 4:1 / 1:8 / 8:1) in a single pass, for post PANORAMAS sliced into
- * stacked/carousel slides. Neither alternative can replace it: the direct OpenAI
- * Images API caps at 3:1 ("The maximum supported aspect ratio is 3:1", verified),
- * and Google's own Gemini API documents nothing beyond 21:9 — Replicate's wrapper
- * exposes ratios the direct API does not.
+ * Nano Banana stays because it renders ratios beyond OpenAI's verified 3:1
+ * ceiling. Every regular provider still returns one complete source scene; the
+ * server validates, normalizes and only then cuts it into square slides.
  *
  * Isolated from the cover engine, the carousel engine and the text model — none
  * of them touch this file.
@@ -17,6 +15,8 @@
 
 import sharp from 'sharp';
 import { env } from '../env';
+import { openAiImage } from './openaiImage';
+import { openAiVision } from './openaiChat';
 
 const NANO_MODEL = 'google/nano-banana-2';
 
@@ -28,6 +28,49 @@ interface Prediction {
 }
 
 export type PanoramaOrientation = 'horizontal' | 'vertical' | 'grid4';
+export type LinearPanoramaOrientation = Exclude<PanoramaOrientation, 'grid4'>;
+
+export interface PanoramaGenerationPlan {
+  count: number;
+  orientation: LinearPanoramaOrientation;
+  provider: 'openai' | 'replicate';
+  aspectRatio: string;
+  openAiSize: string | null;
+  replicateAspectRatio: string | null;
+  needsRatioGuide: boolean;
+  targetWidth: number;
+  targetHeight: number;
+}
+
+/** The selected part count is the source of truth for provider and canvas size. */
+export function getPanoramaGenerationPlan(
+  orientation: LinearPanoramaOrientation,
+  requestedCount: number,
+  tileSize = 1080,
+): PanoramaGenerationPlan {
+  const count = Math.min(Math.max(Math.round(requestedCount), 2), 8);
+  const vertical = orientation === 'vertical';
+  const aspectRatio = vertical ? `1:${count}` : `${count}:1`;
+  const provider = count <= 3 ? 'openai' : 'replicate';
+  const openAiSize = provider === 'openai'
+    ? (vertical ? `1024x${1024 * count}` : `${1024 * count}x1024`)
+    : null;
+  const replicateAspectRatio = provider === 'replicate'
+    ? (count === 4 || count === 8 ? aspectRatio : 'match_input_image')
+    : null;
+
+  return {
+    count,
+    orientation,
+    provider,
+    aspectRatio,
+    openAiSize,
+    replicateAspectRatio,
+    needsRatioGuide: provider === 'replicate' && count !== 4 && count !== 8,
+    targetWidth: vertical ? tileSize : tileSize * count,
+    targetHeight: vertical ? tileSize * count : tileSize,
+  };
+}
 const PANORAMA_STYLE_PHRASES: Record<string, string> = {
   hyperreal:  'hyperrealistic, ultra-detailed, lifelike photography',
   cinematic:  'cinematic film still, dramatic lighting, shallow depth of field, professionally color-graded',
@@ -57,7 +100,7 @@ function compactText(value: unknown, maxLength: number): string {
  * Reference images are represented by their saved vision descriptions because
  * the panorama model currently receives a text prompt, not raw image inputs.
  */
-export function buildPanoramaBrandStyle(visualKit: unknown): string {
+export function buildPanoramaBrandStyle(visualKit: unknown, safeOnly = false): string {
   if (!visualKit || typeof visualKit !== 'object' || Array.isArray(visualKit)) return '';
   const vk = visualKit as Record<string, unknown>;
   const parts: string[] = [];
@@ -72,7 +115,10 @@ export function buildPanoramaBrandStyle(visualKit: unknown): string {
   if (detail === 'balanced') parts.push('detail level: balanced, readable, and layered');
   if (detail === 'detailed') parts.push('detail level: richly detailed, intricate, and deep');
 
-  const masterStyle = compactText(vk['visualCoverStyle'], 600);
+  // Free-form master style and reference descriptions can contain instructions
+  // such as "write the headline on the image". A text-free panorama must never
+  // forward those commands to the image model.
+  const masterStyle = safeOnly ? '' : compactText(vk['visualCoverStyle'], 600);
   if (masterStyle) parts.push('master visual style: ' + masterStyle);
 
   const colors = Array.isArray(vk['brandColors'])
@@ -81,14 +127,14 @@ export function buildPanoramaBrandStyle(visualKit: unknown): string {
         const color = item as Record<string, unknown>;
         const hex = compactText(color['hex'], 10);
         if (!/^#[0-9a-f]{6}$/i.test(hex)) return [];
-        const name = compactText(color['name'], 50);
-        const usage = compactText(color['usage'], 100);
+        const name = safeOnly ? '' : compactText(color['name'], 50);
+        const usage = safeOnly ? '' : compactText(color['usage'], 100);
         return [(name ? name + ' ' : '') + hex + (usage ? ' (' + usage + ')' : '')];
       })
     : [];
   if (colors.length) parts.push('brand palette: ' + colors.join(', '));
 
-  const references = Array.isArray(vk['references'])
+  const references = !safeOnly && Array.isArray(vk['references'])
     ? (vk['references'] as unknown[]).slice(0, 5).flatMap(item => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
         const description = compactText((item as Record<string, unknown>)['description'], 240);
@@ -97,7 +143,7 @@ export function buildPanoramaBrandStyle(visualKit: unknown): string {
     : [];
   if (references.length) parts.push('reference art direction: ' + references.join(' | '));
 
-  const avoid = Array.isArray(vk['avoidList'])
+  const avoid = !safeOnly && Array.isArray(vk['avoidList'])
     ? (vk['avoidList'] as unknown[]).flatMap(item => {
         const value = compactText(item, 100);
         return value ? [value] : [];
@@ -123,8 +169,9 @@ export function buildPanoramaPrompt(
   count: number,
   aspectRatio: string,
   visualKit?: unknown,
+  textRetry = false,
 ): string {
-  const brandStyle = buildPanoramaBrandStyle(visualKit);
+  const brandStyle = buildPanoramaBrandStyle(visualKit, orientation !== 'grid4');
 
   if (orientation === 'grid4') {
     return [
@@ -170,7 +217,6 @@ export function buildPanoramaPrompt(
     '- Maintain one camera, one perspective, one lighting setup, one palette, and one visual style across the entire canvas.',
     '- Fill the complete extreme canvas with intentional detail. Do not stretch a normal image or add empty filler at either end.',
     '- This is not a collage, storyboard, comic, contact sheet, split screen, grid, or set of separate panels. No borders or gutters between segments.',
-    '- No text, letters, numbers, captions, logos, watermarks, UI, frames, or mockups.',
     `SUBJECT: ${brief.trim()}`,
     ...(brandStyle
       ? [
@@ -179,6 +225,11 @@ export function buildPanoramaPrompt(
           'The saved channel style controls the rendering, palette, detail, and mood. It overrides conflicting style adjectives in the subject brief without changing the requested subject.',
         ]
       : []),
+    'FINAL NON-NEGOTIABLE OUTPUT RULES:',
+    '- Treat the SUBJECT only as a semantic description of the scene. Never copy, quote, spell, label, or visually reproduce any word from it.',
+    '- Render absolutely no text, letters, numbers, captions, headlines, signs, logos, brand names, watermarks, UI, frames, or mockups anywhere in the image.',
+    '- Surfaces that could normally contain writing, including buildings, screens, vehicles, clothing, packaging, and street signs, must remain blank or use non-linguistic abstract detail.',
+    ...(textRetry ? ['- A previous result was rejected because it contained visible writing. This retry must contain zero readable characters of any kind.'] : []),
   ].join('\n');
 }
 
@@ -270,21 +321,160 @@ async function runNanoImage(
   }
 }
 
-/**
- * Generates a regular one-dimensional panorama. Grid4 uses the separate
- * reference-template pipeline below.
- */
+/** Generates one complete regular panorama through the provider for its length. */
 export async function generatePanoramaImage(
   prompt: string,
-  aspectRatio: string,
-  orientation: PanoramaOrientation,
+  orientation: LinearPanoramaOrientation,
   count: number,
   visualKit?: unknown,
+  options?: { ratioGuideUrl?: string; textRetry?: boolean },
 ): Promise<Buffer | null> {
-  const productionPrompt = buildPanoramaPrompt(prompt, orientation, count, aspectRatio, visualKit);
-  return runNanoImage(productionPrompt, aspectRatio, {
-    resolution: orientation === 'grid4' ? '4K' : undefined,
+  const plan = getPanoramaGenerationPlan(orientation, count);
+  const productionPrompt = buildPanoramaPrompt(
+    prompt,
+    orientation,
+    plan.count,
+    plan.aspectRatio,
+    visualKit,
+    options?.textRetry ?? false,
+  );
+
+  if (plan.provider === 'openai') {
+    return openAiImage({
+      prompt: productionPrompt,
+      size: plan.openAiSize!,
+      quality: 'medium',
+      model: env.OPENAI_IMAGE_MODEL,
+    });
+  }
+
+  if (plan.needsRatioGuide && !options?.ratioGuideUrl) {
+    console.warn(`[panoramaGenerator] ${plan.aspectRatio} requires a ratio guide`);
+    return null;
+  }
+
+  return runNanoImage(productionPrompt, plan.replicateAspectRatio!, {
+    resolution: '2K',
+    imageInput: options?.ratioGuideUrl ? [options.ratioGuideUrl] : undefined,
   });
+}
+
+/** Transparent guide used only to make Replicate preserve 1:5 / 1:6 / 1:7. */
+export async function buildPanoramaRatioGuide(
+  orientation: LinearPanoramaOrientation,
+  count: number,
+  shortEdge = 512,
+): Promise<Buffer> {
+  const plan = getPanoramaGenerationPlan(orientation, count, shortEdge);
+  return sharp({
+    create: {
+      width: plan.targetWidth,
+      height: plan.targetHeight,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 0 },
+    },
+  }).png().toBuffer();
+}
+
+/**
+ * Produces the exact N-square source canvas. Generated images are strict: a
+ * wrong model ratio is rejected instead of stretched. Uploaded images may be
+ * centre-cropped to the requested N-square canvas.
+ */
+export async function normalizePanoramaSource(
+  buffer: Buffer,
+  orientation: LinearPanoramaOrientation,
+  count: number,
+  tileSize = 1080,
+  strictRatio = true,
+): Promise<Buffer> {
+  const plan = getPanoramaGenerationPlan(orientation, count, tileSize);
+  const meta = await sharp(buffer).metadata();
+  const width = meta.width ?? 0;
+  const height = meta.height ?? 0;
+  if (width < 2 || height < 2) throw new Error('Panorama source has no usable dimensions');
+
+  const actual = width / height;
+  const expected = plan.targetWidth / plan.targetHeight;
+  const relativeError = Math.abs(actual - expected) / expected;
+  if (strictRatio && relativeError > 0.02) {
+    throw new Error(
+      `Panorama source ratio mismatch: got ${width}x${height}, expected ${plan.aspectRatio}`,
+    );
+  }
+
+  return sharp(buffer)
+    .resize({
+      width: plan.targetWidth,
+      height: plan.targetHeight,
+      // Never stretch the scene. Strict mode only allows the tiny edge crop
+      // caused by providers rounding their internal pixel dimensions.
+      fit: 'cover',
+      position: 'centre',
+    })
+    .png()
+    .toBuffer();
+}
+
+export interface PanoramaTextScan {
+  checked: boolean;
+  hasText: boolean;
+  detectedText: string;
+}
+
+export function parsePanoramaTextScan(response: string | null): PanoramaTextScan {
+  if (!response) return { checked: false, hasText: false, detectedText: '' };
+  try {
+    const match = response.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(match?.[0] ?? response) as Record<string, unknown>;
+    if (typeof parsed['has_text'] !== 'boolean') throw new Error('missing has_text');
+    return {
+      checked: true,
+      hasText: parsed['has_text'],
+      detectedText: typeof parsed['detected_text'] === 'string' ? parsed['detected_text'].slice(0, 300) : '',
+    };
+  } catch {
+    console.warn('[panoramaGenerator] text QA returned invalid JSON:', response.slice(0, 160));
+    return { checked: false, hasText: false, detectedText: '' };
+  }
+}
+
+/** Uses the existing direct OpenAI vision path as a fail-closed text QA gate. */
+export async function scanPanoramaForText(
+  normalized: Buffer,
+  orientation: LinearPanoramaOrientation,
+  count: number,
+): Promise<PanoramaTextScan> {
+  const tiles = await sliceImage(normalized, orientation, count, 512);
+  if (!tiles.length) return { checked: false, hasText: false, detectedText: '' };
+
+  const columns = Math.min(3, tiles.length);
+  const rows = Math.ceil(tiles.length / columns);
+  const contactSheet = await sharp({
+    create: {
+      width: columns * 512,
+      height: rows * 512,
+      channels: 3,
+      background: { r: 0, g: 0, b: 0 },
+    },
+  }).composite(tiles.map((input, index) => ({
+    input,
+    left: (index % columns) * 512,
+    top: Math.floor(index / columns) * 512,
+  }))).jpeg({ quality: 85 }).toBuffer();
+
+  const response = await openAiVision({
+    image: `data:image/jpeg;base64,${contactSheet.toString('base64')}`,
+    prompt: [
+      'Inspect every panel of this contact sheet for visible writing.',
+      'Text includes any readable or attempted letters, words, numbers, captions, signs, logos, brand names, watermarks, UI labels, and writing on buildings, screens, vehicles, clothes, or objects.',
+      'Return only compact JSON in this exact shape: {"has_text":boolean,"detected_text":string}.',
+      'Set has_text=true even when the writing is stylized, partially garbled, or only one readable character is present.',
+    ].join(' '),
+    maxTokens: 120,
+    timeoutMs: 45_000,
+  });
+  return parsePanoramaTextScan(response);
 }
 
 function buildGrid4BasePrompt(brief: string, visualKit?: unknown): string {
@@ -419,23 +609,18 @@ export async function sliceGrid4Image(
 /** Cuts a one-dimensional panorama into equal carousel or stack pieces. */
 export async function sliceImage(
   buffer: Buffer,
-  orientation: 'horizontal' | 'vertical',
+  orientation: LinearPanoramaOrientation,
   count: number,
-  upscaleTo = 1080,
+  tileSize = 1080,
 ): Promise<Buffer[]> {
-  const meta = await sharp(buffer).metadata();
-  const W = meta.width ?? 0, H = meta.height ?? 0;
-  if (W < 2 || H < 2) return [];
-  const n = Math.min(Math.max(count, 2), 8);
-  const sw = Math.floor(W / n), sh = Math.floor(H / n);
+  const n = Math.min(Math.max(Math.round(count), 2), 8);
+  const normalized = await normalizePanoramaSource(buffer, orientation, n, tileSize, false);
   const out: Buffer[] = [];
   for (let i = 0; i < n; i++) {
     const region = orientation === 'vertical'
-      ? { left: 0,      top: sh * i, width: W, height: i === n - 1 ? H - sh * i : sh }
-      : { left: sw * i, top: 0,      width: i === n - 1 ? W - sw * i : sw, height: H };
-    let pipe = sharp(buffer).extract(region);
-    if (region.width < upscaleTo) pipe = pipe.resize({ width: upscaleTo });
-    out.push(await pipe.png().toBuffer());
+      ? { left: 0, top: tileSize * i, width: tileSize, height: tileSize }
+      : { left: tileSize * i, top: 0, width: tileSize, height: tileSize };
+    out.push(await sharp(normalized).extract(region).png().toBuffer());
   }
   return out;
 }

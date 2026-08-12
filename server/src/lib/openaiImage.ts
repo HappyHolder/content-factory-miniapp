@@ -34,7 +34,12 @@ export const sizeForAspectRatio = (ratio: string): string => SIZE_BY_RATIO[ratio
 
 export interface OpenAiImageParams {
   prompt: string;
-  aspectRatio: CoverAspectRatio;
+  aspectRatio?: CoverAspectRatio;
+  /**
+   * Exact internal Images API size. Used by the panorama engine for 1:2 / 2:1
+   * and 1:3 / 3:1 canvases. Callers must pass dimensions supported by OpenAI.
+   */
+  size?: string;
   quality?: 'low' | 'medium' | 'high' | 'auto';
   /** Brand reference image (public URL). Switches the call to /images/edits. */
   referenceImageUrl?: string | null;
@@ -82,7 +87,7 @@ const extensionOf = (mime: string) => (mime === 'image/jpeg' ? 'jpg' : mime === 
 export async function openAiImage(p: OpenAiImageParams): Promise<Buffer | null> {
   if (!env.OPENAI_API_KEY) return null;
   const model = p.model ?? env.OPENAI_IMAGE_MODEL;
-  const size = sizeForAspectRatio(p.aspectRatio);
+  const size = p.size ?? sizeForAspectRatio(p.aspectRatio ?? '1:1');
   const quality = p.quality ?? 'medium';
 
   const controller = new AbortController();
