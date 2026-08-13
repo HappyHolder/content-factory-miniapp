@@ -8,6 +8,7 @@ import {
   getPanoramaGenerationPlan,
   normalizePanoramaSource,
   parsePanoramaTextScan,
+  scanPanoramaForText,
   sliceImage,
 } from './panoramaGenerator';
 
@@ -71,6 +72,13 @@ test('text QA is fail-closed and preserves the detected writing', () => {
   });
   assert.equal(parsePanoramaTextScan('not json').checked, false);
   assert.equal(parsePanoramaTextScan(null).checked, false);
+});
+
+test('text QA contract accepts incidental object markings but rejects designed captions', () => {
+  const source = scanPanoramaForText.toString();
+  assert.match(source, /currency denominations and banknote microprint/);
+  assert.match(source, /prominent headlines, captions, slogans/);
+  assert.match(source, /typography used as a graphic\/design element/);
 });
 
 test('all linear modes produce exact square tiles', async () => {

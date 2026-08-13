@@ -466,10 +466,12 @@ export async function scanPanoramaForText(
   const response = await openAiVision({
     image: `data:image/jpeg;base64,${contactSheet.toString('base64')}`,
     prompt: [
-      'Inspect every panel of this contact sheet for visible writing.',
-      'Text includes any readable or attempted letters, words, numbers, captions, signs, logos, brand names, watermarks, UI labels, and writing on buildings, screens, vehicles, clothes, or objects.',
+      'Inspect every panel of this contact sheet for prohibited designed writing added by the image generator.',
+      'Set has_text=true for prominent headlines, captions, slogans, labels, signs, storefront or building lettering, logos, brand names, watermarks, UI labels, or conspicuous words that describe the scene.',
+      'Set has_text=false for tiny incidental markings naturally belonging to a depicted real-world object, such as currency denominations and banknote microprint, vehicle plates, clock faces, instrument scales, or distant unreadable environmental detail.',
+      'The distinction is functional: reject typography used as a graphic/design element; allow small authentic object detail that is not acting as a headline, caption, sign, logo, or focal message.',
       'Return only compact JSON in this exact shape: {"has_text":boolean,"detected_text":string}.',
-      'Set has_text=true even when the writing is stylized, partially garbled, or only one readable character is present.',
+      'When has_text=false, detected_text must be an empty string.',
     ].join(' '),
     maxTokens: 120,
     timeoutMs: 45_000,
