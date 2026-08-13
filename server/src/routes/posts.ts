@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { putObject, deleteObject } from '../lib/storage';
-import { buildGrid4ReferenceImage, buildPanoramaRatioGuide, generateGrid4BaseImage, generateGrid4FromReference, generatePanoramaImage, getPanoramaGenerationPlan, normalizePanoramaSource, scanPanoramaForText, sliceGrid4Image, sliceImage } from '../lib/panoramaGenerator';
+import { buildGrid4ReferenceImage, buildPanoramaRatioGuide, generateGrid4BaseImage, generateGrid4FromReference, generatePanoramaImage, getPanoramaGenerationPlan, normalizePanoramaSource, resolvePanoramaTextPolicy, scanPanoramaForText, sliceGrid4Image, sliceImage } from '../lib/panoramaGenerator';
 import { prisma } from '../db';
 import { env } from '../env';
 import { validateAndParseTelegramInitData } from '../lib/telegram';
@@ -1102,6 +1102,7 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
       }
     } else {
       const plan = getPanoramaGenerationPlan(orientation, count);
+      const textPolicy = await resolvePanoramaTextPolicy(brief);
       if (plan.needsRatioGuide) {
         const guide = await buildPanoramaRatioGuide(orientation, count);
         const guideObject = await putObject(
@@ -1130,7 +1131,7 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
           break;
         }
 
-        const textScan = await scanPanoramaForText(normalized, orientation, count, brief);
+        const textScan = await scanPanoramaForText(normalized, orientation, count, brief, textPolicy);
         if (!textScan.checked) {
           failureReason = 'text_check_unavailable';
           console.warn('[posts/generate-panorama] text QA unavailable; rejecting unverified output');

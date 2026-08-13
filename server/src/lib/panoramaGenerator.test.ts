@@ -87,15 +87,20 @@ test('text QA is fail-closed and preserves the detected writing', () => {
 });
 
 test('text QA evaluates designed text against the original user request', () => {
-  const ordinary = buildPanoramaTextQaPrompt('Ночной город и дождь из долларов');
+  const ordinary = buildPanoramaTextQaPrompt('Ночной город и дождь из долларов', {
+    visibleTextRequested: false, logoRequested: false, exactTexts: [], requestSummary: 'No visible text requested.',
+  });
   assert.match(ordinary, /USER REQUEST JSON: "Ночной город и дождь из долларов"/);
   assert.match(ordinary, /currency denominations and banknote microprint/);
   assert.match(ordinary, /did not explicitly ask to show/);
 
-  const requested = buildPanoramaTextQaPrompt('Добавь заголовок «VISION» и логотип');
+  const requested = buildPanoramaTextQaPrompt('Добавь заголовок «VISION» и логотип', {
+    visibleTextRequested: true, logoRequested: true, exactTexts: ['VISION'], requestSummary: 'Visible title and logo requested.',
+  });
   assert.match(requested, /USER REQUEST JSON: "Добавь заголовок «VISION» и логотип"/);
-  assert.match(requested, /including Russian and other non-English languages/);
-  assert.match(requested, /quoted wording/);
+  assert.match(requested, /SERVER-RESOLVED TEXT PERMISSION/);
+  assert.match(requested, /"exactTexts":\["VISION"\]/);
+  assert.match(requested, /server-resolved permission is authoritative/);
   assert.match(requested, /explicitly asks for visible text/);
   assert.match(requested, /Never label an exact requested word or logo as unrequested/);
   assert.match(requested, /materially misspelled/);

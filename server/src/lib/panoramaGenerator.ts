@@ -16,7 +16,7 @@
 import sharp from 'sharp';
 import { env } from '../env';
 import { openAiImage } from './openaiImage';
-import { openAiVision } from './openaiChat';
+import { openAiText, openAiVision } from './openaiChat';
 
 const NANO_MODEL = 'google/nano-banana-2';
 
@@ -423,12 +423,78 @@ export interface PanoramaTextScan {
   detectedText: string;
 }
 
-export function buildPanoramaTextQaPrompt(brief: string): string {
+export interface PanoramaTextPolicy {
+  visibleTextRequested: boolean;
+  logoRequested: boolean;
+  exactTexts: string[];
+  requestSummary: string;
+}
+
+function fallbackPanoramaTextPolicy(brief: string): PanoramaTextPolicy {
+  const exactTexts = Array.from(brief.matchAll(/[«“"]([^»”"]{1,120})[»”"]/g))
+    .map(match => match[1]!.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const visibleTextRequested = /(заголов|надпис|вывес|напиш|текст.{0,20}(картин|изображ)|слово.{0,20}(покаж|изобраз)|headline|caption|inscription|sign\b|label\b|write\b|visible text)/iu.test(brief);
+  const logoRequested = /(логотип|лого\b|брендинг|logo\b|branding)/iu.test(brief);
+  return {
+    visibleTextRequested,
+    logoRequested,
+    exactTexts: visibleTextRequested ? exactTexts : [],
+    requestSummary: 'Deterministic fallback from explicit wording in the user request.',
+  };
+}
+
+export async function resolvePanoramaTextPolicy(brief: string): Promise<PanoramaTextPolicy> {
+  const fallback = fallbackPanoramaTextPolicy(brief);
+  const schema = {
+    type: 'object',
+    properties: {
+      visibleTextRequested: { type: 'boolean' },
+      logoRequested: { type: 'boolean' },
+      exactTexts: { type: 'array', items: { type: 'string' }, maxItems: 8 },
+      requestSummary: { type: 'string' },
+    },
+    required: ['visibleTextRequested', 'logoRequested', 'exactTexts', 'requestSummary'],
+    additionalProperties: false,
+  };
+  const response = await openAiText({
+    system: [
+      'You classify whether an image-generation request explicitly asks for visible typography or branding.',
+      'Understand the request in its original language, including Russian.',
+      'Do not mark text as requested merely because the prompt contains names or descriptive words.',
+      'visibleTextRequested is true only for an explicit request to render a headline, caption, inscription, sign, label, word, number, or other readable text.',
+      'logoRequested is true only for an explicit request to render a logo or visible branding.',
+      'exactTexts contains only exact wording that the user asks to render visibly, preserving spelling and case. Extract quoted wording and other unambiguous requested copy.',
+    ].join(' '),
+    prompt: brief.trim().slice(0, 1200),
+    effort: 'low',
+    maxTokens: 220,
+    timeoutMs: 20_000,
+    format: { type: 'json_schema', name: 'panorama_text_policy', schema, strict: true },
+  });
+  if (!response) return fallback;
+  try {
+    const parsed = JSON.parse(response) as Record<string, unknown>;
+    return {
+      visibleTextRequested: parsed['visibleTextRequested'] === true,
+      logoRequested: parsed['logoRequested'] === true,
+      exactTexts: Array.isArray(parsed['exactTexts'])
+        ? parsed['exactTexts'].filter((value): value is string => typeof value === 'string' && value.trim().length > 0).map(value => value.trim().slice(0, 120)).slice(0, 8)
+        : fallback.exactTexts,
+      requestSummary: typeof parsed['requestSummary'] === 'string' ? parsed['requestSummary'].slice(0, 400) : fallback.requestSummary,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export function buildPanoramaTextQaPrompt(brief: string, policy: PanoramaTextPolicy): string {
   return [
     'Determine whether this generated panorama violates the user request by adding unrequested or inaccurate designed text or branding.',
-    'First interpret the user request in its original language, including Russian and other non-English languages. Do not assume that non-English wording is merely a scene description.',
     `USER REQUEST JSON: ${JSON.stringify(brief.trim().slice(0, 1200))}`,
-    'Explicit imperatives and phrases requesting a title, inscription, sign, label, visible word, quoted wording, number, brand name, branding, or logo authorize that exact visible element.',
+    `SERVER-RESOLVED TEXT PERMISSION: ${JSON.stringify(policy)}`,
+    'The server-resolved permission is authoritative. When visibleTextRequested=true, the exactTexts values are explicitly requested and must never be classified as unrequested. When logoRequested=true, a logo or visible branding matching the request is allowed.',
     'Set has_text=true when the image contains a prominent headline, caption, slogan, label, sign, storefront or building lettering, logo, brand name, watermark, UI label, or other focal writing that the USER REQUEST did not explicitly ask to show.',
     'If the USER REQUEST explicitly asks for visible text, a title, a sign, a word, a number, branding, or a logo, that requested element is allowed. Never label an exact requested word or logo as unrequested. Set has_text=true only when it is missing the requested wording, materially misspelled, or accompanied by additional unrequested designed writing or branding.',
     'Set has_text=false when all prominent typography and branding exactly follow the explicit USER REQUEST, or when none is present and none was requested.',
@@ -460,6 +526,7 @@ export async function scanPanoramaForText(
   orientation: LinearPanoramaOrientation,
   count: number,
   brief: string,
+  policy: PanoramaTextPolicy,
 ): Promise<PanoramaTextScan> {
   const tiles = await sliceImage(normalized, orientation, count, 512);
   if (!tiles.length) return { checked: false, hasText: false, detectedText: '' };
@@ -481,7 +548,7 @@ export async function scanPanoramaForText(
 
   const response = await openAiVision({
     image: `data:image/jpeg;base64,${contactSheet.toString('base64')}`,
-    prompt: buildPanoramaTextQaPrompt(brief),
+    prompt: buildPanoramaTextQaPrompt(brief, policy),
     maxTokens: 120,
     timeoutMs: 45_000,
   });
