@@ -88,13 +88,16 @@ test('text QA is fail-closed and preserves the detected writing', () => {
 
 test('text QA evaluates designed text against the original user request', () => {
   const ordinary = buildPanoramaTextQaPrompt('Ночной город и дождь из долларов');
-  assert.match(ordinary, /USER REQUEST: Ночной город и дождь из долларов/);
+  assert.match(ordinary, /USER REQUEST JSON: "Ночной город и дождь из долларов"/);
   assert.match(ordinary, /currency denominations and banknote microprint/);
   assert.match(ordinary, /did not explicitly ask to show/);
 
   const requested = buildPanoramaTextQaPrompt('Добавь заголовок «VISION» и логотип');
-  assert.match(requested, /USER REQUEST: Добавь заголовок «VISION» и логотип/);
+  assert.match(requested, /USER REQUEST JSON: "Добавь заголовок «VISION» и логотип"/);
+  assert.match(requested, /including Russian and other non-English languages/);
+  assert.match(requested, /quoted wording/);
   assert.match(requested, /explicitly asks for visible text/);
+  assert.match(requested, /Never label an exact requested word or logo as unrequested/);
   assert.match(requested, /materially misspelled/);
 });
 

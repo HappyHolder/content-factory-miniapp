@@ -426,9 +426,11 @@ export interface PanoramaTextScan {
 export function buildPanoramaTextQaPrompt(brief: string): string {
   return [
     'Determine whether this generated panorama violates the user request by adding unrequested or inaccurate designed text or branding.',
-    `USER REQUEST: ${brief.trim().slice(0, 1200)}`,
+    'First interpret the user request in its original language, including Russian and other non-English languages. Do not assume that non-English wording is merely a scene description.',
+    `USER REQUEST JSON: ${JSON.stringify(brief.trim().slice(0, 1200))}`,
+    'Explicit imperatives and phrases requesting a title, inscription, sign, label, visible word, quoted wording, number, brand name, branding, or logo authorize that exact visible element.',
     'Set has_text=true when the image contains a prominent headline, caption, slogan, label, sign, storefront or building lettering, logo, brand name, watermark, UI label, or other focal writing that the USER REQUEST did not explicitly ask to show.',
-    'If the USER REQUEST explicitly asks for visible text, a title, a sign, a word, a number, branding, or a logo, that requested element is allowed. Set has_text=true only when it is missing the requested wording, materially misspelled, or accompanied by additional unrequested designed writing or branding.',
+    'If the USER REQUEST explicitly asks for visible text, a title, a sign, a word, a number, branding, or a logo, that requested element is allowed. Never label an exact requested word or logo as unrequested. Set has_text=true only when it is missing the requested wording, materially misspelled, or accompanied by additional unrequested designed writing or branding.',
     'Set has_text=false when all prominent typography and branding exactly follow the explicit USER REQUEST, or when none is present and none was requested.',
     'Also set has_text=false for tiny incidental markings naturally belonging to a depicted real-world object, such as currency denominations and banknote microprint, vehicle plates, clock faces, instrument scales, or distant unreadable environmental detail.',
     'Return only compact JSON in this exact shape: {"has_text":boolean,"detected_text":string}. detected_text should briefly describe only the violating element; when has_text=false it must be empty.',
