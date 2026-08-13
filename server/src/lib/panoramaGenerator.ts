@@ -226,10 +226,11 @@ export function buildPanoramaPrompt(
         ]
       : []),
     'FINAL NON-NEGOTIABLE OUTPUT RULES:',
-    '- Treat the SUBJECT only as a semantic description of the scene. Never copy, quote, spell, label, or visually reproduce any word from it.',
-    '- Render absolutely no text, letters, numbers, captions, headlines, signs, logos, brand names, watermarks, UI, frames, or mockups anywhere in the image.',
-    '- Surfaces that could normally contain writing, including buildings, screens, vehicles, clothing, packaging, and street signs, must remain blank or use non-linguistic abstract detail.',
-    ...(textRetry ? ['- A previous result was rejected because it contained visible writing. This retry must contain zero readable characters of any kind.'] : []),
+    '- The SUBJECT is the only authority for visible typography and branding.',
+    '- If the user explicitly requests a visible headline, caption, sign, label, word, number, brand name, or logo, render exactly that requested element and no additional designed text or branding.',
+    '- If the user does not explicitly request visible typography or branding, render no headlines, captions, signs, labels, logos, brand names, watermarks, or UI anywhere in the image.',
+    '- Tiny incidental markings naturally belonging to realistic objects may remain, but must never become a focal message or decorative typography.',
+    ...(textRetry ? ['- A previous result was rejected for unrequested or inaccurate designed writing. On this retry, follow any explicit typography or logo request exactly; otherwise render none.'] : []),
   ].join('\n');
 }
 
@@ -422,6 +423,18 @@ export interface PanoramaTextScan {
   detectedText: string;
 }
 
+export function buildPanoramaTextQaPrompt(brief: string): string {
+  return [
+    'Determine whether this generated panorama violates the user request by adding unrequested or inaccurate designed text or branding.',
+    `USER REQUEST: ${brief.trim().slice(0, 1200)}`,
+    'Set has_text=true when the image contains a prominent headline, caption, slogan, label, sign, storefront or building lettering, logo, brand name, watermark, UI label, or other focal writing that the USER REQUEST did not explicitly ask to show.',
+    'If the USER REQUEST explicitly asks for visible text, a title, a sign, a word, a number, branding, or a logo, that requested element is allowed. Set has_text=true only when it is missing the requested wording, materially misspelled, or accompanied by additional unrequested designed writing or branding.',
+    'Set has_text=false when all prominent typography and branding exactly follow the explicit USER REQUEST, or when none is present and none was requested.',
+    'Also set has_text=false for tiny incidental markings naturally belonging to a depicted real-world object, such as currency denominations and banknote microprint, vehicle plates, clock faces, instrument scales, or distant unreadable environmental detail.',
+    'Return only compact JSON in this exact shape: {"has_text":boolean,"detected_text":string}. detected_text should briefly describe only the violating element; when has_text=false it must be empty.',
+  ].join(' ');
+}
+
 export function parsePanoramaTextScan(response: string | null): PanoramaTextScan {
   if (!response) return { checked: false, hasText: false, detectedText: '' };
   try {
@@ -444,6 +457,7 @@ export async function scanPanoramaForText(
   normalized: Buffer,
   orientation: LinearPanoramaOrientation,
   count: number,
+  brief: string,
 ): Promise<PanoramaTextScan> {
   const tiles = await sliceImage(normalized, orientation, count, 512);
   if (!tiles.length) return { checked: false, hasText: false, detectedText: '' };
@@ -465,14 +479,7 @@ export async function scanPanoramaForText(
 
   const response = await openAiVision({
     image: `data:image/jpeg;base64,${contactSheet.toString('base64')}`,
-    prompt: [
-      'Inspect every panel of this contact sheet for prohibited designed writing added by the image generator.',
-      'Set has_text=true for prominent headlines, captions, slogans, labels, signs, storefront or building lettering, logos, brand names, watermarks, UI labels, or conspicuous words that describe the scene.',
-      'Set has_text=false for tiny incidental markings naturally belonging to a depicted real-world object, such as currency denominations and banknote microprint, vehicle plates, clock faces, instrument scales, or distant unreadable environmental detail.',
-      'The distinction is functional: reject typography used as a graphic/design element; allow small authentic object detail that is not acting as a headline, caption, sign, logo, or focal message.',
-      'Return only compact JSON in this exact shape: {"has_text":boolean,"detected_text":string}.',
-      'When has_text=false, detected_text must be an empty string.',
-    ].join(' '),
+    prompt: buildPanoramaTextQaPrompt(brief),
     maxTokens: 120,
     timeoutMs: 45_000,
   });

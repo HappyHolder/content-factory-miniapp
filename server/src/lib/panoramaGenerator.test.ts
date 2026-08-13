@@ -5,10 +5,10 @@ import {
   buildPanoramaBrandStyle,
   buildPanoramaPrompt,
   buildPanoramaRatioGuide,
+  buildPanoramaTextQaPrompt,
   getPanoramaGenerationPlan,
   normalizePanoramaSource,
   parsePanoramaTextScan,
-  scanPanoramaForText,
   sliceImage,
 } from './panoramaGenerator';
 
@@ -50,7 +50,19 @@ test('regular panorama prompt cannot inherit headline or logo instructions', () 
   assert.match(prompt, /SUBJECT: Vision — дождь из долларов/);
   assert.doesNotMatch(prompt, /Пишем заголовок|писать название|large typography/i);
   assert.ok(prompt.lastIndexOf('FINAL NON-NEGOTIABLE OUTPUT RULES') > prompt.lastIndexOf('SUBJECT:'));
-  assert.ok(prompt.lastIndexOf('Render absolutely no text') > prompt.lastIndexOf('SUBJECT:'));
+  assert.ok(prompt.lastIndexOf('If the user explicitly requests a visible headline') > prompt.lastIndexOf('SUBJECT:'));
+});
+
+test('explicit user text and logo requests remain allowed and exclusive', () => {
+  const prompt = buildPanoramaPrompt(
+    'Ночной город, на здании крупная вывеска «VISION», рядом логотип проекта',
+    'vertical',
+    3,
+    '1:3',
+  );
+  assert.match(prompt, /render exactly that requested element/i);
+  assert.match(prompt, /no additional designed text or branding/i);
+  assert.doesNotMatch(prompt, /Render absolutely no text/i);
 });
 
 test('strict normalization rejects a 1:4 image requested as three square parts', async () => {
@@ -74,11 +86,16 @@ test('text QA is fail-closed and preserves the detected writing', () => {
   assert.equal(parsePanoramaTextScan(null).checked, false);
 });
 
-test('text QA contract accepts incidental object markings but rejects designed captions', () => {
-  const source = scanPanoramaForText.toString();
-  assert.match(source, /currency denominations and banknote microprint/);
-  assert.match(source, /prominent headlines, captions, slogans/);
-  assert.match(source, /typography used as a graphic\/design element/);
+test('text QA evaluates designed text against the original user request', () => {
+  const ordinary = buildPanoramaTextQaPrompt('Ночной город и дождь из долларов');
+  assert.match(ordinary, /USER REQUEST: Ночной город и дождь из долларов/);
+  assert.match(ordinary, /currency denominations and banknote microprint/);
+  assert.match(ordinary, /did not explicitly ask to show/);
+
+  const requested = buildPanoramaTextQaPrompt('Добавь заголовок «VISION» и логотип');
+  assert.match(requested, /USER REQUEST: Добавь заголовок «VISION» и логотип/);
+  assert.match(requested, /explicitly asks for visible text/);
+  assert.match(requested, /materially misspelled/);
 });
 
 test('all linear modes produce exact square tiles', async () => {

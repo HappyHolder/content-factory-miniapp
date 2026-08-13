@@ -1130,7 +1130,7 @@ router.post('/generate-panorama', async (req: Request, res: Response): Promise<v
           break;
         }
 
-        const textScan = await scanPanoramaForText(normalized, orientation, count);
+        const textScan = await scanPanoramaForText(normalized, orientation, count, brief);
         if (!textScan.checked) {
           failureReason = 'text_check_unavailable';
           console.warn('[posts/generate-panorama] text QA unavailable; rejecting unverified output');
