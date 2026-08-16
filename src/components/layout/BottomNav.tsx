@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileText, Sparkles, User, Bot, Send, Loader2, ChevronDown, LayoutTemplate, Paperclip, Mic, X, Square } from 'lucide-react'
+import { Newspaper, SquarePlus, User, Bot, Send, Loader2, ChevronDown, LayoutTemplate, Paperclip, Mic, X, Square } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApp } from '@/context/AppContext'
 import { API_BASE } from '@/lib/api'
@@ -43,8 +43,8 @@ export function BottomNav({ active, onChange, onAISend, aiLoading, aiEnabled = t
   const mounted = useRef(false)
 
   const navItems: NavItem[] = [
-    { id: 'posts',   label: t('nav.posts'),   icon: FileText },
-    { id: 'create',  label: t('nav.create'),  icon: Sparkles },
+    { id: 'posts',   label: t('nav.posts'),   icon: Newspaper },
+    { id: 'create',  label: t('nav.create'),  icon: SquarePlus },
     { id: 'ai',      label: t('nav.ai'),      icon: Bot      },
     { id: 'styles',  label: t('nav.styles'),  icon: LayoutTemplate },
     { id: 'profile', label: t('nav.profile'), icon: User     },

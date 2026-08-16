@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LayoutTemplate, Loader2, Check } from 'lucide-react'
+import { LayoutTemplate, Loader2 } from 'lucide-react'
 import { StyleDetailSheet } from '@/components/styles/StyleDetailSheet'
 import { useApp } from '@/context/AppContext'
 import { fetchStyles, isStyleOwned } from '@/lib/styles'
@@ -86,9 +86,7 @@ export function StylesScreen() {
                   <div className="mt-1 flex items-center justify-between">
                     <span className="text-[11px] font-medium text-[#A1A1AA]">{priceLabel}</span>
                     {ownedNow && (
-                      <span className="flex items-center gap-0.5 text-[10px] font-semibold text-[#FF6A00]">
-                        <Check size={10} strokeWidth={2.5} /> {t('styles.owned')}
-                      </span>
+                      <span className="text-[10px] font-semibold text-[#FF6A00]">{t('styles.owned')}</span>
                     )}
                   </div>
                 </div>

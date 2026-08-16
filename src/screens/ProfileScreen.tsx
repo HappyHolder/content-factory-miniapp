@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket, Trash2
+  Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket, Trash2, MoreVertical
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -286,59 +286,74 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
   index: number
   t: (key: TranslationKey) => string
 }) {
+  const [actionsOpen, setActionsOpen] = useState(false)
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.06, duration: 0.2 }}
-    >
-      <GlassCard className={isActive ? 'border-[rgba(255,106,0,0.22)]' : ''}>
-        <div className="flex items-center gap-2.5 mb-2.5">
-          <div className="w-9 h-9 rounded-full bg-[rgba(255,106,0,0.11)] flex items-center justify-center text-sm font-bold text-[#FF6A00] border border-[rgba(255,106,0,0.18)]">
-            {channel.title[0]}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-semibold text-white">{channelLabel(channel)}</p>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <p className="text-[11px] text-[#55555D]">{channel.subscribersCount.toLocaleString()} {t('profile.connected')}</p>
+    <>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: index * 0.06, duration: 0.2 }}
+      >
+        <GlassCard className={isActive ? 'border-[rgba(255,106,0,0.22)]' : ''}>
+          <div className="flex items-center gap-2.5 mb-2.5">
+            <div className="w-9 h-9 rounded-full bg-[rgba(255,106,0,0.11)] flex items-center justify-center text-sm font-bold text-[#FF6A00] border border-[rgba(255,106,0,0.18)]">
+              {channel.title[0]}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-semibold text-white">{channelLabel(channel)}</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <p className="text-[11px] text-[#55555D]">{channel.subscribersCount.toLocaleString()} {t('profile.connected')}</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isActive}
+                aria-label={`${t('profile.makeActive')}: ${channelLabel(channel)}`}
+                onClick={() => { if (!isActive) onSetDefault() }}
+                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"
+              >
+                <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 ${isActive ? 'bg-[#FF6A00]' : 'bg-[#343439]'}`}>
+                  <span className={`absolute left-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-200 ${isActive ? 'translate-x-4' : 'translate-x-0'}`} />
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActionsOpen(true)}
+                aria-label={`${t('profile.disconnect')}: ${channelLabel(channel)}`}
+                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-[#62626A] transition-colors duration-200 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"
+              >
+                <MoreVertical size={16} />
+              </button>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={isActive}
-              aria-label={`${t('profile.makeActive')}: ${channelLabel(channel)}`}
-              onClick={() => { if (!isActive) onSetDefault() }}
-              className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]"
-            >
-              <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 ${isActive ? 'bg-[#FF6A00]' : 'bg-[#343439]'}`}>
-                <span className={`absolute left-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-200 ${isActive ? 'translate-x-4' : 'translate-x-0'}`} />
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={onDisconnect}
-              aria-label={`${t('profile.disconnect')}: ${channelLabel(channel)}`}
-              className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-[#62626A] transition-colors duration-200 hover:bg-red-500/[0.08] hover:text-[#FF5C67] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF5C67]"
-            >
-              <Trash2 size={15} />
-            </button>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <HighlightRing active={!!highlightStyle}>
-            <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
-              {t('profile.channelStyle')}
+          <div className="grid grid-cols-2 gap-2">
+            <HighlightRing active={!!highlightStyle}>
+              <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
+                {t('profile.channelStyle')}
+              </Button>
+            </HighlightRing>
+            <Button variant="secondary" size="sm" onClick={onOpenCommunity} fullWidth>
+              Сообщество
             </Button>
-          </HighlightRing>
-          <Button variant="secondary" size="sm" onClick={onOpenCommunity} fullWidth>
-            Сообщество
-          </Button>
-        </div>
-      </GlassCard>
-    </motion.div>
+          </div>
+        </GlassCard>
+      </motion.div>
+
+      <Sheet open={actionsOpen} onClose={() => setActionsOpen(false)} title={channelLabel(channel)}>
+        <Button
+          variant="danger"
+          size="lg"
+          onClick={() => { setActionsOpen(false); onDisconnect() }}
+          fullWidth
+        >
+          <Trash2 size={16} /> {t('profile.disconnect')}
+        </Button>
+      </Sheet>
+    </>
   )
 }
 

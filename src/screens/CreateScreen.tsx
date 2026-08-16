@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sparkles, Check, Loader2, Radio, ImagePlus, X, PenLine } from 'lucide-react'
+import { Sparkles, Check, Loader2, Radio, ImagePlus, X, PencilLine } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { useWalkthrough } from '@/context/WalkthroughContext'
 import { Coachmark, HighlightRing } from '@/components/onboarding/Coachmark'
@@ -190,16 +190,11 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
           <GlassCard strong padding="none" className="overflow-hidden">
             <div className="p-4 space-y-3.5">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-[8px] bg-[rgba(255,106,0,0.14)] flex items-center justify-center">
-                  <Sparkles size={14} className="text-[#FF6A00]" />
-                </div>
-                <h2 className="text-[15px] font-semibold text-white">{isRu ? 'Создать пост' : 'Create a post'}</h2>
-              </div>
+              <h2 className="text-[15px] font-semibold text-white">{isRu ? 'Создать пост' : 'Create a post'}</h2>
 
               {/* Mode toggle: AI generation vs manual block editor */}
               <div className="flex gap-1 p-1 rounded-[12px] bg-white/[0.04] border border-white/[0.06]">
-                {([['ai', Sparkles, isRu ? 'С помощью ИИ' : 'With AI'], ['blank', PenLine, isRu ? 'С нуля' : 'From scratch']] as const).map(([m, Icon, label]) => (
+                {([['ai', Sparkles, isRu ? 'С помощью ИИ' : 'With AI'], ['blank', PencilLine, isRu ? 'С нуля' : 'From scratch']] as const).map(([m, Icon, label]) => (
                   <button key={m} onClick={() => setMode(m)}
                     className={cn('flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[9px] text-[12.5px] font-semibold transition-colors',
                       mode === m ? 'bg-[#FF6A00] text-white' : 'text-[#A1A1AA]')}>
@@ -247,8 +242,7 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
                   />
                 </>
               ) : (
-                <div className="flex items-start gap-3 px-3.5 py-3 rounded-[14px] bg-white/[0.03] border border-white/[0.07]">
-                  <PenLine size={15} className="text-[#FF6A00] shrink-0 mt-0.5" />
+                <div className="px-3.5 py-3 rounded-[14px] bg-white/[0.03] border border-white/[0.07]">
                   <div>
                     <p className="text-[12px] font-semibold text-white">{isRu ? 'Собрать пост вручную' : 'Build a post by hand'}</p>
                     <p className="text-[11px] text-[#55555D] mt-0.5 leading-relaxed">
@@ -320,7 +314,7 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
                       : 'bg-white/[0.04] text-[#44444C] border border-white/[0.06] cursor-not-allowed')}>
                     {isGenerating ? <><Loader2 size={16} className="animate-spin" />{t('create.generating')}</>
                       : done ? <><Check size={16} />{t('create.postsReady')}</>
-                      : <><Sparkles size={16} />{isRu ? 'Создать' : 'Create'}</>}
+                      : (isRu ? 'Создать' : 'Create')}
                   </motion.button>
                 </HighlightRing>
               ) : (
@@ -332,7 +326,7 @@ export function CreateScreen({ onPostCreated, prefill, onPrefillConsumed }: Crea
                     activeChannel && !creatingBlank ? 'bg-[#FF6A00] text-white hover:bg-[#ff7a1a] orange-glow'
                     : 'bg-white/[0.04] text-[#44444C] border border-white/[0.06] cursor-not-allowed')}>
                   {creatingBlank ? <><Loader2 size={16} className="animate-spin" />{isRu ? 'Создаю…' : 'Creating…'}</>
-                    : <><PenLine size={16} />{isRu ? 'Открыть редактор' : 'Open editor'}</>}
+                    : (isRu ? 'Открыть редактор' : 'Open editor')}
                 </motion.button>
               )}
             </div>
