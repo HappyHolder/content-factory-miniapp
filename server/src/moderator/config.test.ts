@@ -34,3 +34,12 @@ test('accepts cultural rewrite AI actions and one-character checks', () => {
   assert.equal(block.action, 'delete_rewrite_warn');
   assert.equal(block.minLength, 1);
 });
+
+test('migrates legacy intervention sanctions to soft responses', () => {
+  const [block] = parseBlocks([{ id: 'ai', type: 'ai_moderation', enabled: true, rules: 'Без травли', interventionsEnabled: true, interventionMode: 'respond_warn', cooldownSeconds: 3600 }]);
+  assert.equal(block?.type, 'ai_moderation');
+  if (block?.type !== 'ai_moderation') return;
+  assert.equal(block.interventionMode, 'respond');
+  assert.equal('cooldownSeconds' in block, false);
+  assert.equal('repeatAction' in block, false);
+});

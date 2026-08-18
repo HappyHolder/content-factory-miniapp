@@ -352,6 +352,10 @@ model ModeratorConversationMessage {
   displayName       String?
   telegramMessageId Int
   text              String
+  replyToMessageId  Int?
+  threadKey         String    @default("main")
+  moderated         Boolean   @default(false)
+  moderationSignal  Json?
   createdAt         DateTime  @default(now())
   expiresAt         DateTime
   community         Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
@@ -359,6 +363,68 @@ model ModeratorConversationMessage {
   @@unique([communityId, telegramMessageId])
   @@index([communityId, createdAt])
   @@index([expiresAt])
+}
+
+model ModeratorConversationEpisode {
+  id               String    @id @default(cuid())
+  communityId      String
+  episodeKey       String
+  threadKey        String    @default("main")
+  category         String
+  state            String    @default("OBSERVING")
+  severity         String    @default("low")
+  riskScore        Float     @default(0)
+  summary          String    @default("")
+  participantIds   Json      @default("[]")
+  targetIds        Json      @default("[]")
+  lastMessageId    Int?
+  lastAnalyzedAt   DateTime?
+  lastIntervenedAt DateTime?
+  resolvedAt       DateTime?
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  community        Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, episodeKey])
+  @@index([communityId, state, updatedAt])
+  @@index([expiresAt])
+}
+
+model ModeratorParticipantRisk {
+  id            String                          @id @default(cuid())
+  communityId   String
+  tgUserId      String
+  score         Float                           @default(0)
+  level         String                          @default("low")
+  evidenceCount Int                             @default(0)
+  lastEventAt   DateTime
+  expiresAt     DateTime
+  createdAt     DateTime                        @default(now())
+  updatedAt     DateTime                        @updatedAt
+  community     Community                       @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  events        ModeratorParticipantRiskEvent[]
+
+  @@unique([communityId, tgUserId])
+  @@index([communityId, score])
+  @@index([expiresAt])
+}
+
+model ModeratorParticipantRiskEvent {
+  id          String                   @id @default(cuid())
+  communityId String
+  riskId      String
+  episodeId   String?
+  category    String
+  severity    String
+  delta       Float
+  evidence    String
+  createdAt   DateTime                 @default(now())
+  community   Community                @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  risk        ModeratorParticipantRisk @relation(fields: [riskId], references: [id], onDelete: Cascade)
+
+  @@index([communityId, createdAt])
+  @@index([riskId, createdAt])
 }
 
 model ModeratorConversationState {
@@ -573,6 +639,9 @@ model Community {
   messageSamples             ModerationMessageSample[]
   conversationMessages       ModeratorConversationMessage[]
   conversationState          ModeratorConversationState?
+  conversationEpisodes       ModeratorConversationEpisode[]
+  participantRisks           ModeratorParticipantRisk[]
+  participantRiskEvents      ModeratorParticipantRiskEvent[]
   managedBot                 ManagedModeratorBot?
   managedCommunityManagerBot ManagedCommunityManagerBot?
   communityManager           CommunityManager?
@@ -637,6 +706,12 @@ model CommunityDailyStat {
   blockedMsgs    Int      @default(0) // moderation removed them
   interventions  Int      @default(0)
   conflictEvents Int      @default(0)
+  harassmentEvents  Int      @default(0)
+  culturalRewrites  Int      @default(0)
+  affectedUsers     Int      @default(0)
+  resolvedEpisodes  Int      @default(0)
+  escalatedEpisodes Int      @default(0)
+  toxicityWeight    Float    @default(0)
   hourHistogram  Json? // 24 ints, MSK hours — additive, powers the heatmap
   climateScore   Float?
   computedAt     DateTime @default(now())

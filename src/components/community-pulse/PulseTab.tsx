@@ -30,6 +30,11 @@ interface PulseReport {
     joins: number; leaves: number; netGrowth: number; churnRate: number | null
     newSpeakers: number; speakerConversion: number | null; concentration: number | null
   }
+  moderation: {
+    blockedMessages:number; culturalRewrites:number; interventions:number; conflicts:number; harassment:number
+    affectedUsers:number; resolvedEpisodes:number; escalatedEpisodes:number; toxicityWeight:number
+    temporaryRisks:{tgUserId:string;score:number;level:string;evidenceCount:number;lastEventAt:string;evidence:{category:string;severity:string;text:string;at:string}[]}[]
+  }
   series: { day: string; messages: number; activeUsers: number; joins: number; leaves: number }[]
   heatmap: number[][]
   orbit: { tier: string; count: number; share: number }[]
@@ -229,6 +234,18 @@ export function PulseTab({ communityId }: { communityId: string }) {
           <StatTile label="Участников" value={h.memberCount != null ? String(h.memberCount) : '—'} hint={`${h.mau} писали`} />
           <StatTile label="Сообщений" value={String(h.messages)} hint={`${h.messagesPerDay}/день`} />
         </div>
+      </Section>
+
+      <Section title="Климат и модерация" subtitle="Pulse только показывает агрегаты. Он не удаляет сообщения и не назначает санкции.">
+        <div className="grid grid-cols-2 gap-2">
+          <StatTile label="Удалено" value={String(report.moderation.blockedMessages)} hint={`${report.moderation.culturalRewrites} с перефразом`} />
+          <StatTile label="Мягких ответов" value={String(report.moderation.interventions)} hint="без warn и mute" />
+          <StatTile label="Конфликтов" value={String(report.moderation.conflicts)} hint={`${report.moderation.resolvedEpisodes} завершено`} />
+          <StatTile label="Травля" value={String(report.moderation.harassment)} hint={`${report.moderation.escalatedEpisodes} эскалаций`} />
+          <StatTile label="Затронуто" value={String(report.moderation.affectedUsers)} hint="участников за дни" />
+          <StatTile label="Вес токсичности" value={String(report.moderation.toxicityWeight)} hint="учитывает тяжесть" />
+        </div>
+        {report.moderation.temporaryRisks.length>0&&<div className="mt-3 rounded-[13px] border border-white/[0.06] bg-white/[0.025] p-3"><p className="text-[11px] font-semibold text-white">Временный риск по эпизодам</p><p className="mt-0.5 text-[10px] leading-relaxed text-[#777780]">Это не постоянный ярлык и не основание для автоматической санкции: оценка уменьшается со временем.</p><div className="mt-2 space-y-2">{report.moderation.temporaryRisks.slice(0,5).map(r=><details key={r.tgUserId} className="rounded-[10px] border border-white/[0.05] px-2.5 py-2"><summary className="flex min-h-8 cursor-pointer list-none items-center gap-2"><span className="w-[82px] truncate text-[11px] text-[#A1A1AA]">ID {r.tgUserId.slice(-6)}</span><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.05]"><div className={cn('h-full rounded-full',r.level==='high'?'bg-red-400':r.level==='medium'?'bg-amber-400':'bg-cyan-300')} style={{width:`${r.score}%`}}/></div><span className="w-6 text-right text-[11px] tabular-nums text-white">{r.score}</span></summary>{r.evidence.length>0&&<div className="mt-2 space-y-1.5 border-t border-white/[0.05] pt-2">{r.evidence.map((e,i)=><p key={`${e.at}-${i}`} className="text-[10px] leading-relaxed text-[#A1A1AA]"><span className="text-[#D4D4D8]">{e.category} · {e.severity}:</span> {e.text}</p>)}</div>}</details>)}</div></div>}
       </Section>
 
       <Section title="Сообщения по дням">

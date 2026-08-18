@@ -31,6 +31,7 @@ export interface PulseReport {
     newSpeakers: number; speakerConversion: number | null; // joined → actually wrote, %
     concentration: number | null;                          // top-3 share of messages, %
   };
+  moderation: { blockedMessages:number; culturalRewrites:number; interventions:number; conflicts:number; harassment:number; affectedUsers:number; resolvedEpisodes:number; escalatedEpisodes:number; toxicityWeight:number; temporaryRisks:{tgUserId:string;score:number;level:string;evidenceCount:number;lastEventAt:string;evidence:{category:string;severity:string;text:string;at:string}[]}[] };
   series: { day: string; messages: number; activeUsers: number; joins: number; leaves: number }[];
   heatmap: number[][];           // [weekday 0=Mon..6=Sun][hour 0..23]
   orbit: { tier: string; count: number; share: number }[];
@@ -115,11 +116,19 @@ async function periodAggregate(communityId: string, from: string, to: string) {
   const leaves = stats.reduce((n, s) => n + s.leaves, 0);
   const newSpeakers = stats.reduce((n, s) => n + s.newSpeakers, 0);
   const conflicts = stats.reduce((n, s) => n + s.conflictEvents, 0);
+  const harassment = stats.reduce((n, s) => n + s.harassmentEvents, 0);
+  const toxicityWeight = stats.reduce((n, s) => n + s.toxicityWeight, 0);
+  const moderation = {
+    blockedMessages:stats.reduce((n,s)=>n+s.blockedMsgs,0), culturalRewrites:stats.reduce((n,s)=>n+s.culturalRewrites,0),
+    interventions:stats.reduce((n,s)=>n+s.interventions,0), conflicts, harassment,
+    affectedUsers:stats.reduce((n,s)=>n+s.affectedUsers,0), resolvedEpisodes:stats.reduce((n,s)=>n+s.resolvedEpisodes,0),
+    escalatedEpisodes:stats.reduce((n,s)=>n+s.escalatedEpisodes,0), toxicityWeight:Math.round(toxicityWeight*100)/100,
+  };
   const daysWithData = stats.filter(s => s.messages > 0 || s.joins > 0 || s.leaves > 0).length;
   const activeSum = stats.reduce((n, s) => n + s.activeUsers, 0);
   const dau = daysWithData ? Math.round((activeSum / daysWithData) * 10) / 10 : 0;
   const memberCount = [...stats].reverse().find(s => s.memberCount != null)?.memberCount ?? null;
-  return { users, stats, messages, replies, joins, leaves, newSpeakers, conflicts, daysWithData, dau, mau: users.length, memberCount };
+  return { users, stats, messages, replies, joins, leaves, newSpeakers, conflicts, toxicityWeight, moderation, daysWithData, dau, mau: users.length, memberCount };
 }
 
 /** Composite 0–100 score from the five axes. */
@@ -141,6 +150,8 @@ export async function computePulse(communityId: string, days = 30): Promise<Puls
   const prevFrom = pulseDayKey(new Date(now.getTime() - (days * 2 - 1) * DAY_MS));
 
   const cur = await periodAggregate(communityId, from, to);
+  const riskRows = await prisma.moderatorParticipantRisk.findMany({ where:{communityId,expiresAt:{gt:now}}, orderBy:{score:'desc'}, take:10, select:{tgUserId:true,score:true,level:true,evidenceCount:true,lastEventAt:true,events:{orderBy:{createdAt:'desc'},take:3,select:{category:true,severity:true,evidence:true,createdAt:true}}} }).catch(()=>[]);
+  const temporaryRisks = riskRows.flatMap(r=>{const score=Math.round(r.score*Math.pow(.5,Math.max(0,now.getTime()-r.lastEventAt.getTime())/DAY_MS));return score>=3?[{tgUserId:r.tgUserId,score,level:score>=60?'high':score>=25?'medium':'low',evidenceCount:r.evidenceCount,lastEventAt:r.lastEventAt.toISOString(),evidence:r.events.map(e=>({category:e.category,severity:e.severity,text:e.evidence,at:e.createdAt.toISOString()}))}]:[]});
 
   // ── Headline numbers ────────────────────────────────────────────────────────
   const stickiness = cur.mau > 0 ? Math.round((cur.dau / cur.mau) * 1000) / 10 : null;
@@ -156,8 +167,8 @@ export async function computePulse(communityId: string, days = 30): Promise<Puls
   const axes = {
     activity: Math.round((scoreUp(stickiness, PULSE_BENCHMARKS['stickiness']!.good) + scoreUp(activeRate, PULSE_BENCHMARKS['activeRate']!.good)) / 2),
     engagement: Math.round(scoreUp(replyShare, PULSE_BENCHMARKS['replyShare']!.good)),
-    // Climate: conflicts per 100 messages, inverted (0 conflicts = 100).
-    climate: Math.round(cur.messages > 0 ? clamp(100 - (cur.conflicts / cur.messages) * 100 * 20) : 100),
+    // Climate includes deleted one-message violations and weighted episodes.
+    climate: Math.round(cur.messages > 0 ? clamp(100 - (cur.toxicityWeight / cur.messages) * 120) : 100),
     growth: Math.round((scoreDown(churnRate, PULSE_BENCHMARKS['churnRate']!.good, 25) + scoreUp(speakerConversion, PULSE_BENCHMARKS['speakerConversion']!.good)) / 2),
     // Core health: less concentration = healthier (3 people carrying the chat is bad).
     core: Math.round(scoreDown(concentration, 40, 90)),
@@ -178,7 +189,7 @@ export async function computePulse(communityId: string, days = 30): Promise<Puls
     const prevAxes = {
       activity: Math.round((scoreUp(prevStickiness, 40) + scoreUp(prevActiveRate, 10)) / 2),
       engagement: Math.round(scoreUp(prevReply, 30)),
-      climate: Math.round(prev.messages > 0 ? clamp(100 - (prev.conflicts / prev.messages) * 100 * 20) : 100),
+      climate: Math.round(prev.messages > 0 ? clamp(100 - (prev.toxicityWeight / prev.messages) * 120) : 100),
       growth: Math.round((scoreDown(prevChurn, 5, 25) + scoreUp(prevConv, 20)) / 2),
       core: Math.round(scoreDown(prevConc, 40, 90)),
     };
@@ -265,6 +276,6 @@ export async function computePulse(communityId: string, days = 30): Promise<Puls
       joins: cur.joins, leaves: cur.leaves, netGrowth: cur.joins - cur.leaves, churnRate,
       newSpeakers: cur.newSpeakers, speakerConversion, concentration,
     },
-    series, heatmap, orbit, topParticipants, cohorts, tenure,
+    moderation:{...cur.moderation,temporaryRisks}, series, heatmap, orbit, topParticipants, cohorts, tenure,
   };
 }

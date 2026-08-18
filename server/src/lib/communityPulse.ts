@@ -25,6 +25,29 @@ export function pulseHour(date = new Date()): number {
   return Number.isFinite(h) ? h : 0;
 }
 
+type PulseModerationEvent = { eventType: string; action: string | null; decision: string | null; tgUserId: string | null; metadata: unknown };
+const pulseMeta = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {};
+
+/** Weighted harm signal. Spam affects cleanliness; directed harassment affects climate much more. */
+export function pulseToxicityWeight(event: PulseModerationEvent): number {
+  const meta = pulseMeta(event.metadata), category = String(meta['category'] ?? event.decision ?? 'other'), severity = String(meta['severity'] ?? 'medium');
+  if (event.eventType === 'CONVERSATION_EPISODE') {
+    if (meta['source'] === 'MESSAGE_MODERATED') return 0;
+    const state = String(meta['state'] ?? 'OBSERVING');
+    if (state === 'RESOLVED') return 0;
+    return category === 'harassment' ? (state === 'ESCALATING' ? 3 : 2) : category === 'conflict' ? (state === 'ESCALATING' ? 2 : 1) : .4;
+  }
+  if (event.eventType !== 'AI_MODERATION_TRIGGERED' && !['CONTENT_FILTER_TRIGGERED','ANTISPAM_TRIGGERED'].includes(event.eventType)) return 0;
+  const severityWeight = severity === 'high' ? 2.5 : severity === 'low' ? .5 : 1;
+  const categoryWeight: Record<string, number> = { harassment:2, threat:2.5, hate:2.5, insult:1.3, toxicity:1.2, profanity:.7, spam:.4, promotion:.4, fraud:1.2 };
+  return severityWeight * (categoryWeight[category] ?? .7);
+}
+
+export function pulseClimateScore(messages: number, toxicityWeight: number): number {
+  if (messages <= 0) return 100;
+  return Math.max(0, Math.min(100, Math.round(100 - (toxicityWeight / messages) * 120)));
+}
+
 // chatId → communityId, so we don't hit the DB for every single message.
 const communityByChat = new Map<string, { id: string | null; expiresAt: number }>();
 
@@ -130,16 +153,27 @@ export async function rollupPulseDay(communityId: string, day: string): Promise<
   const to = new Date(from.getTime() + 86_400_000);
   const events = await prisma.moderationEvent.findMany({
     where: { communityId, createdAt: { gte: from, lt: to } },
-    select: { eventType: true, action: true, decision: true },
+    select: { eventType: true, action: true, decision: true, tgUserId: true, metadata: true },
   }).catch(() => []);
   const blockedMsgs = events.filter(e => (e.action ?? '').includes('DELETE')).length;
   const interventions = events.filter(e => e.eventType === 'AI_INTERVENTION').length;
-  const conflictEvents = events.filter(e => e.eventType === 'AI_INTERVENTION' && ['conflict', 'harassment'].includes(e.decision ?? '')).length;
+  const conversationEvents = events.filter(e => ['AI_INTERVENTION','CONVERSATION_EPISODE'].includes(e.eventType));
+  const conflictEvents = conversationEvents.filter(e => e.decision === 'conflict').length;
+  const harassmentEvents = conversationEvents.filter(e => e.decision === 'harassment').length;
+  const culturalRewrites = events.filter(e => e.eventType === 'AI_MODERATION_TRIGGERED' && typeof pulseMeta(e.metadata)['suggestedRewrite'] === 'string').length;
+  const affectedUsers = new Set(events.flatMap(e => {
+    const meta = pulseMeta(e.metadata), targets = Array.isArray(meta['targetIds']) ? meta['targetIds'].flatMap(v => typeof v === 'string' ? [v] : []) : [];
+    return [...targets, ...(e.tgUserId && pulseToxicityWeight(e) > 0 ? [e.tgUserId] : [])];
+  })).size;
+  const resolvedEpisodes = conversationEvents.filter(e => pulseMeta(e.metadata)['state'] === 'RESOLVED').length;
+  const escalatedEpisodes = conversationEvents.filter(e => pulseMeta(e.metadata)['state'] === 'ESCALATING').length;
+  const toxicityWeight = Math.round(events.reduce((sum,e)=>sum+pulseToxicityWeight(e),0)*100)/100;
+  const climateScore = pulseClimateScore(messages,toxicityWeight);
 
   await prisma.communityDailyStat.upsert({
     where: { communityId_day: { communityId, day } },
-    create: { communityId, day, messages, replies, activeUsers, newSpeakers, blockedMsgs, interventions, conflictEvents },
-    update: { messages, replies, activeUsers, newSpeakers, blockedMsgs, interventions, conflictEvents, computedAt: new Date() },
+    create: { communityId, day, messages, replies, activeUsers, newSpeakers, blockedMsgs, interventions, conflictEvents, harassmentEvents, culturalRewrites, affectedUsers, resolvedEpisodes, escalatedEpisodes, toxicityWeight, climateScore },
+    update: { messages, replies, activeUsers, newSpeakers, blockedMsgs, interventions, conflictEvents, harassmentEvents, culturalRewrites, affectedUsers, resolvedEpisodes, escalatedEpisodes, toxicityWeight, climateScore, computedAt: new Date() },
   });
 }
 
