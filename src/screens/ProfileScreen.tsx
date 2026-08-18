@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket, Trash2, MoreVertical
+  Globe, HelpCircle, ChevronRight, Check, Settings, CreditCard, Radio, Ticket, Trash2, MoreVertical, Users
 } from 'lucide-react'
 import { useApp } from '@/context/AppContext'
 import { getTelegramInitData } from '@/lib/telegram'
@@ -13,6 +13,7 @@ import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
 import { ConnectChannelSheet } from '@/components/profile/ConnectChannelSheet'
+import { ConnectChatSheet } from '@/components/profile/ConnectChatSheet'
 import type { TranslationKey } from '@/i18n'
 import type { Channel, PlanTier } from '@/types'
 
@@ -32,7 +33,7 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, onOpenAdmin }: ProfileScreenProps) {
-  const { state, setActiveChannel, disconnectChannel, showToast, language, setLanguage, t, authStatus } = useApp()
+  const { state, setActiveChannel, connectChannel, disconnectChannel, showToast, language, setLanguage, t, authStatus } = useApp()
   const { step: wtStep } = useWalkthrough()
   const { user, channels, activeChannelId } = state
   const { subscription } = user
@@ -40,10 +41,13 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
   const isPaidPlan = subscription.planTier !== 'free'
   const [langSheetOpen,    setLangSheetOpen]    = useState(false)
   const [connectSheetOpen, setConnectSheetOpen] = useState(false)
+  const [connectChatOpen,  setConnectChatOpen]  = useState(false)
   const [settingsOpen,     setSettingsOpen]     = useState(false)
 
   const langLabel = language === 'ru' ? t('language.russian') : t('language.english')
   const planNameKey = PLAN_NAME_KEY[subscription.planTier]
+  const publicationChannels = channels.filter(channel => channel.kind !== 'chat')
+  const communityChats = channels.filter(channel => channel.kind === 'chat')
 
   // Billing period display
   const billingLabel = t('profile.monthly')
@@ -143,7 +147,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
               {t('profile.add')}
             </Button>
           </div>
-          {wtStep === 'style' && channels.length > 0 && (
+          {wtStep === 'style' && publicationChannels.length > 0 && (
             <div className="mb-2.5">
               <Coachmark
                 stepLabel={t('onboarding.step2')}
@@ -153,7 +157,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
             </div>
           )}
           <div className="space-y-2">
-            {channels.length === 0 ? (
+            {publicationChannels.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -183,7 +187,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
                 </HighlightRing>
               </motion.div>
             ) : (
-              channels.map((ch, i) => (
+              publicationChannels.map((ch, i) => (
                 <ChannelCard
                   key={ch.id}
                   channel={ch}
@@ -201,6 +205,16 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
           </div>
         </motion.div>
 
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.22 }}>
+          <div className="mb-2 flex items-center justify-between px-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#66666E]">Чаты</p>
+            <Button variant="ghost" size="sm" onClick={()=>setConnectChatOpen(true)}>Добавить</Button>
+          </div>
+          <div className="space-y-2">
+            {communityChats.length===0?<GlassCard className="flex items-center gap-3 py-4"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05]"><Users size={18} className="text-[#55555D]"/></div><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-white">Нет подключённых чатов</p><p className="mt-0.5 text-[11px] leading-relaxed text-[#55555D]">Можно подключить публичную или приватную Telegram-группу без канала.</p></div></GlassCard>:communityChats.map((chat,i)=><ChannelCard key={chat.id} channel={chat} isActive={false} onSetDefault={()=>{}} onOpenBrandKit={()=>{}} onOpenCommunity={()=>onOpenCommunity(chat.id,chat.title)} onDisconnect={()=>handleDisconnect(chat.id)} index={i} t={t}/>)}
+          </div>
+        </motion.div>
+
         <div className="pb-2 text-center">
           <p className="text-[11px] text-[#66666E]">Publium v0.1.0</p>
         </div>
@@ -210,6 +224,11 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
       <ConnectChannelSheet
         open={connectSheetOpen}
         onClose={() => setConnectSheetOpen(false)}
+      />
+      <ConnectChatSheet
+        open={connectChatOpen}
+        onClose={()=>setConnectChatOpen(false)}
+        onConnected={chat=>{connectChannel(chat);showToast('Чат подключён')}}
       />
 
       <Sheet
@@ -287,6 +306,7 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
   t: (key: TranslationKey) => string
 }) {
   const [actionsOpen, setActionsOpen] = useState(false)
+  const isChat = channel.kind === 'chat'
 
   return (
     <>
@@ -303,10 +323,11 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
             <div className="flex-1 min-w-0">
               <p className="text-[13px] font-semibold text-white">{channelLabel(channel)}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <p className="text-[11px] text-[#55555D]">{channel.subscribersCount.toLocaleString()} {t('profile.connected')}</p>
+                <p className="text-[11px] text-[#55555D]">{isChat?'Чат подключён':`${channel.subscribersCount.toLocaleString()} ${t('profile.connected')}`}</p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
+              {!isChat&&
               <button
                 type="button"
                 role="switch"
@@ -318,7 +339,7 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
                 <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 ${isActive ? 'bg-[#FF6A00]' : 'bg-[#343439]'}`}>
                   <span className={`absolute left-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-200 ${isActive ? 'translate-x-4' : 'translate-x-0'}`} />
                 </span>
-              </button>
+              </button>}
               <button
                 type="button"
                 onClick={() => setActionsOpen(true)}
@@ -330,12 +351,12 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <HighlightRing active={!!highlightStyle}>
+          <div className={`grid gap-2 ${isChat?'grid-cols-1':'grid-cols-2'}`}>
+            {!isChat&&<HighlightRing active={!!highlightStyle}>
               <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
                 {t('profile.channelStyle')}
               </Button>
-            </HighlightRing>
+            </HighlightRing>}
             <Button variant="secondary" size="sm" onClick={onOpenCommunity} fullWidth>
               Сообщество
             </Button>

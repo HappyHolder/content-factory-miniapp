@@ -29,7 +29,7 @@ export function WalkthroughProvider({ children }: { children: React.ReactNode })
   const { state } = useApp()
   const [step, setStep] = useState<WalkthroughStep>(null)
 
-  const channelCount = state.channels.length
+  const channelCount = state.channels.filter(channel => channel.kind !== 'chat').length
   const postCount    = state.posts.length
   // Baseline post count captured when the 'create' step begins — finishing when
   // a new post appears.

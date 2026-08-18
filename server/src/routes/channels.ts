@@ -184,8 +184,8 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
   try {
     const subscription = await getEffectiveSubscription(dbUser.id);
     const channelLimit = TIER_LIMITS[subscription.tier].channelLimit;
-    const channelCount = await prisma.channel.count({ where: { userId: dbUser.id } });
-    if (channelCount >= channelLimit) {
+    const channelCount = await prisma.channel.count({ where: { userId: dbUser.id, kind: 'CHANNEL' } });
+    if (tgChat.type === 'channel' && channelCount >= channelLimit) {
       res.status(403).json({ error: `Тариф ${subscription.tier} позволяет подключить до ${channelLimit} каналов.`, code: 'CHANNEL_LIMIT_REACHED', limit: channelLimit });
       return;
     }
@@ -220,13 +220,13 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
 
   const tgChatId = tgChat.id != null ? String(tgChat.id) : null;
 
-  let channel: { id: string; name: string; handle: string | null };
+  let channel: { id: string; name: string; handle: string | null; kind: string };
   try {
     channel = await prisma.channel.upsert({
       where: { handle },
-      update: { name: title, ...(tgChatId ? { tgChatId } : {}) },
-      create: { name: title, handle, userId: dbUser.id, ...(tgChatId ? { tgChatId } : {}) },
-      select: { id: true, name: true, handle: true },
+      update: { name: title, kind: tgChat.type === 'supergroup' ? 'CHAT' : 'CHANNEL', ...(tgChatId ? { tgChatId } : {}) },
+      create: { name: title, handle, kind: tgChat.type === 'supergroup' ? 'CHAT' : 'CHANNEL', userId: dbUser.id, ...(tgChatId ? { tgChatId } : {}) },
+      select: { id: true, name: true, handle: true, kind: true },
     });
   } catch (err) {
     console.error('[channels/connect] Channel upsert failed:', err);
@@ -249,7 +249,7 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
   // ── 11. Determine isDefault (true only if this is the user's sole channel) ─
   let channelCount = 0;
   try {
-    channelCount = await prisma.channel.count({ where: { userId: dbUser.id } });
+    channelCount = await prisma.channel.count({ where: { userId: dbUser.id, kind: 'CHANNEL' } });
   } catch {
     // non-fatal — default to false if count fails
   }
@@ -259,8 +259,9 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
       id:               channel.id,
       username:         channel.handle ?? handle,
       title:            channel.name,
+      kind:             channel.kind === 'CHAT' ? 'chat' : 'channel',
       subscribersCount,
-      isDefault:        channelCount === 1,
+      isDefault:        channel.kind === 'CHANNEL' && channelCount === 1,
       isConnected:      true,
     },
   });
@@ -352,7 +353,7 @@ router.post('/disconnect', async (req: Request, res: Response): Promise<void> =>
   let nextActiveChannelId: string | null = dbUser.activeChannelId;
   if (dbUser.activeChannelId === channelId) {
     const remaining = await prisma.channel
-      .findFirst({ where: { userId: dbUser.id }, orderBy: { createdAt: 'asc' }, select: { id: true } })
+      .findFirst({ where: { userId: dbUser.id, kind: 'CHANNEL' }, orderBy: { createdAt: 'asc' }, select: { id: true } })
       .catch(() => null);
     nextActiveChannelId = remaining?.id ?? null;
     await prisma.user

@@ -346,14 +346,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       postService.init(loadedPosts)
 
       // Resolve active channel: DB → localStorage → first channel
+      const publicationChannels = realChannels.filter(channel => channel.kind !== 'chat')
       const resolvedActiveChannelId = (() => {
         const fromDb = authData!.user.activeChannelId
-        if (fromDb && realChannels.some(c => c.id === fromDb)) return fromDb
+        if (fromDb && publicationChannels.some(c => c.id === fromDb)) return fromDb
         try {
           const saved = localStorage.getItem('activeChannelId')
-          if (saved && realChannels.some(c => c.id === saved)) return saved
+          if (saved && publicationChannels.some(c => c.id === saved)) return saved
         } catch {}
-        return realChannels[0]?.id ?? ''
+        return publicationChannels[0]?.id ?? ''
       })()
 
       // Sync to DB if the resolved value differs from what DB has (e.g. first load,
@@ -529,6 +530,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const setActiveChannel = useCallback((id: string) => {
+    if (channelService.getById(id)?.kind === 'chat') return
     setState(prev => ({ ...prev, activeChannelId: id }))
     try { localStorage.setItem('activeChannelId', id) } catch {}
     // Persist to DB so the bot webhook uses the same active channel
@@ -566,7 +568,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         channels:        updatedChannels,
         brandKits:       updatedBrandKits,
-        activeChannelId: channel.id,
+        activeChannelId: channel.kind === 'chat' ? prev.activeChannelId : channel.id,
       }
     })
   }, [])
@@ -582,7 +584,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const remainingPosts     = prev.posts.filter(p => p.channelId !== channelId)
 
       const wasActive        = prev.activeChannelId === channelId
-      const nextActiveId      = wasActive ? (remainingChannels[0]?.id ?? '') : prev.activeChannelId
+      const nextActiveId      = wasActive ? (remainingChannels.find(channel => channel.kind !== 'chat')?.id ?? '') : prev.activeChannelId
 
       // Sync in-memory services to match the trimmed state.
       channelService.init(remainingChannels)
@@ -632,7 +634,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [showToast, t, authStatus])
 
-  const activeChannel = state.channels.find(c => c.id === state.activeChannelId)
+  const activeChannel = state.channels.find(c => c.id === state.activeChannelId && c.kind !== 'chat')
 
   const subscription = state.user.subscription
   const canSchedulePosts = subscription.limits.canSchedule

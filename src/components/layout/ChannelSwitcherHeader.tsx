@@ -72,7 +72,7 @@ export function ChannelSwitcherHeader() {
 
                 {/* Channel rows */}
                 <div className="px-3 pb-3">
-                  {state.channels.map(ch => {
+                  {state.channels.filter(ch=>ch.kind!=='chat').map(ch => {
                     const isActive = ch.id === state.activeChannelId
                     return (
                       <motion.button

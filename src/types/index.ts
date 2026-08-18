@@ -81,6 +81,7 @@ export interface User {
 
 export interface Channel {
   id: string
+  kind?: 'channel' | 'chat'
   username: string
   title: string
   avatarUrl?: string

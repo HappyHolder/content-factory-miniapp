@@ -696,7 +696,68 @@ router.post('/moderators/:moderatorId/simulate-intervention',async(req,res)=>{co
 
 router.post('/moderators/:moderatorId/pause', async (req, res) => { const { enabled } = req.body as { enabled?: unknown }; let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; } if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be boolean' }); return; } const moderator = await prisma.moderator.findFirst({ where: { id: req.params['moderatorId'], community: { channel: { userId: auth.user.id } } } }); if (!moderator) { res.status(404).json({ error: 'Moderator not found' }); return; } const updated = await prisma.moderator.update({ where: { id: moderator.id }, data: { enabled, status: enabled ? 'ACTIVE' : 'PAUSED' } }); res.json({ moderator: updated }); });
 
-router.get('/available-chats', async (req, res) => { let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; } res.json({ chats: await prisma.moderatorChat.findMany({ where: { addedByTgId: auth.tgUserId, botStatus: { in: ['administrator', 'creator', 'member'] }, community: null }, orderBy: { updatedAt: 'desc' }, select: { id: true, tgChatId: true, title: true, username: true, type: true, botStatus: true, grantedRights: true } }) }); });
+router.get('/available-chats', async (req, res) => { let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; } res.json({ botUsername: env.MODERATOR_BOT_USERNAME, chats: await prisma.moderatorChat.findMany({ where: { addedByTgId: auth.tgUserId, botStatus: { in: ['administrator', 'creator', 'member'] }, community: null }, orderBy: { updatedAt: 'desc' }, select: { id: true, tgChatId: true, title: true, username: true, type: true, botStatus: true, grantedRights: true } }) }); });
+router.post('/chats/:chatId/connect', async (req, res) => {
+  let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; }
+  const chat = await prisma.moderatorChat.findFirst({
+    where: { id: req.params['chatId'], addedByTgId: auth.tgUserId, type: { in: ['group', 'supergroup'] } },
+    include: { community: { include: { channel: true, moderator: true } } },
+  });
+  if (!chat) { res.status(404).json({ error: 'Группа не найдена. Добавьте бота ещё раз и обновите список.' }); return; }
+
+  try {
+    const [botRole, userRole] = await Promise.all([
+      getChatMember(chat.tgChatId, getBotIdFromToken(currentToken()), currentToken()),
+      getChatMember(chat.tgChatId, Number(auth.tgUserId), currentToken()),
+    ]);
+    if (!['administrator', 'creator'].includes(botRole.status) || !['administrator', 'creator'].includes(userRole.status)) {
+      res.status(403).json({ error: 'Вы и ModerBot должны быть администраторами этой группы.' }); return;
+    }
+  } catch (error) {
+    res.status(502).json({ error: error instanceof TelegramApiError ? error.message : 'Не удалось проверить права в Telegram.' }); return;
+  }
+
+  const existingTarget = await prisma.channel.findFirst({ where: { tgChatId: chat.tgChatId }, include: { community: true } });
+  if (existingTarget && existingTarget.userId !== auth.user.id) {
+    res.status(409).json({ error: 'Этот чат уже подключён другим аккаунтом.' }); return;
+  }
+  if (!chat.community && !existingTarget?.community?.moderatorChatId) {
+    const subscription = await getEffectiveSubscription(auth.user.id);
+    const chatLimit = TIER_LIMITS[subscription.tier].communityChatLimit;
+    const usedChats = await prisma.community.count({ where: { channel: { userId: auth.user.id }, moderatorChatId: { not: null } } });
+    if (usedChats >= chatLimit) {
+      res.status(403).json({ error: `Тариф ${subscription.tier} позволяет подключить до ${chatLimit} чатов.`, code: 'COMMUNITY_CHAT_LIMIT', limit: chatLimit }); return;
+    }
+  }
+
+  const result = await prisma.$transaction(async tx => {
+    const target = existingTarget
+      ? await tx.channel.update({ where: { id: existingTarget.id }, data: { name: chat.title, kind: 'CHAT', tgChatId: chat.tgChatId, handle: chat.username?.toLowerCase() ?? existingTarget.handle } })
+      : await tx.channel.create({ data: { name: chat.title, kind: 'CHAT', tgChatId: chat.tgChatId, handle: chat.username?.toLowerCase() ?? null, userId: auth.user.id } });
+    await tx.brandKit.upsert({ where: { channelId: target.id }, update: {}, create: { channelId: target.id } });
+    const community = await tx.community.upsert({
+      where: { channelId: target.id },
+      create: { channelId: target.id, moderatorChatId: chat.id },
+      update: { moderatorChatId: chat.id },
+    });
+    const moderator = await tx.moderator.upsert({
+      where: { communityId: community.id },
+      create: { communityId: community.id, requiredRights: REQUIRED_BASE_RIGHTS, grantedRights: chat.grantedRights ?? undefined },
+      update: { grantedRights: chat.grantedRights ?? undefined, lastRightsCheckAt: new Date() },
+    });
+    await tx.moderatorConfig.upsert({
+      where: { moderatorId_version: { moderatorId: moderator.id, version: 1 } },
+      create: { moderatorId: moderator.id, version: 1, blocks: [], createdById: auth.user.id },
+      update: {},
+    });
+    return { target, community: await tx.community.findUnique({ where: { id: community.id }, include: { moderatorChat: true, moderator: true } }) };
+  });
+
+  res.status(chat.community ? 200 : 201).json({
+    channel: { id: result.target.id, username: result.target.handle ?? '', title: result.target.name, kind: 'chat', subscribersCount: 0, isDefault: false, isConnected: true },
+    community: result.community,
+  });
+});
 router.get('/channels/:channelId/community', async (req, res) => {
   let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; }
   const channel = await prisma.channel.findFirst({ where: { id: req.params['channelId'], userId: auth.user.id }, select: { id: true } });

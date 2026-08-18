@@ -387,7 +387,7 @@ async function autoConnectChannelFromMembership(evt: TgChatMemberUpdated): Promi
   const sub = await getEffectiveSubscription(dbUser.id);
   const tier = sub.tier;
   const channelLimit = TIER_LIMITS[tier].channelLimit;
-  const channelCount = await prisma.channel.count({ where: { userId: dbUser.id } }).catch(() => 0);
+  const channelCount = await prisma.channel.count({ where: { userId: dbUser.id, kind: 'CHANNEL' } }).catch(() => 0);
   if (channelCount >= channelLimit) {
     await trySendReply(
       adderTgId,
@@ -397,7 +397,7 @@ async function autoConnectChannelFromMembership(evt: TgChatMemberUpdated): Promi
   }
 
   const channel = await prisma.channel
-    .create({ data: { name: title, handle, tgChatId, userId: dbUser.id }, select: { id: true } })
+    .create({ data: { name: title, handle, tgChatId, kind: 'CHANNEL', userId: dbUser.id }, select: { id: true } })
     .catch(err => { console.error('[bot/webhook] channel auto-connect failed:', (err as Error).message); return null; });
   if (!channel) return;
 

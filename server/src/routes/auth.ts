@@ -67,12 +67,12 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
   }
 
   // ── Fetch this user's connected channels ──────────────────────────────────
-  let dbChannels: { id: string; name: string; handle: string | null }[] = [];
+  let dbChannels: { id: string; name: string; handle: string | null; kind: string }[] = [];
   try {
     dbChannels = await prisma.channel.findMany({
       where:   { userId: dbUser.id },
       orderBy: { createdAt: 'asc' },
-      select:  { id: true, name: true, handle: true },
+      select:  { id: true, name: true, handle: true, kind: true },
     });
   } catch (err) {
     console.error('[auth/telegram] Channel fetch failed (non-fatal):', err);
@@ -133,8 +133,9 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       id:               ch.id,
       username:         ch.handle ?? '',
       title:            ch.name,
+      kind:             ch.kind === 'CHAT' ? 'chat' : 'channel',
       subscribersCount: 0,
-      isDefault:        i === 0,
+      isDefault:        ch.kind === 'CHANNEL' && !dbChannels.slice(0, i).some(previous => previous.kind === 'CHANNEL'),
       isConnected:      true,
     })),
     brandKits: dbBrandKits,
@@ -166,9 +167,9 @@ router.post('/active-channel', async (req: Request, res: Response): Promise<void
   // Verify the channel belongs to this user
   const channel = await prisma.channel.findUnique({
     where:  { id: channelId },
-    select: { id: true, userId: true, name: true, handle: true },
+    select: { id: true, userId: true, name: true, handle: true, kind: true },
   }).catch(() => null);
-  if (!channel || channel.userId !== dbUser.id) {
+  if (!channel || channel.userId !== dbUser.id || channel.kind !== 'CHANNEL') {
     res.status(403).json({ error: 'Channel not found or access denied' }); return;
   }
 

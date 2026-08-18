@@ -124,6 +124,9 @@ model Channel {
   id       String  @id @default(cuid())
   name     String
   handle   String? @unique
+  // CHANNEL is a publication destination; CHAT is a standalone Telegram group
+  // backed by the same ownership root so community products can work without a channel.
+  kind     String  @default("CHANNEL")
   // Stable numeric Telegram chat id (e.g. "-1001234567890"). Survives channel
   // renames — publishing prefers it over @handle so a rename never breaks it.
   tgChatId String?
@@ -140,6 +143,7 @@ model Channel {
   community      Community?
 
   @@index([userId])
+  @@index([userId, kind])
 }
 
 // ─── BrandKit ─────────────────────────────────────────────────────────────────
