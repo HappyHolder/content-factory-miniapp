@@ -5,14 +5,14 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { env } from '../env';
 import { verifyModeratorSession } from '../lib/moderatorSession';
-import { answerBotCallback, banChatUser, buildInlineKeyboard, deleteBotMessage, deleteBotWebhook, getBotIdFromToken, getBotIdentity, getChatMember, kickChatUser, restrictChatUser, sendBotMessage, setBotWebhook, unbanChatUser, sendRichMessage, TelegramApiError, type TelegramInlineKeyboard } from '../lib/telegramBot';
+import { answerBotCallback, banChatUser, buildInlineKeyboard, deleteBotMessage, deleteBotWebhook, getBotIdFromToken, getBotIdentity, getChatAdministrators, getChatMember, getManagedBotToken, kickChatUser, restrictChatUser, sendBotMessage, setBotWebhook, unbanChatUser, sendRichMessage, TelegramApiError, type TelegramInlineKeyboard } from '../lib/telegramBot';
 import { blocksToRichHtml, parseInline, type PostBlock } from '../lib/richPost';
 import { conversationRiskDelta, processIntervention, reserveModeratorAiCheck, simulateIntervention, syncModeratorEntitlement } from '../moderator/interventionEngine';
 import { moderateWithTerra, safeSuggestedRewrite, type AiDecision } from '../moderator/modelRouter';
 import { primaryTextModel } from '../lib/assistantModel';
 import { runWebhookBackgroundTask } from '../lib/webhookBackground';
 import { activeWarningCount, issueWarning } from '../moderator/warningEngine';
-import { decryptManagedBotToken, moderatorTokenForCommunity } from '../moderator/managedBotCrypto';
+import { decryptManagedBotToken, encryptManagedBotToken, moderatorTokenForCommunity } from '../moderator/managedBotCrypto';
 import { incomingManagedBot, managedBotPublic, updateManagedBotProfile } from '../moderator/managedBotService';
 import { handleManualCommand } from '../moderator/manualCommands';
 import { matchRegexWithTimeout } from '../moderator/regexGuard';
@@ -29,6 +29,9 @@ const moderatorRuntime = new AsyncLocalStorage<ModeratorRuntime>();
 const currentToken = () => moderatorRuntime.getStore()?.token ?? env.MODERATOR_BOT_TOKEN;
 const currentBotId = () => moderatorRuntime.getStore()?.botId ?? getBotIdFromToken(env.MODERATOR_BOT_TOKEN);
 const eventKey = (updateId: number) => String(currentBotId()) + ':' + updateId;
+const normalizeBotUsername = (value: unknown) => typeof value === 'string'
+  ? value.trim().replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, '').replace(/^@/, '').split(/[/?#]/, 1)[0] ?? ''
+  : '';
 type TgAdmin = { status: string; can_delete_messages?: boolean; can_restrict_members?: boolean; can_invite_users?: boolean; can_pin_messages?: boolean };
 type TgUser = { id: number; first_name: string; username?: string; is_bot?: boolean };
 type TgEntity = { type: string; offset: number; length: number; url?: string; user?: TgUser };
@@ -834,7 +837,7 @@ router.post('/communities/:communityId/managed-bot/request', async (req, res) =>
   const entitlement = await prisma.aiModeratorEntitlement.upsert({ where: { userId: auth.user.id }, create: { userId: auth.user.id, status: 'TRIAL' }, update: {} });
   if (entitlement.status === 'DISABLED') { res.status(402).json({ error: 'Подписка AI Moderator не активна' }); return; }
   const name = typeof displayName === 'string' ? displayName.trim().slice(0, 64) : '';
-  const suggestedUsername = typeof username === 'string' ? username.trim().replace(/^@/, '') : '';
+  const suggestedUsername = normalizeBotUsername(username);
   if (name.length < 2) { res.status(400).json({ error: 'Название должно содержать минимум 2 символа' }); return; }
   if (!/^[A-Za-z][A-Za-z0-9_]{3,30}[Bb][Oo][Tt]$/.test(suggestedUsername)) { res.status(400).json({ error: 'Username: 5–32 символа, латиница/цифры/_ и окончание bot' }); return; }
   if (community.managedBot && ['READY', 'ACTIVE'].includes(community.managedBot.status)) {
@@ -854,6 +857,57 @@ router.post('/communities/:communityId/managed-bot/request', async (req, res) =>
   });
   const createUrl = 'https://t.me/newbot/' + manager.username + '/' + suggestedUsername + '?name=' + encodeURIComponent(name);
   res.json({ managedBot: managedBotPublic(bot), createUrl });
+});
+
+router.post('/communities/:communityId/managed-bot/recover', async (req, res) => {
+  const username = normalizeBotUsername(req.body?.username);
+  let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; }
+  if (!/^[A-Za-z0-9_]{5,32}$/.test(username)) {
+    res.status(400).json({ error: 'Укажите @username созданного бота или ссылку вида t.me/username' }); return;
+  }
+  const community = await prisma.community.findFirst({
+    where: { id: req.params['communityId'], channel: { userId: auth.user.id } },
+    include: { moderatorChat: true, managedBot: true },
+  });
+  if (!community?.moderatorChat) { res.status(409).json({ error: 'Сначала подключите группу к Moderator' }); return; }
+  const slot = await hasCustomBotSlot(auth.user.id, community.id);
+  if (!slot.ok) { res.status(403).json({ error: `Лимит персональных ботов исчерпан (${slot.limit} чатов).`, code: 'CUSTOM_BOT_LIMIT', limit: slot.limit }); return; }
+  try {
+    const admins = await getChatAdministrators(community.moderatorChat.tgChatId, env.MODERATOR_BOT_TOKEN);
+    const candidate = admins.find(member => member.user.is_bot && member.user.username?.toLowerCase() === username.toLowerCase());
+    if (!candidate) {
+      res.status(404).json({ error: `Добавьте @${username} администратором группы «${community.moderatorChat.title}», затем повторите проверку` }); return;
+    }
+    const duplicate = await prisma.managedModeratorBot.findFirst({ where: { tgBotId: String(candidate.user.id), communityId: { not: community.id } }, select: { id: true } });
+    if (duplicate) { res.status(409).json({ error: 'Этот бот уже используется как исполнитель в другом сообществе' }); return; }
+    const token = await getManagedBotToken(candidate.user.id, env.TELEGRAM_BOT_TOKEN);
+    const identity = await getBotIdentity(token);
+    if (identity.id !== candidate.user.id || !identity.is_bot) { res.status(409).json({ error: 'Telegram вернул некорректные данные бота' }); return; }
+    const encrypted = encryptManagedBotToken(token, community.id);
+    const webhookSecret = community.managedBot?.webhookSecret ?? crypto.randomBytes(32).toString('base64url');
+    const bot = await prisma.managedModeratorBot.upsert({
+      where: { communityId: community.id },
+      create: {
+        communityId: community.id, ownerUserId: auth.user.id, tgBotId: String(identity.id),
+        username: identity.username ?? candidate.user.username ?? username, expectedUsername: (identity.username ?? username).toLowerCase(),
+        displayName: identity.first_name, ...encrypted, webhookSecret, status: 'READY', lastError: null,
+      },
+      update: {
+        ownerUserId: auth.user.id, tgBotId: String(identity.id), username: identity.username ?? candidate.user.username ?? username,
+        expectedUsername: (identity.username ?? username).toLowerCase(), ...encrypted, webhookSecret,
+        status: 'READY', lastError: null, requestExpiresAt: null,
+      },
+    });
+    res.json({ managedBot: managedBotPublic(bot) });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      res.status(409).json({ error: 'Этот бот уже подключён к другому сообществу' }); return;
+    }
+    const message = error instanceof TelegramApiError
+      ? 'Не удалось получить созданного бота. Убедитесь, что он создан через Publium и добавлен администратором группы.'
+      : 'Не удалось восстановить подключение созданного бота';
+    res.status(502).json({ error: message });
+  }
 });
 
 router.patch('/communities/:communityId/managed-bot/profile', async (req, res) => {

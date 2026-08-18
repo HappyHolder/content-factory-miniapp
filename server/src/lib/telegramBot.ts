@@ -1072,6 +1072,13 @@ export interface TelegramBotIdentity {
   supports_inline_queries?: boolean;
 }
 
+export interface TelegramChatAdministrator {
+  status: string;
+  user: TelegramBotIdentity;
+  can_delete_messages?: boolean;
+  can_restrict_members?: boolean;
+}
+
 async function telegramRequest<T>(method: string, payload: Record<string, unknown>, token: string): Promise<T> {
   const response = await fetch(`${TG_API}/bot${token}/${method}`, {
     method: 'POST',
@@ -1085,6 +1092,7 @@ async function telegramRequest<T>(method: string, payload: Record<string, unknow
 
 export const getBotIdentity = (token: string) => telegramRequest<TelegramBotIdentity>('getMe', {}, token);
 export const getManagedBotToken = (userId: number, managerToken: string) => telegramRequest<string>('getManagedBotToken', { user_id: userId }, managerToken);
+export const getChatAdministrators = (chatId: number | string, token: string) => telegramRequest<TelegramChatAdministrator[]>('getChatAdministrators', { chat_id: chatId }, token);
 export const setBotName = (name: string, token: string) => telegramRequest<boolean>('setMyName', { name: name.slice(0, 64) }, token);
 
 export const setBotTextProfile = async (shortDescription: string, description: string, token: string): Promise<void> => {

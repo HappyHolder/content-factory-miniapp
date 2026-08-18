@@ -29,10 +29,9 @@ export async function completeManagedBot(update: ManagedBotUpdate): Promise<{ ow
   const target = pending ?? existing;
   if (!target) return null;
   try {
-    const actualUsername = update.bot.username?.toLowerCase();
-    if (!target.expectedUsername || !actualUsername || actualUsername !== target.expectedUsername.toLowerCase()) throw new Error('MANAGED_BOT_USERNAME_MISMATCH');
     const token = await getManagedBotToken(update.bot.id, env.TELEGRAM_BOT_TOKEN);
     const identity = await getBotIdentity(token);
+    if (identity.id !== update.bot.id || !identity.is_bot) throw new Error('Telegram вернул некорректные данные созданного бота');
     const webhookSecret = target.webhookSecret ?? newWebhookSecret();
     const encrypted = encryptManagedBotToken(token, target.communityId);
     let nonCriticalError: string | null = null;
