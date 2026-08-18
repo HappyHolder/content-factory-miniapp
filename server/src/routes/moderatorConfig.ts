@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { env } from '../env';
 import { verifyModeratorSession } from '../lib/moderatorSession';
 import { DEFAULT_BLOCKS, parseBlocks, requiredRightsFor, type ModeratorBlock } from '../moderator/config';
 import { getBotIdFromToken, getChatMember, TelegramApiError } from '../lib/telegramBot';
 import { moderatorTokenForCommunity } from '../moderator/managedBotCrypto';
+import { buildStandaloneChatStyleContext, chatStyleRulesSnapshot } from '../moderator/chatStyleContext';
 
 const router = Router();
 
@@ -14,7 +16,7 @@ async function ownedModerator(req: Request, moderatorId: string) {
   if (!user) throw new Error('INVALID_AUTH');
   const moderator = await prisma.moderator.findFirst({
     where: { id: moderatorId, community: { channel: { userId: user.id } } },
-    include: { community: { include: { moderatorChat: true, managedBot: true, channel: { select: { id: true, handle: true } } } } },
+    include: { community: { include: { moderatorChat: true, managedBot: true, channel: { select: { id: true, name: true, handle: true, kind: true, brandKit: { select: { channelAbout: true, voiceProfile: true } } } } } } },
   });
   if (!moderator) throw new Error('NOT_FOUND');
   return { user, moderator };
@@ -115,12 +117,29 @@ router.post('/:moderatorId/publish', async (req: Request, res: Response): Promis
     res.status(409).json({ error: 'Для включённых функций дайте активному боту право удалять сообщения.' });
     return;
   }
-    const nextVersion = current.version + 1;
+  const channel = context.moderator.community.channel;
+  const chatStyleSnapshot = channel.kind === 'CHAT'
+    ? chatStyleRulesSnapshot(buildStandaloneChatStyleContext({
+        name: channel.name,
+        handle: channel.handle,
+        channelAbout: channel.brandKit?.channelAbout,
+        voiceProfile: channel.brandKit?.voiceProfile,
+      }))
+    : null;
+  const keepPaused = context.moderator.status === 'PAUSED'
+    && context.moderator.enabled === false
+    && context.moderator.publishedVersion !== null;
+  const nextVersion = current.version + 1;
   const result = await prisma.$transaction(async tx => {
     await tx.moderatorConfig.updateMany({ where: { moderatorId: context.moderator.id, status: 'PUBLISHED' }, data: { status: 'ARCHIVED' } });
     const published = await tx.moderatorConfig.update({
       where: { id: current.id },
-      data: { status: 'PUBLISHED', publishedAt: new Date(), blocks },
+      data: {
+        status: 'PUBLISHED',
+        publishedAt: new Date(),
+        blocks,
+        ...(chatStyleSnapshot ? { rules: chatStyleSnapshot as Prisma.InputJsonValue } : {}),
+      },
     });
     await tx.moderatorConfig.create({
       data: { moderatorId: context.moderator.id, version: nextVersion, status: 'DRAFT', blocks: draftBlocks, createdById: context.user.id },
@@ -128,8 +147,8 @@ router.post('/:moderatorId/publish', async (req: Request, res: Response): Promis
     const moderator = await tx.moderator.update({
       where: { id: context.moderator.id },
       data: {
-        status: 'ACTIVE',
-        enabled: true,
+        status: keepPaused ? 'PAUSED' : 'ACTIVE',
+        enabled: keepPaused ? false : true,
         publishedVersion: current.version,
         draftVersion: nextVersion,
         requiredRights: requiredRightsFor(blocks),

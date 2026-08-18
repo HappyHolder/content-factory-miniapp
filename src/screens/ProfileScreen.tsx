@@ -211,7 +211,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
             <Button variant="ghost" size="sm" onClick={()=>setConnectChatOpen(true)}>Добавить</Button>
           </div>
           <div className="space-y-2">
-            {communityChats.length===0?<GlassCard className="flex items-center gap-3 py-4"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05]"><Users size={18} className="text-[#55555D]"/></div><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-white">Нет подключённых чатов</p><p className="mt-0.5 text-[11px] leading-relaxed text-[#55555D]">Можно подключить публичную или приватную Telegram-группу без канала.</p></div></GlassCard>:communityChats.map((chat,i)=><ChannelCard key={chat.id} channel={chat} isActive={false} onSetDefault={()=>{}} onOpenBrandKit={()=>{}} onOpenCommunity={()=>onOpenCommunity(chat.id,chat.title)} onDisconnect={()=>handleDisconnect(chat.id)} index={i} t={t}/>)}
+            {communityChats.length===0?<GlassCard className="flex items-center gap-3 py-4"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05]"><Users size={18} className="text-[#55555D]"/></div><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-white">Нет подключённых чатов</p><p className="mt-0.5 text-[11px] leading-relaxed text-[#55555D]">Можно подключить публичную или приватную Telegram-группу без канала.</p></div></GlassCard>:communityChats.map((chat,i)=><ChannelCard key={chat.id} channel={chat} isActive={false} onSetDefault={()=>{}} onOpenBrandKit={()=>onOpenBrandKit(chat.id,chat.title)} onOpenCommunity={()=>onOpenCommunity(chat.id,chat.title)} onDisconnect={()=>handleDisconnect(chat.id)} index={i} t={t}/>)}
           </div>
         </motion.div>
 
@@ -351,12 +351,12 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
             </div>
           </div>
 
-          <div className={`grid gap-2 ${isChat?'grid-cols-1':'grid-cols-2'}`}>
-            {!isChat&&<HighlightRing active={!!highlightStyle}>
+          <div className="grid grid-cols-2 gap-2">
+            <HighlightRing active={!isChat && !!highlightStyle}>
               <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
-                {t('profile.channelStyle')}
+                {isChat ? t('profile.chatStyle') : t('profile.channelStyle')}
               </Button>
-            </HighlightRing>}
+            </HighlightRing>
             <Button variant="secondary" size="sm" onClick={onOpenCommunity} fullWidth>
               Сообщество
             </Button>
