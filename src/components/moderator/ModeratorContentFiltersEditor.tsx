@@ -73,7 +73,7 @@ export function ModeratorContentFiltersEditor({ moderatorId }: { moderatorId: st
     if (!initData || publishing) return
     setPublishing(true); if (!await save()) { setPublishing(false); return }
     try {
-      const response = await moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+      const response = await moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blockType: 'content_filters' }) })
       const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error || 'Не удалось применить')
       setPublished(true); setMessage('Категории фильтрации применены')
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось применить') }

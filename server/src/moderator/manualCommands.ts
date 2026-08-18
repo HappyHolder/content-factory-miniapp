@@ -15,13 +15,17 @@ const durationSeconds = (raw?: string): number | null => {
   return Math.min(2_592_000, value * ({ m: 60, h: 3600, d: 86400, w: 604800 }[unit as 'm' | 'h' | 'd' | 'w'] ?? 1));
 };
 const label = (user: User) => user.username ? `@${user.username}` : user.first_name;
+export const canHandleManualCommand = (status: string | null | undefined): boolean => status === 'administrator' || status === 'creator';
 
 export async function handleManualCommand(updateId: string, message: CommandMessage, token: string, botId: number): Promise<{ handled: boolean; command?: string }> {
   const match = /^\/(warn|mute|unmute|ban|kick|unban|delete|info)(?:@\w+)?(?:\s+([^\s]+))?(?:\s+([\s\S]+))?$/i.exec(message.text?.trim() ?? '');
   if (!match || !message.from) return { handled: false };
   const command = match[1]!.toLowerCase();
   const actorRole = await getChatMember(String(message.chat.id), message.from.id, token).catch(() => null);
-  if (!actorRole || !['administrator', 'creator'].includes(actorRole.status)) return { handled: true, command };
+  // A command-looking message from an ordinary member is still ordinary chat
+  // content. Returning handled=true here used to let `/warn <abuse>` bypass all
+  // filters and AI moderation in the outer webhook pipeline.
+  if (!actorRole || !canHandleManualCommand(actorRole.status)) return { handled: false };
   const actorIsCreator = actorRole.status === 'creator';
   const needsDelete = command === 'delete';
   const needsRestrict = ['warn', 'mute', 'unmute', 'ban', 'kick', 'unban'].includes(command);

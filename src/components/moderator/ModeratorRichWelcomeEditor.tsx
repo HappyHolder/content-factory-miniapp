@@ -136,7 +136,7 @@ export function ModeratorRichWelcomeEditor({ moderatorId }: { moderatorId: strin
     if (!await save()) { setPublishing(false); return }
     try {
       const res = await moderatorFetch(`${API_BASE}/api/moderator-config/${moderatorId}/publish`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blockType: 'welcome' }),
       })
       const data = await res.json() as { error?: string }
       if (!res.ok) throw new Error(data.error ?? 'Не удалось применить')

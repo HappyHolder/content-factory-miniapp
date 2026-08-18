@@ -61,8 +61,8 @@ export async function completeManagedBot(update: ManagedBotUpdate): Promise<{ ow
 }
 
 export async function incomingManagedBot(botId: string, secret: string | undefined): Promise<{ token: string; numericBotId: number } | null> {
-  const bot = await prisma.managedModeratorBot.findUnique({ where: { tgBotId: botId }, select: { tgBotId: true, webhookSecret: true, communityId: true, tokenCipher: true, tokenIv: true, tokenTag: true, tokenKeyVersion: true } });
-  if (!bot?.tgBotId || !bot.webhookSecret || !secret) return null;
+  const bot = await prisma.managedModeratorBot.findUnique({ where: { tgBotId: botId }, select: { tgBotId: true, webhookSecret: true, communityId: true, tokenCipher: true, tokenIv: true, tokenTag: true, tokenKeyVersion: true, status: true } });
+  if (!bot?.tgBotId || bot.status !== 'ACTIVE' || !bot.webhookSecret || !secret) return null;
   const actual = Buffer.from(secret), expected = Buffer.from(bot.webhookSecret);
   if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
   return { token: decryptManagedBotToken(bot), numericBotId: Number(bot.tgBotId) };

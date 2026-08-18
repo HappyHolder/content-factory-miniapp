@@ -74,7 +74,7 @@ export function ModeratorTriggersEditor({ moderatorId }: { moderatorId: string }
   const publish = async () => {
     if (!await save()) return
     setPublishing(true)
-    try { const res = await moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }); const data = await res.json() as { error?: string }; if (!res.ok) throw new Error(data.error || 'Не удалось применить'); setPublished(true); setMessage('Триггеры применены и работают в чате') }
+    try { const res = await moderatorFetch(API_BASE + '/api/moderator-config/' + moderatorId + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blockType: 'triggers' }) }); const data = await res.json() as { error?: string }; if (!res.ok) throw new Error(data.error || 'Не удалось применить'); setPublished(true); setMessage('Триггеры применены и работают в чате') }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось применить') }
     finally { setPublishing(false) }
   }

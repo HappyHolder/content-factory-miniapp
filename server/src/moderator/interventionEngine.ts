@@ -57,6 +57,11 @@ export async function processIntervention(input: { updateId:number|string; commu
   if(!packet.inserted||!packet.state)return {analyzed:false,intervened:false};
   const state=packet.state;
   if (state.messagesSinceAnalysis < input.block.triggerAfterMessages) return {analyzed:false,intervened:false};
+  const availableMessages=await prisma.moderatorConversationMessage.count({where:{communityId:input.communityId,expiresAt:{gt:now}}});
+  if(availableMessages<input.block.triggerAfterMessages){
+    await prisma.moderatorConversationState.updateMany({where:{id:state.id,messagesSinceAnalysis:state.messagesSinceAnalysis},data:{messagesSinceAnalysis:availableMessages}});
+    return {analyzed:false,intervened:false};
+  }
   const hourStart=state.hourWindowStartedAt && now.getTime()-state.hourWindowStartedAt.getTime()<3600_000 ? state.hourWindowStartedAt : now;
   const hourCount=hourStart===state.hourWindowStartedAt?state.interventionsInWindow:0;
   const analysisCooldownSeconds=interventionCooldownSeconds(input.block.cooldownSeconds);
@@ -83,7 +88,10 @@ export async function processIntervention(input: { updateId:number|string; commu
   const decision:ConversationDecision|null=data&&typeof data['intervene']==='boolean'&&typeof data['confidence']==='number'?{intervene:data['intervene'],category:typeof data['category']==='string'?data['category'].slice(0,64):'other',severity:['low','medium','high'].includes(String(data['severity']))?String(data['severity']) as 'low'|'medium'|'high':'medium',confidence:Math.max(0,Math.min(1,data['confidence'])),reason:typeof data['reason']==='string'?data['reason'].slice(0,500):'',response:typeof data['response']==='string'?data['response'].replace(/https?:\/\/\S+/g,'').slice(0,250):'',participantIds:Array.isArray(data['participantIds'])?data['participantIds'].flatMap(v=>typeof v==='string'&&/^\d+$/.test(v)?[v]:[]).slice(0,20):[]}:null;
   if(!decision||!decision.intervene||decision.confidence<input.block.confidenceThreshold)return {analyzed:true,intervened:false};
   if(!acceptableInterventionResponse(decision.response,previousResponses))decision.response=moderatorFallback(decision.category,previousResponses,Number(input.telegramMessageId));
-  const repeated=state.stage!=='NORMAL'&&Boolean(state.lastInterventionAt)&&now.getTime()-state.lastInterventionAt!.getTime()<3600_000&&state.lastCategory===decision.category; let sentMessageId:number|undefined,sentText=decision.response;
+  // A configured one-hour cooldown must still allow the next same-category
+  // incident to escalate. Keep the repeat memory for a day instead of requiring
+  // it to happen strictly before the cooldown expires.
+  const repeated=state.stage!=='NORMAL'&&Boolean(state.lastInterventionAt)&&now.getTime()-state.lastInterventionAt!.getTime()<24*3600_000&&state.lastCategory===decision.category; let sentMessageId:number|undefined,sentText=decision.response;
   let sanction='NONE',sanctionCount=0,sanctionTarget:string|null=null;
   if(repeated&&input.block.repeatAction==='warn'&&input.block.interventionMode==='respond_warn'&&input.warningPolicy){
     const previousParticipants=Array.isArray(state.lastParticipants)?state.lastParticipants.flatMap(value=>typeof value==='string'?[value]:[]):[];

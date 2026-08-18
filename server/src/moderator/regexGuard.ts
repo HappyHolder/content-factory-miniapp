@@ -6,16 +6,21 @@ export async function matchRegexWithTimeout(patterns: string[], text: string, ti
   return new Promise(resolve => {
     const worker = new Worker(path.join(__dirname, 'regexWorker.js'));
     let settled = false;
+    let evaluationTimer: NodeJS.Timeout | undefined;
+    const startupTimer = setTimeout(() => finish(null), Math.max(1000, timeoutMs * 5));
     const finish = (value: string | null) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimeout(startupTimer);
+      if (evaluationTimer) clearTimeout(evaluationTimer);
       void worker.terminate();
       resolve(value);
     };
-    const timer = setTimeout(() => finish(null), timeoutMs);
     worker.once('message', (result: { pattern?: unknown }) => finish(typeof result.pattern === 'string' ? result.pattern : null));
     worker.once('error', () => finish(null));
-    worker.postMessage({ patterns, text: text.slice(0, 4096) });
+    worker.once('online', () => {
+      evaluationTimer = setTimeout(() => finish(null), timeoutMs);
+      worker.postMessage({ patterns, text: text.slice(0, 4096) });
+    });
   });
 }

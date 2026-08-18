@@ -32,9 +32,13 @@ router.get('/:moderatorId/draft', async (req: Request, res: Response): Promise<v
   const draft = await prisma.moderatorConfig.findUnique({
     where: { moderatorId_version: { moderatorId: context.moderator.id, version: context.moderator.draftVersion } },
   });
+  const published = context.moderator.publishedVersion == null ? null : await prisma.moderatorConfig.findUnique({
+    where: { moderatorId_version: { moderatorId: context.moderator.id, version: context.moderator.publishedVersion } },
+  });
   res.json({
     moderator: context.moderator,
     draft: draft ?? { version: context.moderator.draftVersion, status: 'DRAFT', blocks: DEFAULT_BLOCKS },
+    published,
   });
 });
 
@@ -63,15 +67,25 @@ router.patch('/:moderatorId/draft', async (req: Request, res: Response): Promise
 });
 
 router.post('/:moderatorId/publish', async (req: Request, res: Response): Promise<void> => {
+  const { blockType } = req.body as { blockType?: unknown };
   let context;
   try { context = await ownedModerator(req, req.params['moderatorId'] ?? ''); } catch (err) { fail(res, err); return; }
   const current = await prisma.moderatorConfig.findUnique({
     where: { moderatorId_version: { moderatorId: context.moderator.id, version: context.moderator.draftVersion } },
   });
   if (!current) { res.status(409).json({ error: 'Save the draft before publishing' }); return; }
-  let blocks;
-  try { blocks = parseBlocks(current.blocks); } catch (err) {
+  let draftBlocks: ModeratorBlock[];
+  try { draftBlocks = parseBlocks(current.blocks); } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid blocks' }); return;
+  }
+  let blocks = draftBlocks;
+  if (blockType !== undefined) {
+    if (typeof blockType !== 'string') { res.status(400).json({ error: 'Invalid blockType' }); return; }
+    const selected = draftBlocks.find(block => block.type === blockType);
+    if (!selected) { res.status(400).json({ error: 'Указанный блок отсутствует в черновике' }); return; }
+    const publishedConfig = context.moderator.publishedVersion == null ? null : await prisma.moderatorConfig.findUnique({ where: { moderatorId_version: { moderatorId: context.moderator.id, version: context.moderator.publishedVersion } } });
+    const publishedBlocks = publishedConfig ? parseBlocks(publishedConfig.blocks) : DEFAULT_BLOCKS;
+    blocks = [...publishedBlocks.filter(block => block.type !== selected.type), selected];
   }
   const requiredRights = requiredRightsFor(blocks);
   const chat = context.moderator.community.moderatorChat;
@@ -106,10 +120,10 @@ router.post('/:moderatorId/publish', async (req: Request, res: Response): Promis
     await tx.moderatorConfig.updateMany({ where: { moderatorId: context.moderator.id, status: 'PUBLISHED' }, data: { status: 'ARCHIVED' } });
     const published = await tx.moderatorConfig.update({
       where: { id: current.id },
-      data: { status: 'PUBLISHED', publishedAt: new Date() },
+      data: { status: 'PUBLISHED', publishedAt: new Date(), blocks },
     });
     await tx.moderatorConfig.create({
-      data: { moderatorId: context.moderator.id, version: nextVersion, status: 'DRAFT', blocks, createdById: context.user.id },
+      data: { moderatorId: context.moderator.id, version: nextVersion, status: 'DRAFT', blocks: draftBlocks, createdById: context.user.id },
     });
     const moderator = await tx.moderator.update({
       where: { id: context.moderator.id },
