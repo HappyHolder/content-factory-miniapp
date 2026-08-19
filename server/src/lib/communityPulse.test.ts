@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pulseClimateScore, pulseToxicityWeight } from './communityPulse.js';
+import { normalizePulseParticipantIdentity, pulseClimateScore, pulseToxicityWeight } from './communityPulse.js';
 
 test('deleted toxic messages lower climate without an intervention event', () => {
   const event = { eventType:'AI_MODERATION_TRIGGERED', action:'DELETE_REWRITE_NONE', decision:'insult', tgUserId:'1', metadata:{ category:'insult', severity:'medium', directed:true } };
@@ -12,4 +12,14 @@ test('harassment weighs more than ordinary spam', () => {
   const harassment = pulseToxicityWeight({ eventType:'AI_MODERATION_TRIGGERED', action:'DELETE', decision:'harassment', tgUserId:'1', metadata:{severity:'high'} });
   const spam = pulseToxicityWeight({ eventType:'AI_MODERATION_TRIGGERED', action:'DELETE', decision:'spam', tgUserId:'1', metadata:{severity:'medium'} });
   assert.ok(harassment > spam);
+});
+
+test('normalizes a Telegram participant identity for Pulse', () => {
+  assert.deepEqual(normalizePulseParticipantIdentity({ username:' @stepan ', firstName:' Степан ', lastName:'  Иванов\n' }), {
+    username:'stepan', displayName:'Степан Иванов',
+  });
+});
+
+test('keeps a participant anonymous when Telegram exposes no public identity', () => {
+  assert.deepEqual(normalizePulseParticipantIdentity(), { username:null, displayName:null });
 });

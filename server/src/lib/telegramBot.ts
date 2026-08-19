@@ -41,7 +41,7 @@ export interface TgChat {
 
 export interface TgChatMember {
   status: 'creator' | 'administrator' | 'member' | 'restricted' | 'left' | 'kicked';
-  user: { id: number; is_bot: boolean; first_name: string };
+  user: { id: number; is_bot: boolean; first_name: string; last_name?: string; username?: string };
   // Administrator capabilities are present only for administrator members.
   can_post_messages?: boolean;
   can_delete_messages?: boolean;

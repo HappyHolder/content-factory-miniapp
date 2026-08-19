@@ -127,6 +127,7 @@ async function handleMessage(personaId: string, communityId: string, chatId: str
         communityId, tgUserId: author.id, telegramMessageId: messageId,
         isReply: typeof replyToId === 'number',
         at: message.date ? new Date(message.date * 1000) : new Date(),
+        identity: { username: author.username, firstName: author.firstName, lastName: author.lastName },
       }).catch(() => undefined);
     }
 

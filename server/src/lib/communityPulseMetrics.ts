@@ -35,7 +35,7 @@ export interface PulseReport {
   series: { day: string; messages: number; activeUsers: number; joins: number; leaves: number }[];
   heatmap: number[][];           // [weekday 0=Mon..6=Sun][hour 0..23]
   orbit: { tier: string; count: number; share: number }[];
-  topParticipants: { tgUserId: string; messages: number; activeDays: number; share: number }[];
+  topParticipants: { tgUserId: string; username: string | null; displayName: string | null; messages: number; activeDays: number; share: number }[];
   cohorts: { cohort: string; size: number; retention: number[] }[]; // % active in week 0..N
   tenure: { bucket: string; count: number }[];
 }
@@ -212,8 +212,17 @@ export async function computePulse(communityId: string, days = 30): Promise<Puls
 
   // ── Orbit, top participants ─────────────────────────────────────────────────
   const orbit = orbitTiers(cur.users);
+  const topParticipantIds = sortedByMsg.slice(0, 10).map(u => u.tgUserId);
+  const participantIdentities = topParticipantIds.length ? await prisma.communityPulseParticipant.findMany({
+    where: { communityId, tgUserId: { in: topParticipantIds } },
+    select: { tgUserId: true, username: true, displayName: true },
+  }).catch(() => []) : [];
+  const identityByUser = new Map(participantIdentities.map(identity => [identity.tgUserId, identity]));
   const topParticipants = sortedByMsg.slice(0, 10).map(u => ({
-    tgUserId: u.tgUserId, messages: u.messages, activeDays: u.activeDays,
+    tgUserId: u.tgUserId,
+    username: identityByUser.get(u.tgUserId)?.username ?? null,
+    displayName: identityByUser.get(u.tgUserId)?.displayName ?? null,
+    messages: u.messages, activeDays: u.activeDays,
     share: cur.messages > 0 ? Math.round((u.messages / cur.messages) * 1000) / 10 : 0,
   }));
 

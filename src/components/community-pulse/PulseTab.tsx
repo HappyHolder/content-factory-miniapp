@@ -38,7 +38,7 @@ interface PulseReport {
   series: { day: string; messages: number; activeUsers: number; joins: number; leaves: number }[]
   heatmap: number[][]
   orbit: { tier: string; count: number; share: number }[]
-  topParticipants: { tgUserId: string; messages: number; activeDays: number; share: number }[]
+  topParticipants: { tgUserId: string; username: string | null; displayName: string | null; messages: number; activeDays: number; share: number }[]
   cohorts: { cohort: string; size: number; retention: number[] }[]
   tenure: { bucket: string; count: number }[]
 }
@@ -265,7 +265,13 @@ export function PulseTab({ communityId }: { communityId: string }) {
       </Section>
 
       <Section title="Кто говорит" subtitle="Топ по числу сообщений за период.">
-        <RankedBars items={report.topParticipants.map(p => ({ label: `ID ${p.tgUserId.slice(-6)}`, value: p.messages, hint: `${p.share}%` }))} />
+        <RankedBars items={report.topParticipants.map(p => ({
+          key: p.tgUserId,
+          label: p.username ? `@${p.username}` : p.displayName || `ID ${p.tgUserId.slice(-6)}`,
+          href: p.username ? `https://t.me/${p.username}` : undefined,
+          value: p.messages,
+          hint: `${p.share}%`,
+        }))} />
       </Section>
 
       <Section title="Удержание когорт" subtitle="Из вступивших на неделе — сколько ещё пишут.">

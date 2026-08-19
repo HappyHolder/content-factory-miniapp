@@ -65,6 +65,48 @@ export async function communityIdForChat(tgChatId: string): Promise<string | nul
 
 const emptyHours = (): number[] => Array.from({ length: 24 }, () => 0);
 
+export type PulseParticipantIdentityInput = {
+  username?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  displayName?: string | null;
+};
+
+const cleanIdentityPart = (value: unknown, max: number): string | null => {
+  if (typeof value !== 'string') return null;
+  const cleaned = value.replace(/[\r\n\t<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return cleaned || null;
+};
+
+/** Normalizes only Telegram's public identity fields; phone numbers are never stored. */
+export function normalizePulseParticipantIdentity(input?: PulseParticipantIdentityInput): { username: string | null; displayName: string | null } {
+  if (!input) return { username: null, displayName: null };
+  const usernameCandidate = cleanIdentityPart(input.username, 64)?.replace(/^@/, '') ?? null;
+  const username = usernameCandidate && /^[A-Za-z0-9_]{5,32}$/.test(usernameCandidate) ? usernameCandidate : null;
+  const explicitName = cleanIdentityPart(input.displayName, 128);
+  const firstName = cleanIdentityPart(input.firstName, 80);
+  const lastName = cleanIdentityPart(input.lastName, 80);
+  const telegramName = [firstName, lastName].filter(Boolean).join(' ') || null;
+  return { username, displayName: explicitName ?? telegramName };
+}
+
+/** Saves the latest public label without touching any Pulse counters. */
+export async function rememberPulseParticipantIdentity(input: { communityId: string; tgUserId: string; identity?: PulseParticipantIdentityInput; at?: Date }): Promise<{ username: string | null; displayName: string | null }> {
+  const identity = normalizePulseParticipantIdentity(input.identity);
+  if (!identity.username && !identity.displayName) return identity;
+  const at = input.at ?? new Date();
+  await prisma.communityPulseParticipant.upsert({
+    where: { communityId_tgUserId: { communityId: input.communityId, tgUserId: input.tgUserId } },
+    create: { communityId: input.communityId, tgUserId: input.tgUserId, username: identity.username, displayName: identity.displayName, lastSeenAt: at },
+    update: {
+      ...(identity.username ? { username: identity.username } : {}),
+      ...(identity.displayName ? { displayName: identity.displayName } : {}),
+      lastSeenAt: at,
+    },
+  });
+  return identity;
+}
+
 /**
  * Records one human message: the participant-day fact + the day's hour bucket.
  * `isReply` feeds the engagement axis; `firstDay` marks a person's first ever
@@ -74,7 +116,11 @@ const emptyHours = (): number[] => Array.from({ length: 24 }, () => 0);
  * GramJS personas) so every call carries `telegramMessageId` and the first
  * writer claims it — otherwise an active chat would count 2–3× per message.
  */
-export async function recordPulseMessage(input: { communityId: string; tgUserId: string; telegramMessageId: number; isReply: boolean; at?: Date }): Promise<void> {
+export async function recordPulseMessage(input: { communityId: string; tgUserId: string; telegramMessageId: number; isReply: boolean; at?: Date; identity?: PulseParticipantIdentityInput }): Promise<void> {
+  const at = input.at ?? new Date();
+  await rememberPulseParticipantIdentity({ communityId: input.communityId, tgUserId: input.tgUserId, identity: input.identity, at })
+    .catch(err => console.error('[pulse/identity]', input.communityId, input.tgUserId, (err as Error).message));
+
   // Claim the message without using an expected duplicate as an exception.
   // Moderator, CM and Community Core can observe the same Telegram message;
   // createMany + skipDuplicates keeps the first writer and leaves production
@@ -85,7 +131,6 @@ export async function recordPulseMessage(input: { communityId: string; tgUserId:
   });
   if (claim.count === 0) return;
 
-  const at = input.at ?? new Date();
   const day = pulseDayKey(at);
   const hour = pulseHour(at);
 

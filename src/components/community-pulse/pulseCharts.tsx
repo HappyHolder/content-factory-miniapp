@@ -265,15 +265,21 @@ export function TrendLine({ series, label }: { series: { day: string; value: num
 
 // ─── Ranked horizontal bars (top participants) ────────────────────────────────
 
-export function RankedBars({ items }: { items: { label: string; value: number; hint?: string }[] }) {
+export function RankedBars({ items }: { items: { key?: string; label: string; value: number; hint?: string; href?: string }[] }) {
   if (!items.length) return <p className="text-[12px] text-[#55555D]">Нет данных</p>
   const max = Math.max(...items.map(i => i.value), 1)
   return (
     <div className="space-y-1.5">
       {items.map((item, i) => (
-        <div key={item.label} className="flex items-center gap-2">
+        <div key={item.key ?? item.label} className="flex min-h-11 items-center gap-2">
           <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-[#55555D]">{i + 1}</span>
-          <span className="w-[86px] shrink-0 truncate text-[11px] text-[#A1A1AA]">{item.label}</span>
+          {item.href ? (
+            <a href={item.href} target="_blank" rel="noopener noreferrer" title={item.label} aria-label={`Открыть ${item.label} в Telegram`} className="flex min-h-11 w-[100px] shrink-0 items-center truncate rounded-sm text-[11px] font-medium text-[#D4D4D8] underline decoration-white/20 underline-offset-2 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00]">
+              {item.label}
+            </a>
+          ) : (
+            <span title={item.label} className="w-[100px] shrink-0 truncate text-[11px] text-[#A1A1AA]">{item.label}</span>
+          )}
           <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-white/[0.04]">
             <div className="h-full rounded-full" style={{ width: `${(item.value / max) * 100}%`, background: i === 0 ? PULSE_COLORS[0] : 'rgba(227,98,7,0.55)' }} />
           </div>

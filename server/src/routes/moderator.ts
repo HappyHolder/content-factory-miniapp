@@ -20,7 +20,7 @@ import { DEFAULT_BLOCKS, parseBlocks, type AiModerationBlock, type AntiSpamBlock
 import { ownerFeedbackContext } from '../moderator/feedbackContext';
 import { telegramBotPolicyViolation, telegramMessageSignals } from '../moderator/telegramMessageSignals';
 import { moderatorChannelContext, protectUnconfiguredStandaloneOffTopic } from '../moderator/chatStyleContext';
-import { communityIdForChat, recordPulseMessage, recordPulseMembership, seedPulseHistory, rollupPulseDay, pulseDayKey } from '../lib/communityPulse';
+import { communityIdForChat, recordPulseMessage, recordPulseMembership, rememberPulseParticipantIdentity, seedPulseHistory, rollupPulseDay, pulseDayKey } from '../lib/communityPulse';
 import { computePulse, PULSE_BENCHMARKS } from '../lib/communityPulseMetrics';
 import { TIER_LIMITS, getEffectiveSubscription, hasCustomBotSlot } from '../lib/subscriptionLimits';
 
@@ -34,7 +34,7 @@ const normalizeBotUsername = (value: unknown) => typeof value === 'string'
   ? value.trim().replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, '').replace(/^@/, '').split(/[/?#]/, 1)[0] ?? ''
   : '';
 type TgAdmin = { status: string; can_delete_messages?: boolean; can_restrict_members?: boolean; can_invite_users?: boolean; can_pin_messages?: boolean };
-type TgUser = { id: number; first_name: string; username?: string; is_bot?: boolean };
+type TgUser = { id: number; first_name: string; last_name?: string; username?: string; is_bot?: boolean };
 type TgEntity = { type: string; offset: number; length: number; url?: string; user?: TgUser };
 type TgMessage = { message_id: number; message_thread_id?: number; chat: { id: number; title?: string; username?: string; type?: string }; from?: TgUser; text?: string; caption?: string; entities?: TgEntity[]; caption_entities?: TgEntity[]; via_bot?: TgUser; reply_markup?: { inline_keyboard?: Array<Array<{ url?: string; login_url?: { url?: string }; web_app?: { url?: string } }>> }; new_chat_members?: TgUser[]; left_chat_member?: TgUser; photo?: unknown[]; video?: unknown; document?: unknown; audio?: unknown; voice?: unknown; video_note?: unknown; sticker?: unknown; animation?: unknown; poll?: unknown; contact?: unknown; location?: unknown; forward_origin?: unknown; forward_from?: unknown; forward_from_chat?: unknown; reply_to_message?: { message_id: number; from?: TgUser } };
 type MyChatMemberUpdate = { chat: { id: number; title?: string; username?: string; type: string }; from?: { id: number }; new_chat_member: TgAdmin };
@@ -556,7 +556,14 @@ async function recordPulseActivity(message: TgMessage): Promise<void> {
   // A real human message (service messages carry no from / are bots).
   if (!message.from || message.from.is_bot) return;
   if (!message.text && !message.caption) return;
-  await recordPulseMessage({ communityId, tgUserId: String(message.from.id), telegramMessageId: message.message_id, isReply: Boolean(message.reply_to_message), at });
+  await recordPulseMessage({
+    communityId,
+    tgUserId: String(message.from.id),
+    telegramMessageId: message.message_id,
+    isReply: Boolean(message.reply_to_message),
+    at,
+    identity: { username: message.from.username, firstName: message.from.first_name, lastName: message.from.last_name },
+  });
 }
 
 async function recordCommunityManagerDisposition(update: ModeratorUpdate, message: TgMessage): Promise<void> {
@@ -1013,7 +1020,7 @@ router.get('/communities/:communityId/pulse', async (req, res) => {
   let auth; try { auth = await authenticate(req); } catch (e) { authError(res, e); return; }
   const community = await prisma.community.findFirst({
     where: { id: req.params['communityId'], channel: { userId: auth.user.id } },
-    select: { id: true, moderatorChat: { select: { title: true } } },
+    select: { id: true, moderatorChat: { select: { title: true, tgChatId: true } } },
   });
   if (!community) { res.status(404).json({ error: 'Community not found' }); return; }
 
@@ -1028,6 +1035,27 @@ router.get('/communities/:communityId/pulse', async (req, res) => {
 
   try {
     const report = await computePulse(community.id, days);
+    const missingIdentities = report.topParticipants.filter(participant => !participant.username && !participant.displayName);
+    if (community.moderatorChat?.tgChatId && missingIdentities.length) {
+      const token = await moderatorTokenForCommunity(community.id).catch(() => null);
+      if (token) {
+        const resolved = await Promise.all(missingIdentities.map(async participant => {
+          const member = await getChatMember(community.moderatorChat!.tgChatId, Number(participant.tgUserId), token).catch(() => null);
+          if (!member?.user || member.user.is_bot) return null;
+          const identity = await rememberPulseParticipantIdentity({
+            communityId: community.id,
+            tgUserId: participant.tgUserId,
+            identity: { username: member.user.username, firstName: member.user.first_name, lastName: member.user.last_name },
+          }).catch(() => null);
+          return identity ? { tgUserId: participant.tgUserId, ...identity } : null;
+        }));
+        const resolvedByUser = new Map(resolved.flatMap(identity => identity ? [[identity.tgUserId, identity] as const] : []));
+        for (const participant of report.topParticipants) {
+          const identity = resolvedByUser.get(participant.tgUserId);
+          if (identity) { participant.username = identity.username; participant.displayName = identity.displayName; }
+        }
+      }
+    }
     res.json({ report, benchmarks: PULSE_BENCHMARKS, chatTitle: community.moderatorChat?.title ?? null });
   } catch (err) {
     console.error('[pulse] report failed:', (err as Error).message);

@@ -651,6 +651,7 @@ model Community {
   communityManager           CommunityManager?
   personas                   Persona[]
   dailyParticipants          CommunityDailyParticipant[]
+  pulseParticipants          CommunityPulseParticipant[]
   dailyStats                 CommunityDailyStat[]
 }
 
@@ -679,6 +680,24 @@ model CommunityDailyParticipant {
   @@unique([communityId, tgUserId, day])
   @@index([communityId, day])
   @@index([communityId, tgUserId])
+}
+
+// Latest public Telegram identity known to Pulse. Kept separately from daily
+// facts so usernames can change without rewriting historical analytics.
+model CommunityPulseParticipant {
+  id          String   @id @default(cuid())
+  communityId String
+  tgUserId    String
+  username    String?
+  displayName String?
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, tgUserId])
+  @@index([communityId, username])
 }
 
 // One row per counted message. Three independent sources can see the same

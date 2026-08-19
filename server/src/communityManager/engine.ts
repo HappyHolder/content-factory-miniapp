@@ -64,7 +64,7 @@ export async function acceptCommunityManagerUpdate(update:TgUpdate,executor:{typ
   await cancelSilentContentRelease(ctx.manager.id,{replyToMessageId:m.reply_to_message?.message_id,messageThreadId:m.message_thread_id});
   // Pulse analytics: CM sees the chat even when Moderator is off. The recorder
   // claims each message id, so overlapping sources never double-count.
-  if(!update.edited_message)void recordPulseMessage({communityId:ctx.community.id,tgUserId:String(m.from.id),telegramMessageId:m.message_id,isReply:Boolean(m.reply_to_message),at:m.date?new Date(m.date*1000):new Date()}).catch(()=>undefined);
+  if(!update.edited_message)void recordPulseMessage({communityId:ctx.community.id,tgUserId:String(m.from.id),telegramMessageId:m.message_id,isReply:Boolean(m.reply_to_message),at:m.date?new Date(m.date*1000):new Date(),identity:{username:m.from.username,firstName:m.from.first_name,lastName:m.from.last_name}}).catch(()=>undefined);
   const reply=m.reply_to_message,replyText=(reply?.text??reply?.caption??'').trim();
   if(reply?.from&&!reply.from.is_bot){
     const tgUserId=String(reply.from.id),username=reply.from.username?.trim().replace(/^@/,'')||null,firstName=reply.from.first_name?.trim()||null,lastName=reply.from.last_name?.trim()||null,displayName=[firstName,lastName].filter(Boolean).join(' ')||username||('Participant '+tgUserId),replyAt=reply.date?new Date(reply.date*1000):new Date();
