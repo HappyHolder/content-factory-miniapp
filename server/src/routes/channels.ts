@@ -5,6 +5,7 @@ import { validateAndParseTelegramInitData } from '../lib/telegram';
 import {
   getChat,
   getChatMember,
+  getChatMemberCount,
   getBotIdFromToken,
   TelegramApiError,
 } from '../lib/telegramBot';
@@ -216,17 +217,18 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
 
   // ── 10. Upsert Channel in DB ──────────────────────────────────────────────
   const title = tgChat.title ?? handle;
-  const subscribersCount = tgChat.member_count ?? 0;
-
   const tgChatId = tgChat.id != null ? String(tgChat.id) : null;
+  const measuredCount = await getChatMemberCount(tgChatId ?? `@${handle}`, env.TELEGRAM_BOT_TOKEN);
+  const subscribersCount = measuredCount ?? tgChat.member_count ?? null;
+  const memberCountUpdatedAt = subscribersCount == null ? null : new Date();
 
-  let channel: { id: string; name: string; handle: string | null; kind: string };
+  let channel: { id: string; name: string; handle: string | null; kind: string; telegramMemberCount: number | null };
   try {
     channel = await prisma.channel.upsert({
       where: { handle },
-      update: { name: title, kind: tgChat.type === 'supergroup' ? 'CHAT' : 'CHANNEL', ...(tgChatId ? { tgChatId } : {}) },
-      create: { name: title, handle, kind: tgChat.type === 'supergroup' ? 'CHAT' : 'CHANNEL', userId: dbUser.id, ...(tgChatId ? { tgChatId } : {}) },
-      select: { id: true, name: true, handle: true, kind: true },
+      update: { name: title, kind: tgChat.type === 'supergroup' ? 'CHAT' : 'CHANNEL', ...(subscribersCount == null ? {} : { telegramMemberCount: subscribersCount, memberCountUpdatedAt }), ...(tgChatId ? { tgChatId } : {}) },
+      create: { name: title, handle, kind: tgChat.type === 'supergroup' ? 'CHAT' : 'CHANNEL', userId: dbUser.id, telegramMemberCount: subscribersCount, memberCountUpdatedAt, ...(tgChatId ? { tgChatId } : {}) },
+      select: { id: true, name: true, handle: true, kind: true, telegramMemberCount: true },
     });
   } catch (err) {
     console.error('[channels/connect] Channel upsert failed:', err);
@@ -260,7 +262,7 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
       username:         channel.handle ?? handle,
       title:            channel.name,
       kind:             channel.kind === 'CHAT' ? 'chat' : 'channel',
-      subscribersCount,
+      subscribersCount: channel.telegramMemberCount,
       isDefault:        channel.kind === 'CHANNEL' && channelCount === 1,
       isConnected:      true,
     },

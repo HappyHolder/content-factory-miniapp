@@ -85,7 +85,7 @@ export interface Channel {
   username: string
   title: string
   avatarUrl?: string
-  subscribersCount: number
+  subscribersCount: number | null
   isDefault: boolean
   isConnected: boolean
 }

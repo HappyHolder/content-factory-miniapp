@@ -6,6 +6,7 @@ import { getEffectiveSubscription, serializeSubscription } from '../lib/subscrip
 import { issueModeratorSession } from '../lib/moderatorSession';
 import { sendBotMessage } from '../lib/telegramBot';
 import { botChannelLabel, buildQuickActionsKeyboard, versionedMiniAppUrl } from '../lib/botQuickActions';
+import { refreshChannelMemberCounts, type CountableChannel } from '../lib/channelMemberCount';
 
 const router = Router();
 const MINI_APP_RELEASE_URL = versionedMiniAppUrl(env.MINI_APP_URL, Date.now().toString(36));
@@ -67,13 +68,18 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
   }
 
   // ── Fetch this user's connected channels ──────────────────────────────────
-  let dbChannels: { id: string; name: string; handle: string | null; kind: string }[] = [];
+  let dbChannels: (CountableChannel & { name: string })[] = [];
   try {
     dbChannels = await prisma.channel.findMany({
       where:   { userId: dbUser.id },
       orderBy: { createdAt: 'asc' },
-      select:  { id: true, name: true, handle: true, kind: true },
+      select:  {
+        id: true, name: true, handle: true, kind: true, tgChatId: true,
+        telegramMemberCount: true, memberCountUpdatedAt: true,
+        community: { select: { id: true } },
+      },
     });
+    dbChannels = await refreshChannelMemberCounts(dbChannels);
   } catch (err) {
     console.error('[auth/telegram] Channel fetch failed (non-fatal):', err);
     // Non-fatal: return empty channels rather than failing the whole auth
@@ -134,7 +140,7 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       username:         ch.handle ?? '',
       title:            ch.name,
       kind:             ch.kind === 'CHAT' ? 'chat' : 'channel',
-      subscribersCount: 0,
+      subscribersCount: ch.telegramMemberCount,
       isDefault:        ch.kind === 'CHANNEL' && !dbChannels.slice(0, i).some(previous => previous.kind === 'CHANNEL'),
       isConnected:      true,
     })),

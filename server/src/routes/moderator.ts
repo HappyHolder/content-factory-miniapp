@@ -5,7 +5,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { env } from '../env';
 import { verifyModeratorSession } from '../lib/moderatorSession';
-import { answerBotCallback, banChatUser, buildInlineKeyboard, deleteBotMessage, deleteBotWebhook, getBotIdFromToken, getBotIdentity, getChatAdministrators, getChatMember, getManagedBotToken, kickChatUser, restrictChatUser, sendBotMessage, setBotWebhook, unbanChatUser, sendRichMessage, TelegramApiError, type TelegramInlineKeyboard } from '../lib/telegramBot';
+import { answerBotCallback, banChatUser, buildInlineKeyboard, deleteBotMessage, deleteBotWebhook, getBotIdFromToken, getBotIdentity, getChatAdministrators, getChatMember, getChatMemberCount, getManagedBotToken, kickChatUser, restrictChatUser, sendBotMessage, setBotWebhook, unbanChatUser, sendRichMessage, TelegramApiError, type TelegramInlineKeyboard } from '../lib/telegramBot';
 import { blocksToRichHtml, parseInline, type PostBlock } from '../lib/richPost';
 import { conversationRiskDelta, processIntervention, reserveModeratorAiCheck, simulateIntervention, syncModeratorEntitlement } from '../moderator/interventionEngine';
 import { moderateWithTerra, safeSuggestedRewrite, type AiDecision } from '../moderator/modelRouter';
@@ -749,10 +749,13 @@ router.post('/chats/:chatId/connect', async (req, res) => {
     }
   }
 
+  const chatMemberCount = await getChatMemberCount(chat.tgChatId, currentToken());
+  const memberCountUpdatedAt = chatMemberCount == null ? null : new Date();
+
   const result = await prisma.$transaction(async tx => {
     const target = existingTarget
-      ? await tx.channel.update({ where: { id: existingTarget.id }, data: { name: chat.title, kind: 'CHAT', tgChatId: chat.tgChatId, handle: chat.username?.toLowerCase() ?? existingTarget.handle } })
-      : await tx.channel.create({ data: { name: chat.title, kind: 'CHAT', tgChatId: chat.tgChatId, handle: chat.username?.toLowerCase() ?? null, userId: auth.user.id } });
+      ? await tx.channel.update({ where: { id: existingTarget.id }, data: { name: chat.title, kind: 'CHAT', tgChatId: chat.tgChatId, handle: chat.username?.toLowerCase() ?? existingTarget.handle, ...(chatMemberCount == null ? {} : { telegramMemberCount: chatMemberCount, memberCountUpdatedAt }) } })
+      : await tx.channel.create({ data: { name: chat.title, kind: 'CHAT', tgChatId: chat.tgChatId, handle: chat.username?.toLowerCase() ?? null, userId: auth.user.id, telegramMemberCount: chatMemberCount, memberCountUpdatedAt } });
     await tx.brandKit.upsert({ where: { channelId: target.id }, update: {}, create: { channelId: target.id } });
     const community = await tx.community.upsert({
       where: { channelId: target.id },
@@ -773,7 +776,7 @@ router.post('/chats/:chatId/connect', async (req, res) => {
   });
 
   res.status(chat.community ? 200 : 201).json({
-    channel: { id: result.target.id, username: result.target.handle ?? '', title: result.target.name, kind: 'chat', subscribersCount: 0, isDefault: false, isConnected: true },
+    channel: { id: result.target.id, username: result.target.handle ?? '', title: result.target.name, kind: 'chat', subscribersCount: result.target.telegramMemberCount, isDefault: false, isConnected: true },
     community: result.community,
   });
 });

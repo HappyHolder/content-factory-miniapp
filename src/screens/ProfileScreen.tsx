@@ -307,6 +307,9 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
 }) {
   const [actionsOpen, setActionsOpen] = useState(false)
   const isChat = channel.kind === 'chat'
+  const countLabel = channel.subscribersCount == null
+    ? `— ${t(isChat ? 'profile.members' : 'profile.subscribers')}`
+    : `${channel.subscribersCount.toLocaleString()} ${t(isChat ? 'profile.members' : 'profile.subscribers')}`
 
   return (
     <>
@@ -323,7 +326,7 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
             <div className="flex-1 min-w-0">
               <p className="text-[13px] font-semibold text-white">{channelLabel(channel)}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <p className="text-[11px] text-[#55555D]">{isChat?'Чат подключён':`${channel.subscribersCount.toLocaleString()} ${t('profile.connected')}`}</p>
+                <p className="text-[11px] tabular-nums text-[#66666E]">{countLabel}</p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-0.5">

@@ -95,6 +95,8 @@ export const ru: Dict = {
     support:             'Поддержка',
     supportSubtitle:     'Помощь и обратная связь',
     connected:           'Подключён',
+    subscribers:         'подписчиков',
+    members:             'участников',
     default:             'По умолчанию',
     setDefault:          'Выбрать',
     channelStyle:        'Стиль канала',

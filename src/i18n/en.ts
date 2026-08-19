@@ -95,6 +95,8 @@ export const en = {
     support:             'Support',
     supportSubtitle:     'Help & feedback',
     connected:           'Connected',
+    subscribers:         'subscribers',
+    members:             'members',
     default:             'Default',
     setDefault:          'Set default',
     channelStyle:        'Channel style',

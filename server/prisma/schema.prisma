@@ -130,6 +130,10 @@ model Channel {
   // Stable numeric Telegram chat id (e.g. "-1001234567890"). Survives channel
   // renames — publishing prefers it over @handle so a rename never breaks it.
   tgChatId String?
+  // Last successful getChatMemberCount result. Meaning depends on kind:
+  // subscribers for CHANNEL, members for CHAT. Null means not measured yet.
+  telegramMemberCount Int?
+  memberCountUpdatedAt DateTime?
   userId   String
 
   createdAt DateTime @default(now())

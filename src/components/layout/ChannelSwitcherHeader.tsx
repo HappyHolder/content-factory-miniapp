@@ -96,7 +96,7 @@ export function ChannelSwitcherHeader() {
                             {channelLabel(ch)}
                           </p>
                           <p className="text-[11px] text-[#44444C]">
-                            {ch.subscribersCount.toLocaleString()} {t('channelSwitcher.subscribers')}
+                            {ch.subscribersCount == null ? '—' : ch.subscribersCount.toLocaleString()} {t('channelSwitcher.subscribers')}
                           </p>
                         </div>
 
