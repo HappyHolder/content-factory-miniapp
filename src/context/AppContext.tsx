@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react'
-import type { AppState, GeneratedPost, Channel, BrandKit, Subscription, PlanTier } from '@/types'
+import type { AppState, GeneratedPost, Channel, Chat, ChatStyle, BrandKit, Subscription, PlanTier } from '@/types'
 import { mockInitialState } from '@/data/mockData'
 import { postService } from '@/services/postService'
 import { brandKitService } from '@/services/brandKitService'
@@ -85,6 +85,10 @@ function createDefaultBrandKit(channelId: string): BrandKit {
   }
 }
 
+function createDefaultChatStyle(chatId: string): ChatStyle {
+  return { chatId, channelAbout: undefined, voiceProfile: { language: 'RU', addressStyle: 'ты', tone: 'expert', postLength: 'medium', examplePosts: [], favoriteWords: [], forbiddenWords: [] } }
+}
+
 interface Toast {
   id: string
   message: string
@@ -114,7 +118,11 @@ interface AppContextValue {
   setActiveChannel: (id: string) => void
   connectChannel: (channel: Channel) => void
   disconnectChannel: (channelId: string) => void
+  connectChat: (chat: Chat) => void
+  disconnectChat: (chatId: string) => void
+  setChatLinkedChannel: (chatId: string, channel: Channel | null) => void
   updateBrandKit: (channelId: string, kit: Partial<BrandKit>) => void
+  updateChatStyle: (chatId: string, style: Partial<ChatStyle>) => void
   applyServerSubscription: (sub: ServerSubscription) => void
   toasts: Toast[]
   showToast: (message: string, type?: Toast['type']) => void
@@ -196,7 +204,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return {
         ...mockInitialState,   // preserves subscription shape / user placeholder
         channels:        [],
+        chats:           [],
         brandKits:       [],
+        chatStyles:      [],
         posts:           [],
         activeChannelId: '',
       }
@@ -251,6 +261,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isAdmin?:        boolean
       }
       channels: Channel[]
+      chats?: Chat[]
+      chatStyles?: { chatId: string; channelAbout: unknown; voiceProfile: unknown }[]
       // brandKits is optional so older backend versions stay compatible
       brandKits?: {
         channelId:    string
@@ -294,6 +306,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const realChannels: Channel[] = authData.channels ?? []
+      const realChats: Chat[] = authData.chats ?? []
 
       // Build shaped BrandKits: start from defaults, then overwrite with
       // any non-null sections returned from the DB (saved by the user previously).
@@ -317,6 +330,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
         return kit
+      })
+      const realChatStyles = realChats.map(chat => {
+        const style = createDefaultChatStyle(chat.id), saved = authData!.chatStyles?.find(item => item.chatId === chat.id)
+        if (saved?.channelAbout != null) style.channelAbout = saved.channelAbout as ChatStyle['channelAbout']
+        if (saved?.voiceProfile != null) style.voiceProfile = saved.voiceProfile as ChatStyle['voiceProfile']
+        return style
       })
 
       // Re-initialise in-memory channel / brandKit services
@@ -346,7 +365,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       postService.init(loadedPosts)
 
       // Resolve active channel: DB → localStorage → first channel
-      const publicationChannels = realChannels.filter(channel => channel.kind !== 'chat')
+      const publicationChannels = realChannels
       const resolvedActiveChannelId = (() => {
         const fromDb = authData!.user.activeChannelId
         if (fromDb && publicationChannels.some(c => c.id === fromDb)) return fromDb
@@ -382,7 +401,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           subscription: serverSub ? fromServerSubscription(serverSub) : prev.user.subscription,
         },
         channels:        realChannels,
+        chats:           realChats,
         brandKits:       realBrandKits,
+        chatStyles:      realChatStyles,
         posts:           loadedPosts,
         activeChannelId: resolvedActiveChannelId,
       }))
@@ -530,7 +551,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const setActiveChannel = useCallback((id: string) => {
-    if (channelService.getById(id)?.kind === 'chat') return
     setState(prev => ({ ...prev, activeChannelId: id }))
     try { localStorage.setItem('activeChannelId', id) } catch {}
     // Persist to DB so the bot webhook uses the same active channel
@@ -568,7 +588,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         channels:        updatedChannels,
         brandKits:       updatedBrandKits,
-        activeChannelId: channel.kind === 'chat' ? prev.activeChannelId : channel.id,
+        activeChannelId: channel.id,
       }
     })
   }, [])
@@ -584,7 +604,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const remainingPosts     = prev.posts.filter(p => p.channelId !== channelId)
 
       const wasActive        = prev.activeChannelId === channelId
-      const nextActiveId      = wasActive ? (remainingChannels.find(channel => channel.kind !== 'chat')?.id ?? '') : prev.activeChannelId
+      const nextActiveId      = wasActive ? (remainingChannels[0]?.id ?? '') : prev.activeChannelId
 
       // Sync in-memory services to match the trimmed state.
       channelService.init(remainingChannels)
@@ -607,6 +627,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     })
   }, [])
+
+  const connectChat = useCallback((chat: Chat) => {
+    setState(prev => ({
+      ...prev,
+      chats: prev.chats.some(item => item.id === chat.id) ? prev.chats.map(item => item.id === chat.id ? chat : item) : [...prev.chats, chat],
+      chatStyles: prev.chatStyles.some(item => item.chatId === chat.id) ? prev.chatStyles : [...prev.chatStyles, createDefaultChatStyle(chat.id)],
+    }))
+  }, [])
+
+  const disconnectChat = useCallback((chatId: string) => {
+    setState(prev => ({ ...prev, chats: prev.chats.filter(chat => chat.id !== chatId), chatStyles: prev.chatStyles.filter(style => style.chatId !== chatId) }))
+  }, [])
+
+  const setChatLinkedChannel = useCallback((chatId: string, channel: Channel | null) => {
+    const linkedChannel = channel ? { id: channel.id, title: channel.title, username: channel.username } : null
+    setState(prev => ({ ...prev, chats: prev.chats.map(chat => chat.id === chatId ? { ...chat, linkedChannel } : chat) }))
+  }, [])
+
+  const updateChatStyle = useCallback((chatId: string, updates: Partial<ChatStyle>) => {
+    setState(prev => ({ ...prev, chatStyles: prev.chatStyles.map(style => style.chatId === chatId ? { ...style, ...updates, chatId } : style) }))
+    showToast(t('channelStyle.saved'))
+    if (authStatus === 'authenticated') {
+      const initData = getTelegramInitData()
+      if (initData) fetch(`${API_BASE}/api/chats/${chatId}/style`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData, sections: updates }) }).catch(() => {})
+    }
+  }, [authStatus, showToast, t])
 
   const updateBrandKit = useCallback((channelId: string, updates: Partial<BrandKit>) => {
     // 1. Immediate in-memory update — UI reflects changes instantly
@@ -634,7 +680,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [showToast, t, authStatus])
 
-  const activeChannel = state.channels.find(c => c.id === state.activeChannelId && c.kind !== 'chat')
+  const activeChannel = state.channels.find(c => c.id === state.activeChannelId)
 
   const subscription = state.user.subscription
   const canSchedulePosts = subscription.limits.canSchedule
@@ -666,7 +712,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setActiveChannel,
       connectChannel,
       disconnectChannel,
+      connectChat,
+      disconnectChat,
+      setChatLinkedChannel,
       updateBrandKit,
+      updateChatStyle,
       applyServerSubscription,
       toasts,
       showToast,

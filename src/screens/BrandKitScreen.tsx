@@ -14,7 +14,6 @@ import { CtaLinksForm }           from '@/components/profile/CtaLinksForm'
 import { CoversForm }             from '@/components/profile/CoversForm'
 import { ProjectDocsForm }        from '@/components/profile/ProjectDocsForm'
 import { ChannelStyleSummary }    from '@/components/profile/ChannelStyleSummary'
-import { ChatStyleForm }          from '@/components/profile/ChatStyleForm'
 
 type SectionId = 'about' | 'textVoice' | 'postFormat' | 'words' | 'ctaLinks' | 'covers' | 'projectDocs'
 
@@ -42,8 +41,6 @@ interface BrandKitScreenProps {
 export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitScreenProps) {
   const { state, t } = useApp()
   const [activeSection, setActiveSection] = useState<SectionId | null>(null)
-  const isChat = state.channels.find(channel => channel.id === channelId)?.kind === 'chat'
-
   const brandKit = brandKitService.getByChannelId(channelId)
     || state.brandKits.find(k => k.channelId === channelId)
 
@@ -52,28 +49,6 @@ export function BrandKitScreen({ channelId, channelUsername, onBack }: BrandKitS
       <div className="px-4 py-8 text-center">
         <p className="text-[#A1A1AA]">{t('channelStyle.notFound')}</p>
       </div>
-    )
-  }
-
-  if (isChat) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: -10 }}
-        transition={{ duration: 0.22 }}
-      >
-        <PageHeader title={t('chatStyle.title')} subtitle={channelUsername} onBack={onBack} />
-        <div className="px-4 pt-2">
-          <GlassCard>
-            <ChatStyleForm
-              channelId={channelId}
-              initialAbout={brandKit.channelAbout}
-              initialVoice={brandKit.voiceProfile}
-            />
-          </GlassCard>
-        </div>
-      </motion.div>
     )
   }
 

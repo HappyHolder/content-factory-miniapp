@@ -507,7 +507,7 @@ export function ChatScreen({ messages, setMessages, historyLoaded, setHistoryLoa
                     className="overflow-hidden"
                   >
                     <div className="mt-1.5 space-y-1.5">
-                      {state.channels.filter(ch => ch.kind !== 'chat' && ch.id !== activeChannel.id).map(ch => (
+                      {state.channels.filter(ch => ch.id !== activeChannel.id).map(ch => (
                         <button
                           key={ch.id}
                           onClick={() => { setChannelListOpen(false); void switchChannel(ch.id) }}

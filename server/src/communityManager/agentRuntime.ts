@@ -85,7 +85,7 @@ type AgentSnapshot={
 type CommunityAgentContext={
   managerId:string;
   communityId:string;
-  channelId:string;
+  channelId:string|null;
   channelName:string;
   chatId:string;
   config:CommunityManagerConfigData;
@@ -112,7 +112,7 @@ async function loadSnapshot(managerId:string,config:CommunityManagerConfigData,e
     segmentId?prisma.communityManagerAction.findMany({where:{communityManagerId:managerId,segmentId,response:{not:null}},orderBy:{createdAt:'desc'},take:40,select:{id:true,telegramMessageId:true,response:true,createdAt:true}}):Promise.resolve([]),
     config.replies.conversationMemory?prisma.communityManagerSegment.findMany({where:{communityManagerId:managerId},orderBy:{updatedAt:'desc'},select:{id:true,threadId:true,status:true,topicKey:true,summary:true,openQuestions:true,updatedAt:true,thread:{select:{origin:true}}}}):Promise.resolve([]),
     prisma.communityManagerConversationState.findUnique({where:{communityManagerId:managerId},select:{internalState:true,pendingModeratorMessageId:true,pendingModeratorText:true,pendingModeratorAt:true}}),
-    prisma.communityManager.findUnique({where:{id:managerId},select:{community:{select:{channel:{select:{brandKit:true}}}}}}),
+    prisma.communityManager.findUnique({where:{id:managerId},select:{community:{select:{chat:{select:{style:true}},channel:{select:{brandKit:true}}}}}}),
   ]);
   const requiredIds=[thread?.telegramRootMessageId,event.replyTargetMessageId].filter((value):value is number=>Number.isInteger(value));
   const requiredMessages=requiredIds.length?await prisma.communityManagerMessage.findMany({where:{communityManagerId:managerId,telegramMessageId:{in:requiredIds}},select:{id:true,telegramMessageId:true,tgUserId:true,text:true,messageType:true,replyToMessageId:true,createdAt:true}}):[];
@@ -150,7 +150,7 @@ async function loadSnapshot(managerId:string,config:CommunityManagerConfigData,e
     personalState:state?.internalState??null,
     moderatorSignal:state?.pendingModeratorMessageId&&state.pendingModeratorText&&state.pendingModeratorAt?{messageId:state.pendingModeratorMessageId,text:state.pendingModeratorText,at:state.pendingModeratorAt.toISOString()}:null,
     suggestedExpert:expert?.username?{id:expert.id,username:expert.username,displayName:expert.displayName,expertise:expert.expertise}:null,
-    channelAbout:config.support.useBrandKit?channelAboutContext(manager?.community.channel.brandKit):'',
+    channelAbout:config.support.useBrandKit?channelAboutContext(manager?.community.chat?.style??manager?.community.channel?.brandKit):'',
   };
 }
 const readThreadTool=tool({
@@ -179,7 +179,7 @@ const projectKnowledgeTool=tool({
     const ctx=(runContext as RunContext<CommunityAgentContext>).context;
     if(!ctx.config.support.useProjectDocs&&!ctx.config.support.useFaq)return'Project knowledge and FAQ are disabled.';
     const [docs,roleDocs,faqs]=await Promise.all([
-      ctx.config.support.useProjectDocs?prisma.projectDoc.findMany({where:{channelId:ctx.channelId},select:{name:true,text:true},take:20}):Promise.resolve([]),
+      ctx.config.support.useProjectDocs&&ctx.channelId?prisma.projectDoc.findMany({where:{channelId:ctx.channelId},select:{name:true,text:true},take:20}):Promise.resolve([]),
       ctx.config.support.useProjectDocs?prisma.roleKnowledgeDoc.findMany({where:{targetType:'COMMUNITY_MANAGER',targetId:ctx.managerId},select:{name:true,text:true},take:20}):Promise.resolve([]),
       ctx.config.support.useFaq?prisma.communityManagerFaq.findMany({where:{communityManagerId:ctx.managerId,enabled:true},select:{question:true,answer:true},orderBy:{priority:'desc'},take:100}):Promise.resolve([]),
     ]);
@@ -247,7 +247,7 @@ function normalizeDecision(raw:CommunityAgentDecision,ctx:CommunityAgentContext)
 }
 
 export async function runCommunityManagerAgent(input:{
-  managerId:string;communityId:string;channelId:string;channelName:string;chatId:string;config:CommunityManagerConfigData;
+  managerId:string;communityId:string;channelId:string|null;channelName:string;chatId:string;config:CommunityManagerConfigData;
   sessionKey:string;threadId?:string;segmentId?:string;event:CommunityAgentEvent;
 }){
   if(!primaryTextModelConfigured())throw new Error('CM_AI_NOT_CONFIGURED');

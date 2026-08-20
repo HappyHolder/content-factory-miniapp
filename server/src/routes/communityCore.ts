@@ -30,7 +30,7 @@ function fail(res: Response, e: unknown) {
 }
 async function ownedPersona(req: Request, id: string) {
   const a = await auth(req);
-  const persona = await prisma.persona.findFirst({ where: { id, ownerUserId: a.user.id }, include: { community: { include: { moderatorChat: true, channel: true } } } });
+  const persona = await prisma.persona.findFirst({ where: { id, ownerUserId: a.user.id }, include: { community: { include: { moderatorChat: true, chat: true, channel: true } } } });
   if (!persona) throw new Error('NOT_FOUND');
   const subscription = await getEffectiveSubscription(a.user.id);
   if (!TIER_LIMITS[subscription.tier].canUseCommunityCore) throw new Error('PLAN_REQUIRED');
@@ -46,6 +46,13 @@ router.get('/channels/:channelId', async (req, res) => {
   res.json({ enabled: communityCoreEnabled(), communityId: community.id, chat: community.moderatorChat ? { title: community.moderatorChat.title, tgChatId: community.moderatorChat.tgChatId } : null, personas: community.personas.map(publicPersona) });
 });
 
+router.get('/chats/:chatId', async (req, res) => {
+  let a; try { a = await auth(req); } catch (e) { return fail(res, e); }
+  const community = await prisma.community.findFirst({ where: { chatId: req.params.chatId, chat: { userId: a.user.id } }, include: { moderatorChat: true, personas: { orderBy: { createdAt: 'asc' } } } });
+  if (!community) { res.json({ enabled: communityCoreEnabled(), communityId: null, chat: null, personas: [] }); return; }
+  res.json({ enabled: communityCoreEnabled(), communityId: community.id, chat: community.moderatorChat ? { title: community.moderatorChat.title, tgChatId: community.moderatorChat.tgChatId } : null, personas: community.personas.map(publicPersona) });
+});
+
 // Create a persona (draft, no account yet).
 router.post('/channels/:channelId/personas', async (req, res) => {
   let a; try { a = await auth(req); } catch (e) { return fail(res, e); }
@@ -56,6 +63,18 @@ router.post('/channels/:channelId/personas', async (req, res) => {
   if (used >= personaLimit) { res.status(403).json({ error: 'Лимит личностей исчерпан', limit: personaLimit, used }); return; }
   const community = await prisma.community.findFirst({ where: { channelId: req.params.channelId, channel: { userId: a.user.id } }, select: { id: true } });
   if (!community) { res.status(404).json({ error: 'Сначала подключите группу через Moderator' }); return; }
+  const persona = await prisma.persona.create({ data: { communityId: community.id, ownerUserId: a.user.id, draftConfig: DEFAULT_PERSONA_CONFIG as any, status: 'DRAFT' } });
+  res.json({ persona: publicPersona(persona) });
+});
+
+router.post('/chats/:chatId/personas', async (req, res) => {
+  let a; try { a = await auth(req); } catch (e) { return fail(res, e); }
+  const subscription = await getEffectiveSubscription(a.user.id), personaLimit = TIER_LIMITS[subscription.tier].communityCorePersonaLimit;
+  if (personaLimit <= 0) { res.status(403).json({ error: 'Community Core доступен со Starter', limit: 0 }); return; }
+  const used = await prisma.persona.count({ where: { ownerUserId: a.user.id } });
+  if (used >= personaLimit) { res.status(403).json({ error: 'Лимит личностей исчерпан', limit: personaLimit, used }); return; }
+  const community = await prisma.community.findFirst({ where: { chatId: req.params.chatId, chat: { userId: a.user.id } }, select: { id: true } });
+  if (!community) { res.status(404).json({ error: 'Сначала подключите чат через Moderator' }); return; }
   const persona = await prisma.persona.create({ data: { communityId: community.id, ownerUserId: a.user.id, draftConfig: DEFAULT_PERSONA_CONFIG as any, status: 'DRAFT' } });
   res.json({ persona: publicPersona(persona) });
 });

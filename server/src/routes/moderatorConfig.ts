@@ -15,8 +15,8 @@ async function ownedModerator(req: Request, moderatorId: string) {
   const user = await prisma.user.findUnique({ where: { telegramId: session.tgUserId }, select: { id: true, telegramId: true } });
   if (!user) throw new Error('INVALID_AUTH');
   const moderator = await prisma.moderator.findFirst({
-    where: { id: moderatorId, community: { channel: { userId: user.id } } },
-    include: { community: { include: { moderatorChat: true, managedBot: true, channel: { select: { id: true, name: true, handle: true, kind: true, brandKit: { select: { channelAbout: true, voiceProfile: true } } } } } } },
+    where: { id: moderatorId, community: { OR: [{ chat: { userId: user.id } }, { channel: { userId: user.id } }] } },
+    include: { community: { include: { moderatorChat: true, managedBot: true, chat: { include: { style: true } }, channel: { select: { id: true, name: true, handle: true, kind: true, brandKit: { select: { channelAbout: true, voiceProfile: true } } } } } } },
   });
   if (!moderator) throw new Error('NOT_FOUND');
   return { user, moderator };
@@ -117,13 +117,14 @@ router.post('/:moderatorId/publish', async (req: Request, res: Response): Promis
     res.status(409).json({ error: 'Для включённых функций дайте активному боту право удалять сообщения.' });
     return;
   }
+  const standaloneChat = context.moderator.community.chat;
   const channel = context.moderator.community.channel;
-  const chatStyleSnapshot = channel.kind === 'CHAT'
+  const chatStyleSnapshot = standaloneChat
     ? chatStyleRulesSnapshot(buildStandaloneChatStyleContext({
-        name: channel.name,
-        handle: channel.handle,
-        channelAbout: channel.brandKit?.channelAbout,
-        voiceProfile: channel.brandKit?.voiceProfile,
+        name: standaloneChat.title,
+        handle: standaloneChat.username,
+        channelAbout: standaloneChat.style?.channelAbout,
+        voiceProfile: standaloneChat.style?.voiceProfile,
       }))
     : null;
   const keepPaused = context.moderator.status === 'PAUSED'

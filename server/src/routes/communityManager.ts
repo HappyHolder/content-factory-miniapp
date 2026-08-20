@@ -20,7 +20,7 @@ async function auth(req:Request){
 }
 function fail(res:Response,e:unknown){const m=e instanceof Error?e.message:'';res.status(m==='NOT_FOUND'?404:m==='PLAN_REQUIRED'?403:401).json({error:m==='PLAN_REQUIRED'?'Функция доступна со Starter':m==='SESSION_EXPIRED'?'Сессия истекла. Переоткройте Publium.':'Недействительная авторизация'})}
 async function owned(req:Request,id:string){
-  const a=await auth(req),manager=await prisma.communityManager.findFirst({where:{id,community:{channel:{userId:a.user.id}}},include:{community:{include:{moderatorChat:true,channel:true,managedCommunityManagerBot:true}}}});
+  const a=await auth(req),manager=await prisma.communityManager.findFirst({where:{id,community:{OR:[{chat:{userId:a.user.id}},{channel:{userId:a.user.id}}]}},include:{community:{include:{moderatorChat:true,chat:true,channel:true,managedCommunityManagerBot:true}}}});
   if(!manager)throw new Error('NOT_FOUND'); const subscription=await getEffectiveSubscription(a.user.id); if(!TIER_LIMITS[subscription.tier].canUseCommunityManager)throw new Error('PLAN_REQUIRED'); return{...a,manager,subscription};
 }
 const publicManager=(m:any)=>m?{id:m.id,status:m.status,enabled:m.enabled,mode:m.mode,draftVersion:m.draftVersion,publishedVersion:m.publishedVersion,lastActionAt:m.lastActionAt,lastHealthyAt:m.lastHealthyAt,lastError:m.lastError,executorType:m.executorType}:null;
@@ -35,11 +35,30 @@ router.get('/channels/:channelId',async(req,res)=>{
   res.json({communityId:channel.community?.id??null,chat:channel.community?.moderatorChat??null,manager:publicManager(manager),botUsername:custom&&managed?.username?managed.username:env.COMMUNITY_MANAGER_BOT_USERNAME,sharedBotUsername:env.COMMUNITY_MANAGER_BOT_USERNAME,managedBot:managedCommunityBotPublic(managed),docsCount:docs,faqCount:faqs,actions:actions.map(action=>({...action,presentation:actionPresentation(action)}))});
 });
 
+router.get('/chats/:chatId',async(req,res)=>{
+  let a;try{a=await auth(req)}catch(e){fail(res,e);return}
+  const chat=await prisma.chat.findFirst({where:{id:req.params.chatId,userId:a.user.id},include:{community:{include:{moderatorChat:true,communityManager:true,managedCommunityManagerBot:true}}}});
+  if(!chat){res.status(404).json({error:'Chat not found'});return}
+  const manager=chat.community?.communityManager;
+  const [faqs,actions]=manager?await Promise.all([prisma.communityManagerFaq.count({where:{communityManagerId:manager.id,enabled:true}}),prisma.communityManagerAction.findMany({where:{communityManagerId:manager.id},orderBy:{createdAt:'desc'},take:10})]):[0,[]];
+  const managed=chat.community?.managedCommunityManagerBot??null,custom=manager?.executorType==='CUSTOM'&&managed?.status==='ACTIVE';
+  res.json({communityId:chat.community?.id??null,chat:chat.community?.moderatorChat??null,manager:publicManager(manager),botUsername:custom&&managed?.username?managed.username:env.COMMUNITY_MANAGER_BOT_USERNAME,sharedBotUsername:env.COMMUNITY_MANAGER_BOT_USERNAME,managedBot:managedCommunityBotPublic(managed),docsCount:0,faqCount:faqs,actions:actions.map(action=>({...action,presentation:actionPresentation(action)}))});
+});
+
 router.post('/channels/:channelId/create',async(req,res)=>{
   let a;try{a=await auth(req)}catch(e){fail(res,e);return}
   const subscription=await getEffectiveSubscription(a.user.id); if(!TIER_LIMITS[subscription.tier].canUseCommunityManager){res.status(403).json({error:'Community Manager доступен со Starter'});return}
   const community=await prisma.community.findFirst({where:{channelId:req.params.channelId,channel:{userId:a.user.id}},include:{moderatorChat:true}});
   if(!community){res.status(409).json({error:'Сначала подключите группу в Moderator'});return}
+  const manager=await prisma.communityManager.upsert({where:{communityId:community.id},create:{communityId:community.id,mode:'AUTOPILOT',configs:{create:{version:1,config:DEFAULT_CM_CONFIG}}},update:{}});
+  res.json({manager:publicManager(manager),chat:community.moderatorChat,botUsername:env.COMMUNITY_MANAGER_BOT_USERNAME});
+});
+
+router.post('/chats/:chatId/create',async(req,res)=>{
+  let a;try{a=await auth(req)}catch(e){fail(res,e);return}
+  const subscription=await getEffectiveSubscription(a.user.id);if(!TIER_LIMITS[subscription.tier].canUseCommunityManager){res.status(403).json({error:'Community Manager доступен со Starter'});return}
+  const community=await prisma.community.findFirst({where:{chatId:req.params.chatId,chat:{userId:a.user.id}},include:{moderatorChat:true}});
+  if(!community){res.status(409).json({error:'Сначала подключите чат через Moderator'});return}
   const manager=await prisma.communityManager.upsert({where:{communityId:community.id},create:{communityId:community.id,mode:'AUTOPILOT',configs:{create:{version:1,config:DEFAULT_CM_CONFIG}}},update:{}});
   res.json({manager:publicManager(manager),chat:community.moderatorChat,botUsername:env.COMMUNITY_MANAGER_BOT_USERNAME});
 });
@@ -180,7 +199,7 @@ router.post('/:id/activities/run',async(req,res)=>{
 
 router.post('/communities/:communityId/managed-bot/request',async(req,res)=>{
   let a;try{a=await auth(req)}catch(e){fail(res,e);return}
-  const community=await prisma.community.findFirst({where:{id:req.params.communityId,channel:{userId:a.user.id}},include:{managedCommunityManagerBot:true}});if(!community){res.status(404).json({error:'Community not found'});return}
+  const community=await prisma.community.findFirst({where:{id:req.params.communityId,OR:[{chat:{userId:a.user.id}},{channel:{userId:a.user.id}}]},include:{managedCommunityManagerBot:true}});if(!community){res.status(404).json({error:'Community not found'});return}
   const slot=await hasCustomBotSlot(a.user.id,community.id);if(!slot.ok){res.status(403).json({error:'Лимит персональных ботов исчерпан',limit:slot.limit,used:slot.used});return}
   const name=typeof req.body?.displayName==='string'?req.body.displayName.trim().slice(0,64):'',username=typeof req.body?.username==='string'?req.body.username.trim().replace(/^@/,''):'';
   if(name.length<2){res.status(400).json({error:'Название должно содержать минимум 2 символа'});return}if(!/^[A-Za-z][A-Za-z0-9_]{3,30}[Bb][Oo][Tt]$/.test(username)){res.status(400).json({error:'Username: 5–32 символа, латиница/цифры/_ и окончание bot'});return}
@@ -192,19 +211,19 @@ router.post('/communities/:communityId/managed-bot/request',async(req,res)=>{
 });
 
 router.patch('/communities/:communityId/managed-bot/profile',async(req,res)=>{
-  let a;try{a=await auth(req)}catch(e){fail(res,e);return}const community=await prisma.community.findFirst({where:{id:req.params.communityId,channel:{userId:a.user.id}},include:{managedCommunityManagerBot:true}});if(!community?.managedCommunityManagerBot){res.status(404).json({error:'Персональный CM-бот не найден'});return}
+  let a;try{a=await auth(req)}catch(e){fail(res,e);return}const community=await prisma.community.findFirst({where:{id:req.params.communityId,OR:[{chat:{userId:a.user.id}},{channel:{userId:a.user.id}}]},include:{managedCommunityManagerBot:true}});if(!community?.managedCommunityManagerBot){res.status(404).json({error:'Персональный CM-бот не найден'});return}
   const name=typeof req.body?.displayName==='string'?req.body.displayName.trim().slice(0,64):'';if(name.length<2){res.status(400).json({error:'Название должно содержать минимум 2 символа'});return}
   try{const warning=await updateManagedCommunityBotProfile(community.managedCommunityManagerBot.id,name,typeof req.body?.avatarUrl==='string'?req.body.avatarUrl:community.managedCommunityManagerBot.avatarUrl);const updated=await prisma.managedCommunityManagerBot.findUnique({where:{id:community.managedCommunityManagerBot.id}});res.json({managedBot:managedCommunityBotPublic(updated),warning})}catch(e){res.status(502).json({error:e instanceof Error?e.message:'Не удалось обновить бота'})}
 });
 
 router.post('/communities/:communityId/managed-bot/activate',async(req,res)=>{
-  let a;try{a=await auth(req)}catch(e){fail(res,e);return}const community=await prisma.community.findFirst({where:{id:req.params.communityId,channel:{userId:a.user.id}},include:{moderatorChat:true,communityManager:true,managedCommunityManagerBot:true}});const bot=community?.managedCommunityManagerBot;
+  let a;try{a=await auth(req)}catch(e){fail(res,e);return}const community=await prisma.community.findFirst({where:{id:req.params.communityId,OR:[{chat:{userId:a.user.id}},{channel:{userId:a.user.id}}]},include:{moderatorChat:true,communityManager:true,managedCommunityManagerBot:true}});const bot=community?.managedCommunityManagerBot;
   if(!community?.moderatorChat||!community.communityManager||!bot?.tgBotId||!bot.webhookSecret){res.status(409).json({error:'Сначала создайте персонального CM-бота'});return}
   try{const token=decryptManagedBotToken(bot);const[botRole,userRole]=await Promise.all([getChatMember(community.moderatorChat.tgChatId,Number(bot.tgBotId),token),getChatMember(community.moderatorChat.tgChatId,Number(a.tgUserId),token)]);if(!['administrator','creator'].includes(botRole.status)||!['administrator','creator'].includes(userRole.status)){res.status(403).json({error:'Добавьте персонального CM-бота администратором группы'});return}await setBotWebhook(token,env.PUBLIC_BASE_URL+'/api/community-manager/webhook/'+bot.tgBotId,bot.webhookSecret);const[,updated]=await prisma.$transaction([prisma.communityManager.update({where:{id:community.communityManager.id},data:{executorType:'CUSTOM',mode:'AUTOPILOT'}}),prisma.managedCommunityManagerBot.update({where:{id:bot.id},data:{status:'ACTIVE',lastError:null}})]);res.json({executorType:'CUSTOM',managedBot:managedCommunityBotPublic(updated)})}catch(e){res.status(502).json({error:e instanceof Error?e.message:'Не удалось подключить персонального бота'})}
 });
 
 router.post('/communities/:communityId/executor/shared',async(req,res)=>{
-  let a;try{a=await auth(req)}catch(e){fail(res,e);return}const community=await prisma.community.findFirst({where:{id:req.params.communityId,channel:{userId:a.user.id}},include:{moderatorChat:true,communityManager:true,managedCommunityManagerBot:true}});if(!community?.moderatorChat||!community.communityManager){res.status(404).json({error:'Community not found'});return}
+  let a;try{a=await auth(req)}catch(e){fail(res,e);return}const community=await prisma.community.findFirst({where:{id:req.params.communityId,OR:[{chat:{userId:a.user.id}},{channel:{userId:a.user.id}}]},include:{moderatorChat:true,communityManager:true,managedCommunityManagerBot:true}});if(!community?.moderatorChat||!community.communityManager){res.status(404).json({error:'Community not found'});return}
   try{const[botRole,userRole]=await Promise.all([getChatMember(community.moderatorChat.tgChatId,getBotIdFromToken(env.COMMUNITY_MANAGER_BOT_TOKEN),env.COMMUNITY_MANAGER_BOT_TOKEN),getChatMember(community.moderatorChat.tgChatId,Number(a.tgUserId),env.COMMUNITY_MANAGER_BOT_TOKEN)]);if(!['member','administrator','creator'].includes(botRole.status)||!['administrator','creator'].includes(userRole.status)){res.status(403).json({error:'Добавьте @'+env.COMMUNITY_MANAGER_BOT_USERNAME+' в группу'});return}await prisma.$transaction([prisma.communityManager.update({where:{id:community.communityManager.id},data:{executorType:'SHARED',mode:'AUTOPILOT'}}),...(community.managedCommunityManagerBot?[prisma.managedCommunityManagerBot.update({where:{id:community.managedCommunityManagerBot.id},data:{status:'READY'}})]:[])]);res.json({executorType:'SHARED'})}catch(e){res.status(502).json({error:e instanceof Error?e.message:'Не удалось проверить общего бота'})}
 });
 

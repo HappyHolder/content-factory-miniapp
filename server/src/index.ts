@@ -5,6 +5,7 @@ import { env } from './env';
 import healthRouter from './routes/health';
 import authRouter from './routes/auth';
 import channelsRouter from './routes/channels';
+import chatsRouter from './routes/chats';
 import brandkitsRouter from './routes/brandkits';
 import botRouter from './routes/bot';
 import moderatorRouter from './routes/moderator';
@@ -79,6 +80,7 @@ app.use('/uploads', express.static(env.STORAGE_DIR, {
 app.use('/api/health',   healthRouter);
 app.use('/api/auth',     authRouter);
 app.use('/api/channels',  channelsRouter);
+app.use('/api/chats',     chatsRouter);
 app.use('/api/brandkits', brandkitsRouter);
 app.use('/api/bot',       botRouter);
 app.use('/api/moderator', moderatorRouter);

@@ -4,7 +4,7 @@ import { Sheet } from '@/components/ui/Sheet'
 import { Button } from '@/components/ui/Button'
 import { API_BASE } from '@/lib/api'
 import { moderatorFetch } from '@/lib/telegram'
-import type { Channel } from '@/types'
+import type { Chat } from '@/types'
 
 interface AvailableChat {
   id: string
@@ -13,7 +13,7 @@ interface AvailableChat {
   botStatus: string
 }
 
-export function ConnectChatSheet({ open, onClose, onConnected }: { open: boolean; onClose: () => void; onConnected: (chat: Channel) => void }) {
+export function ConnectChatSheet({ open, onClose, onConnected }: { open: boolean; onClose: () => void; onConnected: (chat: Chat) => void }) {
   const [chats, setChats] = useState<AvailableChat[]>([])
   const [botUsername, setBotUsername] = useState('publium_moder_bot')
   const [loading, setLoading] = useState(false)
@@ -48,9 +48,9 @@ export function ConnectChatSheet({ open, onClose, onConnected }: { open: boolean
     setError('')
     try {
       const response = await moderatorFetch(`${API_BASE}/api/moderator/chats/${chat.id}/connect`, { method: 'POST' })
-      const data = await response.json() as { channel?: Channel; error?: string }
-      if (!response.ok || !data.channel) throw new Error(data.error ?? 'Не удалось подключить чат')
-      onConnected(data.channel)
+      const data = await response.json() as { chat?: Chat; error?: string }
+      if (!response.ok || !data.chat) throw new Error(data.error ?? 'Не удалось подключить чат')
+      onConnected(data.chat)
       onClose()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не удалось подключить чат')

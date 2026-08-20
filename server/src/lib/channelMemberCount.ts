@@ -15,6 +15,15 @@ export type CountableChannel = {
   community: { id: string } | null;
 };
 
+export type CountableChat = {
+  id: string;
+  tgChatId: string;
+  username: string | null;
+  telegramMemberCount: number | null;
+  memberCountUpdatedAt: Date | null;
+  community: { id: string } | null;
+};
+
 export function channelMemberCountIsFresh(channel: Pick<CountableChannel, 'telegramMemberCount' | 'memberCountUpdatedAt'>, now = new Date()): boolean {
   return channel.telegramMemberCount != null
     && channel.memberCountUpdatedAt != null
@@ -45,5 +54,25 @@ export async function refreshChannelMemberCounts<T extends CountableChannel>(cha
       data: { telegramMemberCount: count, memberCountUpdatedAt: now },
     }).catch(err => console.error('[channel/member-count]', channel.id, (err as Error).message));
     return { ...channel, telegramMemberCount: count, memberCountUpdatedAt: now };
+  }));
+}
+
+/** Refreshes first-class chat member counters without manufacturing zeroes. */
+export async function refreshChatMemberCounts<T extends CountableChat>(chats: T[], now = new Date()): Promise<T[]> {
+  return Promise.all(chats.map(async chat => {
+    if (channelMemberCountIsFresh(chat, now)) return chat;
+    const token = chat.community
+      ? await moderatorTokenForCommunity(chat.community.id).catch(() => null)
+      : null;
+    const count = token
+      ? await getChatMemberCount(chat.tgChatId, token).catch(() => null)
+      : null;
+    const fallback = count ?? await getChatMemberCount(chat.tgChatId, env.TELEGRAM_BOT_TOKEN).catch(() => null);
+    if (fallback == null || !Number.isInteger(fallback) || fallback < 0) return chat;
+    await prisma.chat.update({
+      where: { id: chat.id },
+      data: { telegramMemberCount: fallback, memberCountUpdatedAt: now },
+    }).catch(err => console.error('[chat/member-count]', chat.id, (err as Error).message));
+    return { ...chat, telegramMemberCount: fallback, memberCountUpdatedAt: now };
   }));
 }

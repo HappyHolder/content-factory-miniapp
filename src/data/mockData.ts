@@ -537,7 +537,9 @@ That's it. No planning sessions. No content calendar. No scheduling headaches.
 export const mockInitialState: AppState = {
   user: mockUser,
   channels: mockChannels,
+  chats: [],
   brandKits: mockBrandKits,
+  chatStyles: [],
   posts: mockPosts,
   activeChannelId: 'ch1',
 }

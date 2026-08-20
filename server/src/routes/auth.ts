@@ -6,7 +6,7 @@ import { getEffectiveSubscription, serializeSubscription } from '../lib/subscrip
 import { issueModeratorSession } from '../lib/moderatorSession';
 import { sendBotMessage } from '../lib/telegramBot';
 import { botChannelLabel, buildQuickActionsKeyboard, versionedMiniAppUrl } from '../lib/botQuickActions';
-import { refreshChannelMemberCounts, type CountableChannel } from '../lib/channelMemberCount';
+import { refreshChannelMemberCounts, refreshChatMemberCounts, type CountableChannel, type CountableChat } from '../lib/channelMemberCount';
 
 const router = Router();
 const MINI_APP_RELEASE_URL = versionedMiniAppUrl(env.MINI_APP_URL, Date.now().toString(36));
@@ -68,21 +68,49 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
   }
 
   // ── Fetch this user's connected channels ──────────────────────────────────
-  let dbChannels: (CountableChannel & { name: string })[] = [];
+  let dbChannels: (CountableChannel & {
+    name: string;
+    chatLinks: { chat: { id: string; title: string } }[];
+  })[] = [];
   try {
     dbChannels = await prisma.channel.findMany({
-      where:   { userId: dbUser.id },
+      where:   { userId: dbUser.id, kind: 'CHANNEL' },
       orderBy: { createdAt: 'asc' },
       select:  {
         id: true, name: true, handle: true, kind: true, tgChatId: true,
         telegramMemberCount: true, memberCountUpdatedAt: true,
         community: { select: { id: true } },
+        chatLinks: { where: { isPrimary: true }, take: 1, select: { chat: { select: { id: true, title: true } } } },
       },
     });
     dbChannels = await refreshChannelMemberCounts(dbChannels);
   } catch (err) {
     console.error('[auth/telegram] Channel fetch failed (non-fatal):', err);
     // Non-fatal: return empty channels rather than failing the whole auth
+  }
+
+  let dbChats: (CountableChat & {
+    title: string;
+    type: string;
+    channelLinks: { channel: { id: string; name: string; handle: string | null } }[];
+  })[] = [];
+  try {
+    dbChats = await prisma.chat.findMany({
+      where: { userId: dbUser.id },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true, tgChatId: true, title: true, username: true, type: true,
+        telegramMemberCount: true, memberCountUpdatedAt: true,
+        community: { select: { id: true } },
+        channelLinks: {
+          where: { isPrimary: true }, take: 1,
+          select: { channel: { select: { id: true, name: true, handle: true } } },
+        },
+      },
+    });
+    dbChats = await refreshChatMemberCounts(dbChats);
+  } catch (err) {
+    console.error('[auth/telegram] Chat fetch failed (non-fatal):', err);
   }
 
   // ── Fetch saved BrandKit sections for all channels ────────────────────────
@@ -117,6 +145,18 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
     }
   }
 
+
+  let dbChatStyles: { chatId: string; channelAbout: unknown; voiceProfile: unknown }[] = [];
+  if (dbChats.length > 0) {
+    dbChatStyles = await prisma.chatStyle.findMany({
+      where: { chatId: { in: dbChats.map(chat => chat.id) } },
+      select: { chatId: true, channelAbout: true, voiceProfile: true },
+    }).catch(err => {
+      console.error('[auth/telegram] ChatStyle fetch failed (non-fatal):', err);
+      return [];
+    });
+  }
+
   // ── Upsert Subscription (create on first login, keep existing if present) ──
   let dbSubscription;
   try {
@@ -139,12 +179,24 @@ router.post('/telegram', async (req: Request, res: Response): Promise<void> => {
       id:               ch.id,
       username:         ch.handle ?? '',
       title:            ch.name,
-      kind:             ch.kind === 'CHAT' ? 'chat' : 'channel',
       subscribersCount: ch.telegramMemberCount,
-      isDefault:        ch.kind === 'CHANNEL' && !dbChannels.slice(0, i).some(previous => previous.kind === 'CHANNEL'),
+      isDefault:        i === 0,
       isConnected:      true,
+      linkedChat:       ch.chatLinks[0]?.chat ?? null,
+    })),
+    chats: dbChats.map(chat => ({
+      id: chat.id,
+      telegramId: chat.tgChatId,
+      username: chat.username ?? '',
+      title: chat.title,
+      type: chat.type,
+      membersCount: chat.telegramMemberCount,
+      isConnected: true,
+      communityId: chat.community?.id ?? null,
+      linkedChannel: chat.channelLinks[0]?.channel ?? null,
     })),
     brandKits: dbBrandKits,
+    chatStyles: dbChatStyles,
     subscription: serializeSubscription(dbSubscription),
   });
 });

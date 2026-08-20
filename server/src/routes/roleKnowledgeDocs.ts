@@ -14,8 +14,8 @@ async function owned(req:Request,type:unknown,targetId:unknown){
   const session=verifyModeratorSession(req.headers.authorization);
   const user=await prisma.user.findUnique({where:{telegramId:session.tgUserId},select:{id:true}});if(!user)return null;
   let ownerId:string|undefined;
-  if(type==='COMMUNITY_MANAGER')ownerId=(await prisma.communityManager.findUnique({where:{id:targetId},select:{community:{select:{channel:{select:{userId:true}}}}}}))?.community.channel.userId;
-  if(type==='MODERATOR')ownerId=(await prisma.moderator.findUnique({where:{id:targetId},select:{community:{select:{channel:{select:{userId:true}}}}}}))?.community.channel.userId;
+  if(type==='COMMUNITY_MANAGER'){const row=await prisma.communityManager.findUnique({where:{id:targetId},select:{community:{select:{chat:{select:{userId:true}},channel:{select:{userId:true}}}}}});ownerId=row?.community.chat?.userId??row?.community.channel?.userId}
+  if(type==='MODERATOR'){const row=await prisma.moderator.findUnique({where:{id:targetId},select:{community:{select:{chat:{select:{userId:true}},channel:{select:{userId:true}}}}}});ownerId=row?.community.chat?.userId??row?.community.channel?.userId}
   if(type==='PERSONA')ownerId=(await prisma.persona.findUnique({where:{id:targetId},select:{ownerUserId:true}}))?.ownerUserId;
   return ownerId===user.id?{userId:user.id,type:type as TargetType,targetId}:null;
 }

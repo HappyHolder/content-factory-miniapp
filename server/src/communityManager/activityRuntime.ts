@@ -23,9 +23,10 @@ async function sendPoll(chatId:string,token:string,payload:{question:string;opti
 const enabledFor=(config:ReturnType<typeof parseCommunityManagerConfig>,type:CommunityActivityType)=>({DISCUSSION:config.activities.discussionEnabled,POLL:config.activities.pollEnabled,QUIZ:config.activities.quizEnabled,LIGHT:config.activities.lightEnabled,HOT_NEWS:config.activities.hotNewsEnabled,DIGEST:config.activities.digestEnabled,PREDICTION:config.activities.predictionEnabled,CHALLENGE:config.activities.challengeEnabled,CONTEST:config.activities.contestEnabled,CONTENT_TEASER:config.activities.contentSupportEnabled,CONTENT_RELEASE:config.activities.contentSupportEnabled} as Record<CommunityActivityType,boolean>)[type];
 
 export async function runActivity(managerId:string,type:CommunityActivityType,topic?:string,meta:ActivityMeta={}){
-  const manager=await prisma.communityManager.findUnique({where:{id:managerId},include:{community:{include:{moderatorChat:true,channel:true}}}});
+  const manager=await prisma.communityManager.findUnique({where:{id:managerId},include:{community:{include:{moderatorChat:true,chat:true,channel:true}}}});
   if(!manager?.enabled||!manager.publishedVersion||!manager.community.moderatorChat)throw new Error('CM is not active');
-  const subscription=await getEffectiveSubscription(manager.community.channel.userId);if(!TIER_LIMITS[subscription.tier].canUseCommunityManager)throw new Error('CM requires Starter or higher');
+  const ownerUserId=manager.community.chat?.userId??manager.community.channel?.userId,channelName=manager.community.chat?.title??manager.community.channel?.name??'сообщество';if(!ownerUserId)throw new Error('Community owner not found');
+  const subscription=await getEffectiveSubscription(ownerUserId);if(!TIER_LIMITS[subscription.tier].canUseCommunityManager)throw new Error('CM requires Starter or higher');
   const row=await prisma.communityManagerConfig.findUnique({where:{communityManagerId_version:{communityManagerId:manager.id,version:manager.publishedVersion}}});if(!row)throw new Error('Config not applied');
   const config=parseCommunityManagerConfig(row.config);if(isQuietHour(config))throw new Error('Quiet hours');if(!enabledFor(config,type)&&!['moderator_followup','unanswered_question'].includes(meta.reason??''))throw new Error(type+' activity is disabled');if(isRewardActivity(type)&&meta.automatic)throw new Error('Reward activities require owner action');
   const activityData={type,topic,origin:meta.origin??(meta.automatic?'DIRECTOR':'MANUAL'),sourcePostId:meta.postId,threadId:meta.threadId,segmentId:meta.segmentId,scheduledAt:new Date(),status:'RUNNING',lastError:null,result:{...(meta.context??{}),automatic:Boolean(meta.automatic),evaluated:!meta.automatic,reason:meta.reason??'manual',postId:meta.postId,phase:meta.phase,replyToMessageId:meta.replyToMessageId,ignoredStreak:meta.ignoredStreak??0,rewardMode:config.activities.rewardMode}} as const;
@@ -37,12 +38,12 @@ export async function runActivity(managerId:string,type:CommunityActivityType,to
     const sessionKey=meta.threadId&&meta.segmentId?conversationSessionKey(meta.threadId,meta.segmentId):activitySessionKey(type,activity.id);
     const eventKind:CommunityAgentEvent['kind']=type==='CONTENT_RELEASE'?'CONTENT_POST':meta.automatic?'INITIATIVE':'MANUAL_ACTIVITY';
     const baseEvent={kind:eventKind,dedupeKey:'activity:'+manager.id+':'+activity.id,activityId:activity.id,activityType:type,topic,postText:postText.slice(0,12000),sourceUrl,replyTargetMessageId:meta.replyToMessageId};
-    let result=await runCommunityManagerAgent({managerId:manager.id,communityId:manager.community.id,channelId:manager.community.channelId,channelName:manager.community.channel.name,chatId:manager.community.moderatorChat.tgChatId,config,sessionKey,threadId:meta.threadId,segmentId:meta.segmentId,event:baseEvent});
+    let result=await runCommunityManagerAgent({managerId:manager.id,communityId:manager.community.id,channelId:manager.community.channelId,channelName,chatId:manager.community.moderatorChat.tgChatId,config,sessionKey,threadId:meta.threadId,segmentId:meta.segmentId,event:baseEvent});
     let qualityIssues:string[]=[];
     if(type==='CONTENT_RELEASE'&&result.decision.action==='comment'){
       let review=reviewContentComment({decision:result.decision,postText,replyTargetMessageId:meta.replyToMessageId,sources:result.sources.length});
       if(!review.approved){
-        result=await runCommunityManagerAgent({managerId:manager.id,communityId:manager.community.id,channelId:manager.community.channelId,channelName:manager.community.channel.name,chatId:manager.community.moderatorChat.tgChatId,config,sessionKey,threadId:meta.threadId,segmentId:meta.segmentId,event:{...baseEvent,dedupeKey:baseEvent.dedupeKey+':quality-revision',activityContext:{qualityIssues:review.issues,previousEditorialPlan:result.decision.editorialPlan}}});
+        result=await runCommunityManagerAgent({managerId:manager.id,communityId:manager.community.id,channelId:manager.community.channelId,channelName,chatId:manager.community.moderatorChat.tgChatId,config,sessionKey,threadId:meta.threadId,segmentId:meta.segmentId,event:{...baseEvent,dedupeKey:baseEvent.dedupeKey+':quality-revision',activityContext:{qualityIssues:review.issues,previousEditorialPlan:result.decision.editorialPlan}}});
         review=reviewContentComment({decision:result.decision,postText,replyTargetMessageId:meta.replyToMessageId,sources:result.sources.length});
       }
       qualityIssues=review.issues;
@@ -67,7 +68,7 @@ export async function runActivity(managerId:string,type:CommunityActivityType,to
       const sendClaim=await prisma.communityManagerActivity.updateMany({where:{id:activity.id,status:'RUNNING'},data:{status:'SENDING'}});
       if(!sendClaim.count)return{activityId:activity.id,status:'CANCELLED'};
     }
-    const quota=await reserveSubscriptionQuota(manager.community.channel.userId,'communityManagerActions');if(!quota.ok)throw new Error('Community Manager monthly action limit reached');reserved=true;
+    const quota=await reserveSubscriptionQuota(ownerUserId,'communityManagerActions');if(!quota.ok)throw new Error('Community Manager monthly action limit reached');reserved=true;
     const executor=await communityManagerExecutor(manager.community.id),chatId=manager.community.moderatorChat.tgChatId;
     if(decision.action==='react'){
       const supported=new Set(['👍','🔥','❤','❤️','👏','🤔','👀','😁','🤯']),emoji=supported.has(decision.reaction??'')?decision.reaction!:'👍';
@@ -88,7 +89,7 @@ export async function runActivity(managerId:string,type:CommunityActivityType,to
     if(effectiveThreadId&&effectiveSegmentId&&auditResponse)await appendCmThesis({threadId:effectiveThreadId,segmentId:effectiveSegmentId,threadVersion:0,segmentVersion:0,topicKey:decision.topicKey},auditResponse);
     if(auditResponse)await markMentionedExperts(manager.id,auditResponse);return{activityId:activity.id,telegramMessageId,status:longRunning?'ACTIVE':'COMPLETED'};
   }catch(error){
-    const message=error instanceof Error?error.message.slice(0,500):'failed';if(reserved&&!sent)await refundSubscriptionQuota(manager.community.channel.userId,'communityManagerActions');
+    const message=error instanceof Error?error.message.slice(0,500):'failed';if(reserved&&!sent)await refundSubscriptionQuota(ownerUserId,'communityManagerActions');
     if(sent){await prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:isRewardActivity(type)?'ACTIVE':'COMPLETED',sentAt:new Date(),telegramMessageId,lastError:'Sent; audit persistence recovered: '+message}}).catch(()=>undefined);return{activityId:activity.id,telegramMessageId,status:isRewardActivity(type)?'ACTIVE':'COMPLETED'}}
     await prisma.communityManagerActivity.update({where:{id:activity.id},data:{status:'FAILED',lastError:message}});throw error;
   }

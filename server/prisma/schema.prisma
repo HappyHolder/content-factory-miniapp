@@ -81,6 +81,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   channels                    Channel[]
+  chats                       Chat[]
   sourceInputs                SourceInput[]
   generationJobs              GenerationJob[]
   subscription                Subscription?
@@ -145,9 +146,64 @@ model Channel {
   projectDocs    ProjectDoc[]
   contentPlans   ContentPlan[]
   community      Community?
+  chatLinks       ChannelChatLink[]
 
   @@index([userId])
   @@index([userId, kind])
+}
+
+// A Telegram group/supergroup is an independent owner resource. It may exist
+// without any publication channel and owns the Publium Community products.
+model Chat {
+  id                   String   @id @default(cuid())
+  tgChatId             String   @unique
+  title                String
+  username             String?
+  type                 String   @default("supergroup")
+  telegramMemberCount  Int?
+  memberCountUpdatedAt DateTime?
+  userId               String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  style        ChatStyle?
+  community    Community?
+  channelLinks ChannelChatLink[]
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+// Chat context is deliberately separate from a channel BrandKit. Community
+// products can copy from a linked channel explicitly, but never share storage.
+model ChatStyle {
+  id           String   @id @default(cuid())
+  chatId       String   @unique
+  channelAbout Json?
+  voiceProfile Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+}
+
+// Optional relationship. Neither side depends on the other for existence.
+model ChannelChatLink {
+  id           String   @id @default(cuid())
+  channelId    String
+  chatId       String
+  relationType String   @default("MANUAL")
+  isPrimary    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  chat    Chat    @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, chatId])
+  @@index([chatId])
+  @@index([channelId, isPrimary])
 }
 
 // ─── BrandKit ─────────────────────────────────────────────────────────────────
@@ -633,11 +689,14 @@ model ModeratorChat {
 
 model Community {
   id                         String                         @id @default(cuid())
-  channelId                  String                         @unique
+  // Legacy optional publication-channel link. New community ownership is Chat.
+  channelId                  String?                        @unique
+  chatId                     String?                        @unique
   moderatorChatId            String?                        @unique
   createdAt                  DateTime                       @default(now())
   updatedAt                  DateTime                       @updatedAt
-  channel                    Channel                        @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channel                    Channel?                       @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  chat                       Chat?                          @relation(fields: [chatId], references: [id], onDelete: Cascade)
   moderatorChat              ModeratorChat?                 @relation(fields: [moderatorChatId], references: [id], onDelete: SetNull)
   moderator                  Moderator?
   members                    CommunityMember[]

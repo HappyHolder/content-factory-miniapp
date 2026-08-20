@@ -119,10 +119,11 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // ── 6. Reject private chats and plain groups ──────────────────────────────
-  if (tgChat.type !== 'channel' && tgChat.type !== 'supergroup') {
+  // Channels and chats are independent resources. Groups are connected only
+  // through the dedicated chat flow where Moderator can verify group rights.
+  if (tgChat.type !== 'channel') {
     res.status(400).json({
-      error: 'Only public channels and supergroups can be connected.',
+      error: 'Это Telegram-группа. Подключите её во вкладке «Чаты».',
     });
     return;
   }
@@ -226,8 +227,8 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
   try {
     channel = await prisma.channel.upsert({
       where: { handle },
-      update: { name: title, kind: tgChat.type === 'supergroup' ? 'CHAT' : 'CHANNEL', ...(subscribersCount == null ? {} : { telegramMemberCount: subscribersCount, memberCountUpdatedAt }), ...(tgChatId ? { tgChatId } : {}) },
-      create: { name: title, handle, kind: tgChat.type === 'supergroup' ? 'CHAT' : 'CHANNEL', userId: dbUser.id, telegramMemberCount: subscribersCount, memberCountUpdatedAt, ...(tgChatId ? { tgChatId } : {}) },
+      update: { name: title, kind: 'CHANNEL', ...(subscribersCount == null ? {} : { telegramMemberCount: subscribersCount, memberCountUpdatedAt }), ...(tgChatId ? { tgChatId } : {}) },
+      create: { name: title, handle, kind: 'CHANNEL', userId: dbUser.id, telegramMemberCount: subscribersCount, memberCountUpdatedAt, ...(tgChatId ? { tgChatId } : {}) },
       select: { id: true, name: true, handle: true, kind: true, telegramMemberCount: true },
     });
   } catch (err) {
@@ -261,7 +262,6 @@ router.post('/connect', async (req: Request, res: Response): Promise<void> => {
       id:               channel.id,
       username:         channel.handle ?? handle,
       title:            channel.name,
-      kind:             channel.kind === 'CHAT' ? 'chat' : 'channel',
       subscribersCount: channel.telegramMemberCount,
       isDefault:        channel.kind === 'CHANNEL' && channelCount === 1,
       isConnected:      true,

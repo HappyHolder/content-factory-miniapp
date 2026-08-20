@@ -13,6 +13,7 @@ import { ProfileScreen } from '@/screens/ProfileScreen'
 import { CommunityScreen } from '@/screens/CommunityScreen'
 import { PostDetailsScreen } from '@/screens/PostDetailsScreen'
 import { BrandKitScreen } from '@/screens/BrandKitScreen'
+import { ChatStyleScreen } from '@/screens/ChatStyleScreen'
 import { PlansScreen } from '@/screens/PlansScreen'
 import { AdminPanelScreen } from '@/screens/AdminPanelScreen'
 import { OnboardingSlides } from '@/screens/OnboardingSlides'
@@ -26,7 +27,8 @@ type ModalScreen =
   | { type: 'none' }
   | { type: 'post_detail'; postId: string }
   | { type: 'brand_kit'; channelId: string; channelUsername: string }
-  | { type: 'community'; channelId: string; channelUsername: string }
+  | { type: 'chat_style'; chatId: string; chatTitle: string }
+  | { type: 'community'; chatId: string; chatTitle: string }
   | { type: 'plans' }
   | { type: 'admin' }
 
@@ -220,7 +222,8 @@ function AppContent() {
   const handleOpenPost = (id: string) => setModal({ type: 'post_detail', postId: id })
   const handlePostCreated = (id: string) => { setActiveTab('posts'); setModal({ type: 'post_detail', postId: id }) }
   const handleOpenBrandKit = (channelId: string, channelUsername: string) => setModal({ type: 'brand_kit', channelId, channelUsername })
-  const handleOpenCommunity = (channelId: string, channelUsername: string) => setModal({ type: 'community', channelId, channelUsername })
+  const handleOpenChatStyle = (chatId: string, chatTitle: string) => setModal({ type: 'chat_style', chatId, chatTitle })
+  const handleOpenCommunity = (chatId: string, chatTitle: string) => setModal({ type: 'community', chatId, chatTitle })
   const handleOpenPlans = () => setModal({ type: 'plans' })
   const handleOpenAdmin = () => setModal({ type: 'admin' })
   // AI assistant → Create handoff: prefill Create with a reply and switch tabs.
@@ -283,8 +286,9 @@ function AppContent() {
             {modal.type === 'brand_kit' && (
               <BrandKitScreen channelId={modal.channelId} channelUsername={modal.channelUsername} onBack={handleBack} />
             )}
+            {modal.type === 'chat_style' && <ChatStyleScreen chatId={modal.chatId} chatTitle={modal.chatTitle} onBack={handleBack} />}
             {modal.type === 'community' && (
-              <CommunityScreen channelId={modal.channelId} channelUsername={modal.channelUsername} onBack={handleBack} />
+              <CommunityScreen chatId={modal.chatId} chatTitle={modal.chatTitle} onBack={handleBack} />
             )}
             {modal.type === 'plans' && <PlansScreen onBack={handleBack} />}
             {modal.type === 'admin' && <AdminPanelScreen onBack={handleBack} />}
@@ -335,7 +339,7 @@ function AppContent() {
                 {activeTab === 'posts' && <PostsScreen onOpenPost={handleOpenPost} />}
                 {activeTab === 'create' && <CreateScreen onPostCreated={handlePostCreated} prefill={createPrefill} onPrefillConsumed={() => setCreatePrefill(null)} />}
                 {activeTab === 'styles' && <StylesScreen />}
-                {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenCommunity={handleOpenCommunity} onOpenPlans={handleOpenPlans} onOpenAdmin={handleOpenAdmin} />}
+                {activeTab === 'profile' && <ProfileScreen onOpenBrandKit={handleOpenBrandKit} onOpenChatStyle={handleOpenChatStyle} onOpenCommunity={handleOpenCommunity} onOpenPlans={handleOpenPlans} onOpenAdmin={handleOpenAdmin} />}
               </AppShell>
             )}
           </>

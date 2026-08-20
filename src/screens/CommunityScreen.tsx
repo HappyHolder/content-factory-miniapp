@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, Bot, Check, ChevronRight, Loader2, RefreshCw, ShieldCheck, Sparkles, Users } from 'lucide-react'
+import { Activity, Loader2, RefreshCw, ShieldCheck, Sparkles, Users } from 'lucide-react'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
@@ -22,8 +22,8 @@ import { API_BASE } from '@/lib/api'
 import { getTelegramInitData, moderatorFetch } from '@/lib/telegram'
 
 interface CommunityScreenProps {
-  channelId: string
-  channelUsername: string
+  chatId: string
+  chatTitle: string
   onBack: () => void
 }
 
@@ -43,13 +43,11 @@ interface CommunityState {
   managedBot: ManagedModeratorBotView | null
 }
 
-export function CommunityScreen({ channelId, channelUsername, onBack }: CommunityScreenProps) {
+export function CommunityScreen({ chatId, chatTitle, onBack }: CommunityScreenProps) {
   const [community, setCommunity] = useState<CommunityState | null>(null)
-  const [chats, setChats] = useState<AvailableChat[]>([])
   const [botUsername, setBotUsername] = useState('publium_moder_bot')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [connectingId, setConnectingId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [activeProduct, setActiveProduct] = useState<'moderator' | 'manager' | 'core' | 'pulse'>('moderator')
   const [overviewHelpOpen, setOverviewHelpOpen] = useState(false)
@@ -59,16 +57,11 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
   const loadState = useCallback(async () => {
     if (!initData) { setError('Откройте Publium внутри Telegram'); setLoading(false); return }
     try {
-      const [stateRes, chatsRes] = await Promise.all([
-        moderatorFetch(`${API_BASE}/api/moderator/channels/${channelId}/community`),
-        moderatorFetch(`${API_BASE}/api/moderator/available-chats`),
-      ])
+      const stateRes = await moderatorFetch(`${API_BASE}/api/moderator/chats/${chatId}/community`)
       const state = await stateRes.json() as { community?: CommunityState | null; botUsername?: string; error?: string }
-      const available = await chatsRes.json() as { chats?: AvailableChat[] }
       if (!stateRes.ok) throw new Error(state.error ?? 'Не удалось загрузить сообщество')
       setCommunity(state.community ?? null)
       setBotUsername(state.botUsername ?? 'publium_moder_bot')
-      setChats(available.chats ?? [])
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось загрузить сообщество')
@@ -76,7 +69,7 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
       setLoading(false)
       setRefreshing(false)
     }
-  }, [channelId, initData])
+  }, [chatId, initData])
 
   useEffect(() => { void loadState() }, [loadState])
 
@@ -91,30 +84,9 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
     try { const res = await moderatorFetch(`${API_BASE}/api/moderator/moderators/${community.moderator.id}/pause`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) }); const data = await res.json() as { moderator?: CommunityState['moderator']; error?: string }; if (!res.ok || !data.moderator) throw new Error(data.error ?? 'Не удалось изменить состояние'); setCommunity(prev => prev ? { ...prev, moderator: data.moderator ?? prev.moderator } : prev) } catch (err) { setError(err instanceof Error ? err.message : 'Не удалось изменить состояние') }
   }
 
-  const connect = async (chat: AvailableChat) => {
-    if (!initData || connectingId) return
-    setConnectingId(chat.id)
-    setError('')
-    try {
-      const res = await moderatorFetch(`${API_BASE}/api/moderator/channels/${channelId}/community`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ moderatorChatId: chat.id }),
-      })
-      const data = await res.json() as { community?: CommunityState; error?: string }
-      if (!res.ok || !data.community) throw new Error(data.error ?? 'Не удалось подключить группу')
-      setCommunity(data.community)
-      setChats(prev => prev.filter(item => item.id !== chat.id))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось подключить группу')
-    } finally {
-      setConnectingId(null)
-    }
-  }
-
   return (
     <div className="pb-6">
-      <PageHeader title="Сообщество" subtitle={channelUsername} onBack={onBack} />
+      <PageHeader title="Управление чатом" subtitle={chatTitle} onBack={onBack} />
       <div className="px-4 pt-2">
         {/* 44px touch targets (a11y floor); icons only on the active tab so four
             labels still fit on a 375px screen. */}
@@ -144,9 +116,9 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
           ? <PulseTab communityId={community.id} />
           : <div className="px-4 pt-3"><GlassCard><p className="text-[12px] leading-relaxed text-[#8A8A93]">Аналитика появится, когда к каналу будет подключена группа обсуждений — статистику мы считаем по её чату.</p></GlassCard></div>
       ) : activeProduct === 'core' ? (
-        <div className="px-4 pt-3"><CommunityCorePanel channelId={channelId} /></div>
+        <div className="px-4 pt-3"><CommunityCorePanel chatId={chatId} /></div>
       ) : activeProduct === 'manager' ? (
-        <div className="px-4 pt-3"><CommunityManagerPanel channelId={channelId} channelUsername={channelUsername} /></div>
+        <div className="px-4 pt-3"><CommunityManagerPanel chatId={chatId} chatTitle={chatTitle} /></div>
       ) : (
         <div className="space-y-3 px-4 pt-3" role="tabpanel">
           {loading ? <div className="flex items-center justify-center py-20 text-[#66666E]"><Loader2 size={22} className="animate-spin" /></div> : <>
@@ -154,12 +126,12 @@ export function CommunityScreen({ channelId, channelUsername, onBack }: Communit
               <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[rgba(255,106,0,0.08)] blur-2xl" />
               <div className="relative flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-[rgba(255,106,0,0.20)] bg-[rgba(255,106,0,0.11)] text-[#FF6A00]"><ShieldCheck size={21} /></div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="text-[15px] font-semibold text-white">Moderator</h2>{community?.moderatorChat && <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">Подключён</span>}</div><p className="mt-1 text-[12px] leading-relaxed text-[#777780]">Защита группы и порядок в стиле вашего канала.</p></div><ModeratorInfoButton onClick={() => setOverviewHelpOpen(true)} label="Открыть общую справку Moderator" /></div>
               {community?.moderatorChat ? <div className="mt-4 flex items-center gap-3 rounded-[14px] border border-white/[0.07] bg-white/[0.035] px-3 py-3"><Users size={16} className="text-[#8A8A93]" /><div className="min-w-0 flex-1"><p className="truncate text-[13px] font-medium text-white">{community.moderatorChat.title}</p><p className="mt-0.5 text-[11px] text-[#62626A]">Настройки применяются к этой группе</p></div><button type="button" onClick={() => void toggleModerator()} className={`min-h-9 rounded-[10px] px-2.5 text-[10px] font-semibold ${community.moderator?.enabled ? 'bg-amber-400/10 text-amber-300' : 'bg-emerald-400/10 text-emerald-300'}`}>{community.moderator?.enabled ? 'Пауза' : 'Запустить'}</button></div> : <div className="mt-4 space-y-3"><Button variant="primary" size="sm" onClick={addBot} fullWidth>Добавить @{botUsername}</Button><button type="button" onClick={() => { setRefreshing(true); void loadState() }} disabled={refreshing} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[12px] text-[12px] font-medium text-[#8A8A93] transition-colors hover:bg-white/[0.04] hover:text-white disabled:cursor-wait"><RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />Я добавил бота — обновить</button></div>}
-              {community?.moderatorChat && community.moderator && <ModeratorExecutorSheet communityId={community.id} sharedUsername={botUsername} executorType={community.moderator.executorType} managedBot={community.managedBot} suggestedBase={channelUsername.replace(/^@/, '') || 'community'} onRefresh={loadState} />}
+              {community?.moderatorChat && community.moderator && <ModeratorExecutorSheet communityId={community.id} sharedUsername={botUsername} executorType={community.moderator.executorType} managedBot={community.managedBot} suggestedBase={chatTitle.replace(/^@/, '') || 'community'} onRefresh={loadState} />}
               <ModeratorHelpSheet kind="overview" open={overviewHelpOpen} onClose={() => setOverviewHelpOpen(false)} />
             </GlassCard>
             {community?.moderator?.id && <RoleKnowledgeDocs targetType="MODERATOR" targetId={community.moderator.id} title={'\u0420\u0435\u0433\u043b\u0430\u043c\u0435\u043d\u0442 Moderator'} description={'\u041f\u0440\u0430\u0432\u0438\u043b\u0430 \u044d\u0441\u043a\u0430\u043b\u0430\u0446\u0438\u0438, \u043f\u0440\u0438\u043c\u0435\u0440\u044b \u0441\u043f\u043e\u0440\u043d\u044b\u0445 \u0441\u043b\u0443\u0447\u0430\u0435\u0432 \u0438 \u0432\u043d\u0443\u0442\u0440\u0435\u043d\u043d\u044f\u044f \u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u044f. \u0424\u0430\u0439\u043b \u043f\u043e\u043c\u043e\u0433\u0430\u0435\u0442 \u043f\u0440\u0438\u043d\u0438\u043c\u0430\u0442\u044c \u0440\u0435\u0448\u0435\u043d\u0438\u044f, \u043d\u043e \u043d\u0435 \u043c\u0435\u043d\u044f\u0435\u0442 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043d\u043d\u044b\u0435 \u0441\u0430\u043d\u043a\u0446\u0438\u0438.'}/>}
             {community?.moderator?.id && <><ModeratorRichWelcomeEditor moderatorId={community.moderator.id} /><ModeratorCaptchaEditor moderatorId={community.moderator.id} /><ModeratorAntiSpamEditor moderatorId={community.moderator.id} /><ModeratorProbationEditor moderatorId={community.moderator.id} /><ModeratorContentFiltersEditor moderatorId={community.moderator.id} /><ModeratorWarningPolicyEditor moderatorId={community.moderator.id} /><ModeratorTriggersEditor moderatorId={community.moderator.id} /><ModeratorAiEditor moderatorId={community.moderator.id} /><ModerationLog communityId={community.id} /></>}
-            {!community && chats.length > 0 && <section aria-labelledby="available-groups-title"><h3 id="available-groups-title" className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#66666E]">Доступные группы</h3><div className="space-y-2">{chats.map(chat => <button key={chat.id} type="button" onClick={() => void connect(chat)} disabled={connectingId !== null} className="flex min-h-16 w-full items-center gap-3 rounded-[16px] border border-white/[0.08] bg-[#121214] px-4 py-3 text-left transition-colors hover:border-[rgba(255,106,0,0.24)] hover:bg-[#151517] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6A00] disabled:cursor-wait disabled:opacity-60"><Bot size={17} className="text-[#FF6A00]" /><span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-white">{chat.title}</span><span className="mt-0.5 block text-[11px] text-[#62626A]">Подключить к {channelUsername}</span></span>{connectingId === chat.id ? <Loader2 size={15} className="animate-spin text-[#FF6A00]" /> : <ChevronRight size={15} className="text-[#55555D]" />}</button>)}</div></section>}
+            {!community && <GlassCard><p className="text-[12px] text-[#8A8A93]">Чат подключён, но конфигурация управления ещё не создана. Вернитесь в профиль и подключите чат повторно.</p></GlassCard>}
             {error && <p role="alert" className="rounded-[12px] border border-red-400/15 bg-red-400/[0.07] px-3 py-2.5 text-[12px] leading-relaxed text-red-300">{error}</p>}
           </>}
         </div>

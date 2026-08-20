@@ -12,13 +12,13 @@ const EMPTY_ABOUT: ChannelAbout = {
 }
 
 interface ChatStyleFormProps {
-  channelId: string
+  chatId: string
   initialAbout?: ChannelAbout
   initialVoice: VoiceProfile
 }
 
-export function ChatStyleForm({ channelId, initialAbout, initialVoice }: ChatStyleFormProps) {
-  const { updateBrandKit, t } = useApp()
+export function ChatStyleForm({ chatId, initialAbout, initialVoice }: ChatStyleFormProps) {
+  const { updateChatStyle, t } = useApp()
   const [about, setAbout] = useState<ChannelAbout>(initialAbout ?? EMPTY_ABOUT)
   const [voice, setVoice] = useState<VoiceProfile>(initialVoice)
 
@@ -28,7 +28,7 @@ export function ChatStyleForm({ channelId, initialAbout, initialVoice }: ChatSty
   const setVoiceField = <K extends keyof VoiceProfile>(key: K, value: VoiceProfile[K]) =>
     setVoice(current => ({ ...current, [key]: value }))
 
-  const save = () => updateBrandKit(channelId, { channelAbout: about, voiceProfile: voice })
+  const save = () => updateChatStyle(chatId, { channelAbout: about, voiceProfile: voice })
 
   return (
     <div className="space-y-5">

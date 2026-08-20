@@ -15,7 +15,7 @@ import { Sheet } from '@/components/ui/Sheet'
 import { ConnectChannelSheet } from '@/components/profile/ConnectChannelSheet'
 import { ConnectChatSheet } from '@/components/profile/ConnectChatSheet'
 import type { TranslationKey } from '@/i18n'
-import type { Channel, PlanTier } from '@/types'
+import type { Channel, Chat, PlanTier } from '@/types'
 
 // Map planTier to translation key for plan names
 const PLAN_NAME_KEY: Record<PlanTier, 'plans.free' | 'plans.starter' | 'plans.creator' | 'plans.studioPro'> = {
@@ -27,15 +27,16 @@ const PLAN_NAME_KEY: Record<PlanTier, 'plans.free' | 'plans.starter' | 'plans.cr
 
 interface ProfileScreenProps {
   onOpenBrandKit: (channelId: string, channelUsername: string) => void
-  onOpenCommunity: (channelId: string, channelUsername: string) => void
+  onOpenChatStyle: (chatId: string, chatTitle: string) => void
+  onOpenCommunity: (chatId: string, chatTitle: string) => void
   onOpenPlans: () => void
   onOpenAdmin: () => void
 }
 
-export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, onOpenAdmin }: ProfileScreenProps) {
-  const { state, setActiveChannel, connectChannel, disconnectChannel, showToast, language, setLanguage, t, authStatus } = useApp()
+export function ProfileScreen({ onOpenBrandKit, onOpenChatStyle, onOpenCommunity, onOpenPlans, onOpenAdmin }: ProfileScreenProps) {
+  const { state, setActiveChannel, connectChat, disconnectChannel, disconnectChat, setChatLinkedChannel, showToast, language, setLanguage, t, authStatus } = useApp()
   const { step: wtStep } = useWalkthrough()
-  const { user, channels, activeChannelId } = state
+  const { user, channels, chats, activeChannelId } = state
   const { subscription } = user
 
   const isPaidPlan = subscription.planTier !== 'free'
@@ -43,11 +44,11 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
   const [connectSheetOpen, setConnectSheetOpen] = useState(false)
   const [connectChatOpen,  setConnectChatOpen]  = useState(false)
   const [settingsOpen,     setSettingsOpen]     = useState(false)
+  const [entityTab, setEntityTab] = useState<'channels' | 'chats'>(() => { try { return localStorage.getItem('profileEntityTab') === 'chats' ? 'chats' : 'channels' } catch { return 'channels' } })
 
   const langLabel = language === 'ru' ? t('language.russian') : t('language.english')
   const planNameKey = PLAN_NAME_KEY[subscription.planTier]
-  const publicationChannels = channels.filter(channel => channel.kind !== 'chat')
-  const communityChats = channels.filter(channel => channel.kind === 'chat')
+  const publicationChannels = channels
 
   // Billing period display
   const billingLabel = t('profile.monthly')
@@ -76,6 +77,28 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
 
     disconnectChannel(channelId)
     showToast(t('profile.disconnectSuccess'))
+  }
+
+  const handleDisconnectChat = async (chatId: string) => {
+    if (!window.confirm('Отключить этот чат от Publium?')) return
+    if (authStatus === 'authenticated') {
+      const initData = getTelegramInitData(); if (!initData) return
+      try { const res = await fetch(`${API_BASE}/api/chats/${chatId}/disconnect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData }) }); if (!res.ok) throw new Error() }
+      catch { showToast(t('profile.disconnectFailed'), 'error'); return }
+    }
+    disconnectChat(chatId); showToast('Чат отключён')
+  }
+
+  const handleChatLink = async (chat: Chat, channel: Channel | null) => {
+    const initData=getTelegramInitData();if(authStatus==='authenticated'&&!initData)return
+    try {
+      if(authStatus==='authenticated'){
+        const endpoint=channel?'link-channel':'unlink-channel',channelId=channel?.id??chat.linkedChannel?.id
+        const res=await fetch(`${API_BASE}/api/chats/${chat.id}/${endpoint}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData,channelId})})
+        if(!res.ok)throw new Error()
+      }
+      setChatLinkedChannel(chat.id,channel);showToast(channel?`Чат связан с @${channel.username}`:'Связь удалена')
+    }catch{showToast('Не удалось изменить связь','error')}
   }
 
   return (
@@ -139,8 +162,11 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
           </GlassCard>
         </motion.div>
 
-        {/* Channels */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.22 }}>
+        <div className="grid grid-cols-2 rounded-[14px] border border-white/[0.08] bg-white/[0.035] p-1" role="tablist" aria-label="Каналы и чаты">
+          {(['channels','chats'] as const).map(tab => <button key={tab} type="button" role="tab" aria-selected={entityTab===tab} onClick={()=>{setEntityTab(tab);try{localStorage.setItem('profileEntityTab',tab)}catch{}}} className={`min-h-11 rounded-[11px] px-3 text-[13px] font-semibold transition-colors ${entityTab===tab?'bg-[#262629] text-white shadow-sm':'text-[#777780] hover:text-white'}`}>{tab==='channels'?`Каналы · ${channels.length}`:`Чаты · ${chats.length}`}</button>)}
+        </div>
+
+        {entityTab === 'channels' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.22 }}>
           <div className="flex items-center justify-between mb-2 px-1">
             <p className="text-xs font-semibold text-[#66666E] uppercase tracking-wide">{t('profile.channels')}</p>
             <Button variant="ghost" size="sm" onClick={() => setConnectSheetOpen(true)}>
@@ -194,7 +220,6 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
                   isActive={ch.id === activeChannelId}
                   onSetDefault={() => setActiveChannel(ch.id)}
                   onOpenBrandKit={() => onOpenBrandKit(ch.id, channelLabel(ch))}
-                  onOpenCommunity={() => onOpenCommunity(ch.id, channelLabel(ch))}
                   onDisconnect={() => handleDisconnect(ch.id)}
                   highlightStyle={wtStep === 'style' && i === 0}
                   index={i}
@@ -203,17 +228,17 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
               ))
             )}
           </div>
-        </motion.div>
+        </motion.div>}
 
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.22 }}>
+        {entityTab === 'chats' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.22 }}>
           <div className="mb-2 flex items-center justify-between px-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-[#66666E]">Чаты</p>
             <Button variant="ghost" size="sm" onClick={()=>setConnectChatOpen(true)}>Добавить</Button>
           </div>
           <div className="space-y-2">
-            {communityChats.length===0?<GlassCard className="flex items-center gap-3 py-4"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05]"><Users size={18} className="text-[#55555D]"/></div><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-white">Нет подключённых чатов</p><p className="mt-0.5 text-[11px] leading-relaxed text-[#55555D]">Можно подключить публичную или приватную Telegram-группу без канала.</p></div></GlassCard>:communityChats.map((chat,i)=><ChannelCard key={chat.id} channel={chat} isActive={false} onSetDefault={()=>{}} onOpenBrandKit={()=>onOpenBrandKit(chat.id,chat.title)} onOpenCommunity={()=>onOpenCommunity(chat.id,chat.title)} onDisconnect={()=>handleDisconnect(chat.id)} index={i} t={t}/>)}
+            {chats.length===0?<GlassCard className="flex items-center gap-3 py-4"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05]"><Users size={18} className="text-[#55555D]"/></div><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-white">Нет подключённых чатов</p><p className="mt-0.5 text-[11px] leading-relaxed text-[#55555D]">Можно подключить публичную или приватную Telegram-группу без канала.</p></div></GlassCard>:chats.map((chat,i)=><ChatCard key={chat.id} chat={chat} channels={channels} onLink={channel=>void handleChatLink(chat,channel)} onOpenStyle={()=>onOpenChatStyle(chat.id,chat.title)} onOpenCommunity={()=>onOpenCommunity(chat.id,chat.title)} onDisconnect={()=>void handleDisconnectChat(chat.id)} index={i}/>)}
           </div>
-        </motion.div>
+        </motion.div>}
 
         <div className="pb-2 text-center">
           <p className="text-[11px] text-[#66666E]">Publium v0.1.0</p>
@@ -228,7 +253,7 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
       <ConnectChatSheet
         open={connectChatOpen}
         onClose={()=>setConnectChatOpen(false)}
-        onConnected={chat=>{connectChannel(chat);showToast('Чат подключён')}}
+        onConnected={chat=>{connectChat(chat);showToast('Чат подключён')}}
       />
 
       <Sheet
@@ -294,22 +319,20 @@ export function ProfileScreen({ onOpenBrandKit, onOpenCommunity, onOpenPlans, on
   )
 }
 
-function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCommunity, onDisconnect, highlightStyle, index, t }: {
+function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onDisconnect, highlightStyle, index, t }: {
   channel: Channel
   isActive: boolean
   onSetDefault: () => void
   onOpenBrandKit: () => void
-  onOpenCommunity: () => void
   onDisconnect: () => void
   highlightStyle?: boolean
   index: number
   t: (key: TranslationKey) => string
 }) {
   const [actionsOpen, setActionsOpen] = useState(false)
-  const isChat = channel.kind === 'chat'
   const countLabel = channel.subscribersCount == null
-    ? `— ${t(isChat ? 'profile.members' : 'profile.subscribers')}`
-    : `${channel.subscribersCount.toLocaleString()} ${t(isChat ? 'profile.members' : 'profile.subscribers')}`
+    ? `— ${t('profile.subscribers')}`
+    : `${channel.subscribersCount.toLocaleString()} ${t('profile.subscribers')}`
 
   return (
     <>
@@ -330,7 +353,6 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
-              {!isChat&&
               <button
                 type="button"
                 role="switch"
@@ -342,7 +364,7 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
                 <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 ${isActive ? 'bg-[#FF6A00]' : 'bg-[#343439]'}`}>
                   <span className={`absolute left-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-200 ${isActive ? 'translate-x-4' : 'translate-x-0'}`} />
                 </span>
-              </button>}
+              </button>
               <button
                 type="button"
                 onClick={() => setActionsOpen(true)}
@@ -354,15 +376,12 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <HighlightRing active={!isChat && !!highlightStyle}>
+          <div>
+            <HighlightRing active={!!highlightStyle}>
               <Button variant="secondary" size="sm" onClick={onOpenBrandKit} fullWidth>
-                {isChat ? t('profile.chatStyle') : t('profile.channelStyle')}
+                {t('profile.channelStyle')}
               </Button>
             </HighlightRing>
-            <Button variant="secondary" size="sm" onClick={onOpenCommunity} fullWidth>
-              Сообщество
-            </Button>
           </div>
         </GlassCard>
       </motion.div>
@@ -379,6 +398,21 @@ function ChannelCard({ channel, isActive, onSetDefault, onOpenBrandKit, onOpenCo
       </Sheet>
     </>
   )
+}
+
+function ChatCard({ chat, channels, onLink, onOpenStyle, onOpenCommunity, onDisconnect, index }: { chat: Chat; channels: Channel[]; onLink: (channel: Channel | null) => void; onOpenStyle: () => void; onOpenCommunity: () => void; onDisconnect: () => void; index: number }) {
+  const [actionsOpen,setActionsOpen]=useState(false)
+  const count=chat.membersCount==null?'— участников':chat.membersCount.toLocaleString()+' участников'
+  return <>
+    <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:index*.06,duration:.2}}><GlassCard>
+      <div className="mb-2.5 flex items-center gap-2.5"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgba(255,106,0,0.18)] bg-[rgba(255,106,0,0.11)] text-sm font-bold text-[#FF6A00]">{chat.title[0]}</div><div className="min-w-0 flex-1"><p className="truncate text-[13px] font-semibold text-white">{chat.title}</p><p className="mt-0.5 text-[11px] tabular-nums text-[#66666E]">{count}</p>{chat.linkedChannel&&<p className="mt-0.5 truncate text-[10px] text-[#55555D]">Связан с @{chat.linkedChannel.username}</p>}</div><button type="button" onClick={()=>setActionsOpen(true)} aria-label="Действия с чатом" className="flex h-11 w-11 items-center justify-center rounded-full text-[#62626A] hover:bg-white/[0.06] hover:text-white"><MoreVertical size={16}/></button></div>
+      <div className="grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={onOpenStyle} fullWidth>Стиль чата</Button><Button variant="secondary" size="sm" onClick={onOpenCommunity} fullWidth>Управление</Button></div>
+    </GlassCard></motion.div>
+    <Sheet open={actionsOpen} onClose={()=>setActionsOpen(false)} title={chat.title}><div className="space-y-3">
+      <div><p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#66666E]">Связанный канал</p><div className="space-y-2">{channels.map(channel=><button key={channel.id} type="button" onClick={()=>{onLink(channel);setActionsOpen(false)}} className="flex min-h-11 w-full items-center justify-between rounded-[12px] border border-white/[0.08] bg-white/[0.035] px-3 text-left text-[12px] text-white"><span className="truncate">@{channel.username}</span>{chat.linkedChannel?.id===channel.id&&<Check size={14} className="text-[#FF6A00]"/>}</button>)}{chat.linkedChannel&&<button type="button" onClick={()=>{onLink(null);setActionsOpen(false)}} className="min-h-11 w-full rounded-[12px] border border-white/[0.08] text-[12px] text-[#A1A1AA]">Убрать связь с каналом</button>}{!channels.length&&<p className="text-[12px] text-[#66666E]">Сначала подключите канал. Чат может работать и без него.</p>}</div></div>
+      <Button variant="danger" size="lg" onClick={()=>{setActionsOpen(false);onDisconnect()}} fullWidth><Trash2 size={16}/> Отключить</Button>
+    </div></Sheet>
+  </>
 }
 
 

@@ -28,14 +28,16 @@ type TgAuthor={id:number;is_bot?:boolean;username?:string;first_name?:string;las
 type TgMessage={message_id:number;date?:number;chat:{id:number};message_thread_id?:number;is_automatic_forward?:boolean;sender_chat?:{id:number};forward_from_message_id?:number;forward_origin?:{type?:string;chat?:{id:number};message_id?:number};from?:TgAuthor;text?:string;caption?:string;reply_to_message?:{message_id:number;date?:number;from?:TgAuthor;text?:string;caption?:string}};
 type TgUpdate={update_id:number;message?:TgMessage;edited_message?:TgMessage};
 type Ctx={manager:any;config:CommunityManagerConfigData;community:any};
+const contextOwnerId=(community:any):string|undefined=>community.chat?.userId??community.channel?.userId;
+const contextName=(community:any):string=>community.chat?.title??community.channel?.name??'сообщество';
 const jsonObject=(s:string)=>{const m=s.match(/\{[\s\S]*\}/);if(!m)return null;try{return JSON.parse(m[0])}catch{return null}};
 const same=(a:string,b:string)=>{if(!a||!b||a.length!==b.length)return false;let v=0;for(let i=0;i<a.length;i++)v|=a.charCodeAt(i)^b.charCodeAt(i);return v===0};
 const plainTelegram=(s:string)=>stripDisabledHighlightMarkers(s).replace(/<[^>]+>/g,'').replace(/[*_#>]/g,'').replace(/^[-•]\s*/gm,'• ').replace(/\n{3,}/g,'\n\n').trim();
 export const verifyCommunityManagerWebhookSecret=(v:unknown)=>typeof v==='string'&&same(v,env.COMMUNITY_MANAGER_WEBHOOK_SECRET);
 async function published(chatId:string,executorType?:'SHARED'|'CUSTOM',communityId?:string):Promise<Ctx|null>{
-  const manager=await prisma.communityManager.findFirst({where:{enabled:true,publishedVersion:{not:null},...(executorType?{executorType}:{}),community:{...(communityId?{id:communityId}:{}),moderatorChat:{tgChatId:chatId}}},include:{community:{include:{moderatorChat:true,moderator:true,channel:{include:{brandKit:true}}}}}});
+  const manager=await prisma.communityManager.findFirst({where:{enabled:true,publishedVersion:{not:null},...(executorType?{executorType}:{}),community:{...(communityId?{id:communityId}:{}),moderatorChat:{tgChatId:chatId}}},include:{community:{include:{moderatorChat:true,moderator:true,chat:{include:{style:true}},channel:{include:{brandKit:true}}}}}});
   if(!manager?.publishedVersion)return null;
-  const subscription=await getEffectiveSubscription(manager.community.channel.userId);
+  const ownerUserId=manager.community.chat?.userId??manager.community.channel?.userId;if(!ownerUserId)return null;const subscription=await getEffectiveSubscription(ownerUserId);
   if(!TIER_LIMITS[subscription.tier].canUseCommunityManager)return null;
   const row=await prisma.communityManagerConfig.findUnique({where:{communityManagerId_version:{communityManagerId:manager.id,version:manager.publishedVersion}}});
   return row?{manager,config:parseCommunityManagerConfig(row.config),community:manager.community}:null;
@@ -48,7 +50,7 @@ export async function acceptCommunityManagerUpdate(update:TgUpdate,executor:{typ
   const mirror=automaticChannelMirror(m);
   if(mirror){
     const ctx=await published(String(m.chat.id),executor.type,executor.communityId);if(!ctx)return'ignored';
-    if(ctx.community.channel.tgChatId&&String(mirror.sourceChatId)!==ctx.community.channel.tgChatId)return'ignored';
+    if(!ctx.community.channelId||!ctx.community.channel)return'ignored';if(ctx.community.channel.tgChatId&&String(mirror.sourceChatId)!==ctx.community.channel.tgChatId)return'ignored';
     const publishedAt=m.date?new Date(m.date*1000):new Date();
     await captureAutomaticChannelPost(ctx.manager.id,{channelId:ctx.community.channelId,channelMessageId:mirror.channelMessageId,discussionChatId:String(m.chat.id),discussionMessageId:mirror.discussionMessageId,text,publishedAt});
     await prisma.communityManagerMessage.upsert({where:{communityManagerId_telegramMessageId:{communityManagerId:ctx.manager.id,telegramMessageId:m.message_id}},create:{communityManagerId:ctx.manager.id,telegramUpdateId:communityManagerUpdateKey(executor.botId,update.update_id)+':channel:'+m.message_id,telegramMessageId:m.message_id,tgChatId:String(m.chat.id),tgUserId:null,replyToMessageId:null,messageThreadId:m.message_thread_id??m.message_id,text:text.slice(0,12000),messageType:'CHANNEL_POST',moderationStatus:'ALLOWED',status:'CONTEXT',createdAt:publishedAt,expiresAt:new Date(Date.now()+8*86400_000)},update:{text:text.slice(0,12000),messageThreadId:m.message_thread_id??m.message_id,expiresAt:new Date(Date.now()+8*86400_000)}}).catch(()=>undefined);
@@ -165,7 +167,7 @@ async function processJob(job:any){
   const personal=evolvePersonalState(priorState?.internalState,ctx.config,{direct:addressedToManager,question:/[?？]\s*$/.test(text),conflict:/(?:дурак|идиот|тупой|заткнись|fuck|stupid)/iu.test(text)});
   await prisma.communityManagerConversationState.update({where:{communityManagerId:ctx.manager.id},data:{internalState:{personal} as any,lastAnalyzedAt:new Date(),messagesSinceAnalysis:0}});
   try{
-    const result=await runCommunityManagerAgent({managerId:ctx.manager.id,communityId:ctx.community.id,channelId:ctx.community.channelId,channelName:ctx.community.channel.name,chatId:m.tgChatId,config:ctx.config,sessionKey:conversationSessionKey(location.threadId,location.segmentId),threadId:location.threadId,segmentId:location.segmentId,event:{kind:'HUMAN_MESSAGE',dedupeKey:'human:'+ctx.manager.id+':'+m.id,sourceMessageId:m.id,currentText:text,currentTelegramMessageId:m.telegramMessageId,currentAuthorId:m.tgUserId??undefined,currentAuthor:participantLabel(participant),replyTarget:replyTarget??undefined,replyTargetMessageId:m.replyToMessageId??undefined,addressedToManager,addressedToOtherHuman}});
+    const result=await runCommunityManagerAgent({managerId:ctx.manager.id,communityId:ctx.community.id,channelId:ctx.community.channelId,channelName:contextName(ctx.community),chatId:m.tgChatId,config:ctx.config,sessionKey:conversationSessionKey(location.threadId,location.segmentId),threadId:location.threadId,segmentId:location.segmentId,event:{kind:'HUMAN_MESSAGE',dedupeKey:'human:'+ctx.manager.id+':'+m.id,sourceMessageId:m.id,currentText:text,currentTelegramMessageId:m.telegramMessageId,currentAuthorId:m.tgUserId??undefined,currentAuthor:participantLabel(participant),replyTarget:replyTarget??undefined,replyTargetMessageId:m.replyToMessageId??undefined,addressedToManager,addressedToOtherHuman}});
     const decision=result.decision,humanQuestion=/[?？]\s*$/.test(text),unansweredQuestion=decision.action==='no_action'&&humanQuestion,nextLocation=await applyConversationAnalysis(ctx.manager.id,m.id,location,{topicKey:decision.topicKey||'conversation',sameSegment:decision.sameConversation,expectsReply:unansweredQuestion,conversationComplete:unansweredQuestion?false:decision.conversationComplete,newContribution:text,speechAct:humanQuestion?'question':'other',possibleClaims:decision.memoryUpdates.map(item=>({kind:item.kind,value:item.value,confidence:item.confidence}))},m.createdAt);
     await appendHumanThesis(nextLocation,participantLabel(participant),text);
     if(ctx.config.replies.conversationMemory&&decision.episode)await recordEpisode({managerId:ctx.manager.id,participantId:participant?.id,location:nextLocation,kind:decision.episode.kind,summary:decision.episode.summary,outcome:decision.episode.outcome});
@@ -182,14 +184,14 @@ async function processJob(job:any){
     if(ctx.manager.mode!=='AUTOPILOT'){await log(ctx,m,ctx.manager.mode==='DRAFTS'?'DRAFT':'SILENT',decision.intent,.9,decision.reason,start,response,result.sources,usage,undefined,undefined,metadata);await prisma.communityManagerMessage.update({where:{id:m.id},data:{status:'PROCESSED'}});await done(job.id,'COMPLETED');return}
     if((isQuietHour(ctx.config)&&!addressedToManager)||!await withinQuota(ctx,m,!addressedToManager)){await log(ctx,m,'SILENT','delivery_policy',1,'Configured delivery policy',start,undefined,result.sources,usage,undefined,undefined,metadata);await done(job.id,'SKIPPED');return}
     const stillEnabled=await prisma.communityManager.findFirst({where:{id:ctx.manager.id,enabled:true,publishedVersion:ctx.manager.publishedVersion},select:{id:true}});if(!stillEnabled||!await conversationStillCurrent(nextLocation)){await done(job.id,'CANCELLED','Conversation changed before send');return}
-    const quota=await reserveSubscriptionQuota(ctx.community.channel.userId,'communityManagerActions');if(!quota.ok){await done(job.id,'SKIPPED');return}
+    const ownerUserId=contextOwnerId(ctx.community);if(!ownerUserId){await done(job.id,'FAILED','Community owner not found');return}const quota=await reserveSubscriptionQuota(ownerUserId,'communityManagerActions');if(!quota.ok){await done(job.id,'SKIPPED');return}
     let sent=false;
     try{
       const target=decision.targetMessageId??m.telegramMessageId,ref=await sendBotMessage(m.tgChatId,response,executor.token,undefined,undefined,target);sent=true;
       await log(ctx,m,'RESPOND',decision.intent,.9,decision.reason,start,response,result.sources,usage,undefined,ref?.messageId,{...metadata,targetMessageId:target});
       await prisma.$transaction([prisma.communityManager.update({where:{id:ctx.manager.id},data:{lastActionAt:new Date(),lastHealthyAt:new Date(),lastError:null}}),prisma.communityManagerMessage.update({where:{id:m.id},data:{status:'PROCESSED'}}),prisma.communityManagerThread.update({where:{id:nextLocation.threadId},data:{lastCmAt:new Date(),version:{increment:1}}})]);
       await appendCmThesis(nextLocation,response);await markMentionedExperts(ctx.manager.id,response);if(participant)await rememberCmExchange(ctx.manager.id,m.tgUserId,ctx.config.personality.relationshipStyle,{positive:decision.intent==='acknowledgement'||decision.intent==='feedback'});await done(job.id,'COMPLETED');
-    }catch(error){if(!sent)await refundSubscriptionQuota(ctx.community.channel.userId,'communityManagerActions');await log(ctx,m,'ERROR',decision.intent,.9,'Telegram send failed',start,response,result.sources,usage,error,undefined,metadata);const retry=canRetryJob(job.attempts);await done(job.id,retry?'RETRY_WAIT':'FAILED',error instanceof Error?error.message:'send failed',retry?new Date(Date.now()+retryDelayMs(job.attempts)):undefined)}
+    }catch(error){const ownerUserId=contextOwnerId(ctx.community);if(!sent&&ownerUserId)await refundSubscriptionQuota(ownerUserId,'communityManagerActions');await log(ctx,m,'ERROR',decision.intent,.9,'Telegram send failed',start,response,result.sources,usage,error,undefined,metadata);const retry=canRetryJob(job.attempts);await done(job.id,retry?'RETRY_WAIT':'FAILED',error instanceof Error?error.message:'send failed',retry?new Date(Date.now()+retryDelayMs(job.attempts)):undefined)}
   }catch(error){await log(ctx,m,'ERROR','agent_runtime',0,'Unified agent failed',start,undefined,[],{input:0,output:0},error);const retry=canRetryJob(job.attempts);await done(job.id,retry?'RETRY_WAIT':'FAILED',error instanceof Error?error.message:'agent failed',retry?new Date(Date.now()+retryDelayMs(job.attempts)):undefined)}
 }
 let working=false;
@@ -206,8 +208,8 @@ let timer:NodeJS.Timeout|undefined;
 export function startCommunityManagerWorker(){if(timer)return;timer=setInterval(()=>{void processCommunityManagerJobs();void Promise.all([prisma.communityManagerMessage.deleteMany({where:{expiresAt:{lt:new Date()}}}),prisma.communityManagerDigestMessage.deleteMany({where:{expiresAt:{lt:new Date()}}})])},5000);timer.unref();void processCommunityManagerJobs()}
 
 export async function simulateCommunityManager(managerId:string,text:string,raw?:unknown){
-  const manager=await prisma.communityManager.findUnique({where:{id:managerId},include:{community:{include:{channel:true,moderatorChat:true}}}});if(!manager?.community.moderatorChat)throw new Error('CM not found');
-  const config=raw?parseCommunityManagerConfig(raw):DEFAULT_CM_CONFIG,result=await runCommunityManagerAgent({managerId:manager.id,communityId:manager.community.id,channelId:manager.community.channelId,channelName:manager.community.channel.name,chatId:manager.community.moderatorChat.tgChatId,config,sessionKey:'simulation:'+Date.now(),event:{kind:'HUMAN_MESSAGE',dedupeKey:'simulation:'+manager.id+':'+Date.now()+':'+Math.random(),currentText:text,currentAuthor:'Тестовый участник',addressedToManager:true}});
+  const manager=await prisma.communityManager.findUnique({where:{id:managerId},include:{community:{include:{chat:true,channel:true,moderatorChat:true}}}});if(!manager?.community.moderatorChat)throw new Error('CM not found');
+  const config=raw?parseCommunityManagerConfig(raw):DEFAULT_CM_CONFIG,result=await runCommunityManagerAgent({managerId:manager.id,communityId:manager.community.id,channelId:manager.community.channelId,channelName:manager.community.chat?.title??manager.community.channel?.name??'сообщество',chatId:manager.community.moderatorChat.tgChatId,config,sessionKey:'simulation:'+Date.now(),event:{kind:'HUMAN_MESSAGE',dedupeKey:'simulation:'+manager.id+':'+Date.now()+':'+Math.random(),currentText:text,currentAuthor:'Тестовый участник',addressedToManager:true}});
   return{decision:result.decision,agentEventId:result.eventId};
 }
 export async function buildCommunityManagerPersonality(managerId:string,raw:unknown){
@@ -222,9 +224,9 @@ export async function buildCommunityManagerPersonality(managerId:string,raw:unkn
 }
 
 export async function previewCommunityManagerPersonality(managerId:string,raw:unknown){
-  const manager=await prisma.communityManager.findUnique({where:{id:managerId},include:{community:{include:{channel:true}}}});if(!manager)throw new Error('CM not found');
+  const manager=await prisma.communityManager.findUnique({where:{id:managerId},include:{community:{include:{chat:true,channel:true}}}});if(!manager)throw new Error('CM not found');
   const config=parseCommunityManagerConfig(raw),system=personalityPrompt(config)+'\nReturn ONLY JSON with five short natural Russian Telegram replies: {"answer":"reply to a beginner asking what prediction markets are","disagreement":"disagree with a regular member without becoming generic","criticism":"respond when a participant criticizes your previous answer","familiar":"reply to a familiar regular after a successful earlier exchange","conflict":"follow a moderator after two people continued insulting each other"}. Show the selected personality, reaction policy and relationship style while keeping hard safety boundaries. No greetings, self-introduction, support filler, headings or source links.';
-  const out=await ai(system,'Community: '+manager.community.channel.name);
+  const out=await ai(system,'Community: '+(manager.community.chat?.title??manager.community.channel?.name??'сообщество'));
   const j=jsonObject(out.text);if(!j)throw new Error('Invalid personality preview');
   return{examples:{answer:normalizeCommunityManagerPunctuation(String(j.answer||'')).slice(0,700),disagreement:normalizeCommunityManagerPunctuation(String(j.disagreement||'')).slice(0,700),criticism:normalizeCommunityManagerPunctuation(String(j.criticism||'')).slice(0,700),familiar:normalizeCommunityManagerPunctuation(String(j.familiar||'')).slice(0,700),conflict:normalizeCommunityManagerPunctuation(String(j.conflict||'')).slice(0,700)}};
 }

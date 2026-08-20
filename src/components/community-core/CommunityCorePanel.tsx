@@ -27,7 +27,7 @@ type State = { enabled: boolean; communityId: string | null; chat: { title: stri
 
 const STATUS_LABEL: Record<string, string> = { DRAFT: 'Черновик', CONNECTED: 'Аккаунт подключён', ACTIVE: 'Активна', PAUSED: 'Пауза', ERROR: 'Ошибка' }
 
-export function CommunityCorePanel({ channelId }: { channelId: string }) {
+export function CommunityCorePanel({ chatId }: { chatId: string }) {
   const [state, setState] = useState<State | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
@@ -36,11 +36,11 @@ export function CommunityCorePanel({ channelId }: { channelId: string }) {
   const api = useCallback(async (path: string, options?: RequestInit) => {
     const r = await moderatorFetch(API_BASE + '/api/community-core' + path, options); const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Ошибка'); return d
   }, [])
-  const load = useCallback(async () => { if (!initData) return; try { setState(await api('/channels/' + channelId)) } catch (e) { setMessage(e instanceof Error ? e.message : 'Не удалось загрузить') } finally { setLoading(false) } }, [api, channelId, initData])
+  const load = useCallback(async () => { if (!initData) return; try { setState(await api('/chats/' + chatId)) } catch (e) { setMessage(e instanceof Error ? e.message : 'Не удалось загрузить') } finally { setLoading(false) } }, [api, chatId, initData])
   useEffect(() => { void load() }, [load])
 
   const act = async (key: string, fn: () => Promise<void>) => { setBusy(key); setMessage(''); try { await fn() } catch (e) { setMessage(e instanceof Error ? e.message : 'Ошибка') } finally { setBusy('') } }
-  const create = () => act('create', async () => { await api('/channels/' + channelId + '/personas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); await load() })
+  const create = () => act('create', async () => { await api('/chats/' + chatId + '/personas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); await load() })
 
   if (loading) return <div className="flex justify-center py-20 text-[#66666E]"><Loader2 size={22} className="animate-spin" /></div>
   if (!state?.enabled) return <GlassCard strong><div className="text-center"><UserRound size={26} className="mx-auto text-[#FF6A00]" /><p className="mt-3 text-[14px] font-semibold text-white">Ядро комьюнити скоро</p><p className="mt-1 text-[12px] leading-relaxed text-[#777780]">Подключение Telegram-аккаунтов ещё настраивается на сервере.</p></div></GlassCard>

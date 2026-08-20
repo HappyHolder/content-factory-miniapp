@@ -81,13 +81,31 @@ export interface User {
 
 export interface Channel {
   id: string
-  kind?: 'channel' | 'chat'
   username: string
   title: string
   avatarUrl?: string
   subscribersCount: number | null
   isDefault: boolean
   isConnected: boolean
+  linkedChat?: { id: string; title: string; username: string } | null
+}
+
+export interface Chat {
+  id: string
+  telegramId: string
+  username: string
+  title: string
+  type: string
+  membersCount: number | null
+  isConnected: boolean
+  communityId: string | null
+  linkedChannel?: { id: string; title: string; username: string } | null
+}
+
+export interface ChatStyle {
+  chatId: string
+  channelAbout?: ChannelAbout
+  voiceProfile: VoiceProfile
 }
 
 export interface VoiceProfile {
@@ -418,7 +436,9 @@ export interface BotSource {
 export interface AppState {
   user: User
   channels: Channel[]
+  chats: Chat[]
   brandKits: BrandKit[]
+  chatStyles: ChatStyle[]
   posts: GeneratedPost[]
   activeChannelId: string
 }
