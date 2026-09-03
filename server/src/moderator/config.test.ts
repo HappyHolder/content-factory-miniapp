@@ -24,22 +24,28 @@ test('normalizes the allowed Telegram bot list', () => {
   assert.deepEqual(block.allowedBotUsernames, ['usefulbot', 'another_bot']);
 });
 
-test('accepts cultural rewrite AI actions and one-character checks', () => {
+test('migrates legacy one-message AI settings into profanity moderation', () => {
   const [block] = parseBlocks([{
     id: 'ai', type: 'ai_moderation', enabled: true, rules: 'Без мата',
-    action: 'delete_rewrite_warn', minLength: 1,
+    action: 'delete_rewrite_warn', confidenceThreshold: 0.9, minLength: 8,
   }]);
   assert.equal(block?.type, 'ai_moderation');
   if (block?.type !== 'ai_moderation') return;
-  assert.equal(block.action, 'delete_rewrite_warn');
-  assert.equal(block.minLength, 1);
+  assert.equal(block.messageModeration.enabled, true);
+  assert.equal(block.messageModeration.action, 'delete_rewrite_warn');
+  assert.equal(block.messageModeration.confidenceThreshold, 0.9);
+  assert.equal(block.messageModeration.minLength, 8);
+  assert.equal(block.messageModeration.customRule, '');
 });
 
-test('migrates legacy intervention sanctions to soft responses', () => {
+test('migrates legacy conversation settings without turning them into profanity rules', () => {
   const [block] = parseBlocks([{ id: 'ai', type: 'ai_moderation', enabled: true, rules: 'Без травли', interventionsEnabled: true, interventionMode: 'respond_warn', cooldownSeconds: 3600 }]);
   assert.equal(block?.type, 'ai_moderation');
   if (block?.type !== 'ai_moderation') return;
-  assert.equal(block.interventionMode, 'respond');
+  assert.equal(block.conversationAnalysis.enabled, true);
+  assert.equal(block.conversationAnalysis.reaction, 'respond');
+  assert.equal(block.conversationAnalysis.customRules, 'Без травли');
+  assert.equal(block.messageModeration.customRule, '');
   assert.equal('cooldownSeconds' in block, false);
   assert.equal('repeatAction' in block, false);
 });

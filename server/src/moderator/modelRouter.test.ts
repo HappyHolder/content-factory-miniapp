@@ -1,15 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseDecision, safeSuggestedRewrite } from './modelRouter.js';
+import { buildProfanityPrompt, normalizeProfanityResult, safeSuggestedRewrite } from './modelRouter.js';
 
-test('parses a moderation verdict with a suggested rewrite', () => {
-  const decision = parseDecision(JSON.stringify({
+test('profanity prompt separates actual mat from coarse non-profane language and other moderation categories', () => {
+  const prompt = buildProfanityPrompt({ text: 'Блин, этот сервис всё жрёт', customRule: '' });
+  assert.match(prompt, /Запрещён русский мат/);
+  assert.match(prompt, /грубые, но не матерные слова разрешены/);
+  assert.match(prompt, /Упоминание или обсуждение матерного слова/);
+  assert.match(prompt, /Do not judge toxicity, insults, harassment, threats, spam, fraud/);
+});
+
+test('normalizes a profanity verdict without accepting another category', () => {
+  const decision = normalizeProfanityResult({
     violation: true,
-    category: 'profanity',
     confidence: 0.97,
     reason: 'Мат',
     suggestedRewrite: 'Почему это снова не работает? Я очень устал это переделывать.',
-  }), 'fallback');
+  });
   assert.equal(decision?.category, 'profanity');
   assert.equal(decision?.suggestedRewrite, 'Почему это снова не работает? Я очень устал это переделывать.');
 });
