@@ -353,7 +353,7 @@ async function reconcileAiUsage(userId: string, inputTokens: number, reservedOut
 async function enforceAiViolation(input: {
   updateId: string; communityId: string; chatId: number; tgUserId: string; telegramMessageId: number;
   blockId: string; action: AiModerationAction; warningPolicy?: WarningPolicyBlock; decision: AiDecision; promptVersion: string;
-  auditId: string; originalText: string; username?: string; displayName?: string; responseAutoDeleteSeconds: number; edited: boolean;
+  auditId: string; originalText: string; username?: string; displayName?: string; edited: boolean;
 }): Promise<void> {
   const { decision } = input;
   let deletePending = false, deleteError: string | null = null, warningCount = 0, sanctionAction = 'NONE', notificationError: string | null = null;
@@ -383,8 +383,7 @@ async function enforceAiViolation(input: {
       : `🧹 ${label}, сообщение удалено: ${decision.reason}. ${conduct}${warning ? '\n' + warning : ''}`;
     try {
       for (const chunk of telegramTextChunks(guidance)) {
-        const sent = await sendBotMessage(input.chatId, chunk, currentToken());
-        if (sent?.messageId && input.responseAutoDeleteSeconds > 0) await scheduleMessageDeletion(input.communityId, input.chatId, sent.messageId, undefined, input.responseAutoDeleteSeconds * 1000);
+        await sendBotMessage(input.chatId, chunk, currentToken());
       }
     } catch (error) { notificationError = (error as Error).message.slice(0, 500); }
   }
@@ -482,7 +481,7 @@ async function handleAiModeration(update: ModeratorUpdate, message: TgMessage, r
       }
     }
   }
-  await enforceAiViolation({ updateId, communityId: ctx.community.id, chatId: message.chat.id, tgUserId: String(message.from.id), telegramMessageId: message.message_id, blockId: block.id, action:messageSettings.action, warningPolicy: ctx.warningPolicy, decision, promptVersion: 'profanity-message-v1', auditId: audit.id, originalText: text, username: message.from.username, displayName: message.from.first_name, responseAutoDeleteSeconds:conversationSettings.responseAutoDeleteSeconds, edited });
+  await enforceAiViolation({ updateId, communityId: ctx.community.id, chatId: message.chat.id, tgUserId: String(message.from.id), telegramMessageId: message.message_id, blockId: block.id, action:messageSettings.action, warningPolicy: ctx.warningPolicy, decision, promptVersion: 'profanity-message-v1', auditId: audit.id, originalText: text, username: message.from.username, displayName: message.from.first_name, edited });
   if (conversationSettings.enabled && !edited) {
     await processIntervention({ ...conversationInput, primaryHandled: true, moderationSignal: { violation:true,category:'profanity',severity:decision.severity,confidence:decision.confidence,directed:false,targetIds:[],reason:decision.reason,action:messageSettings.action } });
   }
